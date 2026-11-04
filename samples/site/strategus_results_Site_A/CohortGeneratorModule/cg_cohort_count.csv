@@ -1,0 +1,4 @@
+database_id,cohort_id,cohort_entries,cohort_subjects
+SITE_A_EHR,1781,12450,12450
+SITE_A_EHR,1782,9871,9871
+SITE_A_EHR,1783,-5,-5

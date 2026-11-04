@@ -1,0 +1,34 @@
+table_name,column_name,data_type,is_required,primary_key,min_cell_count,description
+cm_result,analysis_id,int,Yes,Yes,No,A foreign key referencing the cm_analysis table.
+cm_result,target_id,int,Yes,Yes,No,The identifier for the target cohort.
+cm_result,comparator_id,int,Yes,Yes,No,The identifier for the comparator cohort.
+cm_result,outcome_id,int,Yes,Yes,No,The identifier for the outcome cohort.
+cm_result,rr,float,No,No,No,The estimated relative risk (e.g. the hazard ratio).
+cm_result,ci_95_lb,float,No,No,No,The lower bound of the 95% confidence internval of the relative risk.
+cm_result,ci_95_ub,float,No,No,No,The upper bound of the 95% confidence internval of the relative risk.
+cm_result,p,float,No,No,No,The two-sided p-value considering the null hypothesis of no effect.
+cm_result,target_subjects,int,Yes,No,Yes,The number of subject in the target cohort.
+cm_result,comparator_subjects,int,Yes,No,Yes,The number of subject in the comparator cohort.
+cm_result,target_days,int,Yes,No,No,The number of days observed in the target cohort.
+cm_result,comparator_days,int,Yes,No,No,The number of days observed in the comparator cohort.
+cm_result,target_outcomes,int,Yes,No,Yes,The number of outcomes observed in the target cohort.
+cm_result,comparator_outcomes,int,Yes,No,Yes,The number of outcomes observed in the comparator cohort.
+cm_result,log_rr,float,No,No,No,The log of the relative risk.
+cm_result,se_log_rr,float,No,No,No,The standard error of the log of the relative risk.
+cm_result,database_id,varchar,Yes,Yes,No,A foreign key referencing the database.
+cm_diagnostics_summary,analysis_id,int,Yes,Yes,No,A foreign key referencing the cm_analysis table.
+cm_diagnostics_summary,target_id,int,Yes,Yes,No,The identifier for the target cohort.
+cm_diagnostics_summary,comparator_id,int,Yes,Yes,No,The identifier for the comparator cohort.
+cm_diagnostics_summary,outcome_id,int,Yes,Yes,No,The identifier for the outcome cohort.
+cm_diagnostics_summary,database_id,varchar,Yes,Yes,No,A foreign key referencing the database.
+cm_diagnostics_summary,max_sdm,float,No,No,No,The maximum absolute standardized difference of mean.
+cm_diagnostics_summary,shared_max_sdm,float,No,No,No,The maximum absolute standardized difference of mean of the shared balance.
+cm_diagnostics_summary,equipoise,float,No,No,No,The fraction of the study population with a preference score between 0.3 and 0.7.
+cm_diagnostics_summary,mdrr,float,No,No,No,The minimum detectable relative risk.
+cm_diagnostics_summary,ease,float,No,No,No,The expected absolute systematic error.
+cm_diagnostics_summary,balance_diagnostic,varchar(20),Yes,No,No,Pass / warning / fail classification of the balance diagnostic.
+cm_diagnostics_summary,shared_balance_diagnostic,varchar(20),Yes,No,No,Pass / warning / fail classification of the shared balance diagnostic.
+cm_diagnostics_summary,equipoise_diagnostic,varchar(20),Yes,No,No,Pass / warning / fail classification of the equipoise diagnostic.
+cm_diagnostics_summary,mdrr_diagnostic,varchar(20),Yes,No,No,Pass / warning / fail classification of the MDRR diagnostic.
+cm_diagnostics_summary,ease_diagnostic,varchar(20),Yes,No,No,Pass / warning / fail classification of the EASE diagnostic.
+cm_diagnostics_summary,unblind,int,Yes,No,No,"Is unblinding the result recommended? (1 = yes, 0 = no)"

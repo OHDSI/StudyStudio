@@ -1,0 +1,9 @@
+table_name,column_name,data_type,is_required,primary_key,min_cell_count,description
+database_meta_data,database_id,varchar,Yes,Yes,No,Unique identifier of the database
+database_meta_data,cdm_source_name,varchar,Yes,No,No,The name of the CDM instance.
+database_meta_data,cdm_source_abbreviation,varchar,Yes,No,No,The abbreviation of the CDM instance.
+database_meta_data,cdm_holder,varchar,Yes,No,No,The holder of the CDM instance.
+database_meta_data,source_release_date,date,Yes,No,No,The release date of the source data.
+database_meta_data,cdm_version,varchar,Yes,No,No,The CDM version.
+database_meta_data,vocabulary_version,varchar,Yes,No,No,The vocabulary version.
+database_meta_data,max_obs_period_end_date,date,Yes,No,No,The latest observation period end date.

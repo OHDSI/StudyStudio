@@ -4,7 +4,8 @@
  *   samples/study-repo/        a Strategus study repository (StrategusStudyRepoTemplate layout, synthetic)
  *   samples/study-repo.zip     the same, as GitHub "Download ZIP" would produce it
  *   samples/protocol/          study_config.json + <studyId>_protocol.zip issued by the coordinator
- *   samples/site/              Site Mode inputs, incl. Strategus results ZIPs (clean / with violations)
+ *   samples/site/              Site Mode inputs: Strategus results as ZIP and as an expanded folder,
+ *                              plus with_violations/ (uncensored export + executionSettings.json with minCellCount 0)
  *   samples/network/           four site StudyPacks for the Multi-Site Aggregator:
  *                              Site_A, Site_B clean (different INPUTS blocks — still a protocol match),
  *                              Site_C tampered after sealing, Site_D edited code below the protected marker
@@ -325,10 +326,20 @@ async function main() {
   out(`protocol/${STUDY}_protocol.zip`, new Uint8Array(await (await protocolZip(protocol)).arrayBuffer()))
 
   // ---- Site Mode inputs -----------------------------------------------------
+  // Each results set is written twice: as the Strategus::zipResults() ZIP and as the expanded
+  // results/<databaseName> folder written by Strategus::execute() (for "Choose results folder…").
+  const writeResults = async (dir: string, name: string, files: Record<string, string>) => {
+    rmSync(path.join(root, dir, name), { recursive: true, force: true })
+    for (const [p, t] of Object.entries(files)) out(`${dir}/${name}/${p}`, t)
+    out(`${dir}/${name}.zip`, await zipOf(files))
+  }
+  rmSync(path.join(root, 'site/strategus_results_Site_A_with_violations.zip'), { force: true }) // old location
   out('site/executionSettings.json', executionSettings(MIN))
-  out('site/strategus_results_Site_A.zip', await zipOf(strategusResults('Site_A', 1, MIN)))
-  // Exported with minCellCount = 0 (no censoring) → small cells that Study Studio must block.
-  out('site/strategus_results_Site_A_with_violations.zip', await zipOf(strategusResults('Site_A', 1, 0)))
+  await writeResults('site', 'strategus_results_Site_A', strategusResults('Site_A', 1, MIN))
+  // Exported with minCellCount = 0 (no censoring) → small cells that Study Studio must block. The matching
+  // executionSettings.json records 0, so the "exported below the protocol's minCellCount" warning fires too.
+  out('site/with_violations/executionSettings.json', executionSettings(0))
+  await writeResults('site/with_violations', 'strategus_results_Site_A_with_violations', strategusResults('Site_A', 1, 0))
 
   // ---- Network demo packs -----------------------------------------------------
   const siteFile = (p: string) => new Uint8Array(readFileSync(path.join(root, 'site', p)))

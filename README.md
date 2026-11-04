@@ -66,7 +66,8 @@ npm run samples    # regenerate demo data under samples/
 ### Demo data (`samples/`, synthetic)
 - `study-repo/`, `study-repo.zip`: a Strategus study repository in the template layout. Drop it into Protocol Issuer.
 - `protocol/`: the issued protocol (`study_config.json`, `ACEI_ANGIO_2026_protocol.zip`).
-- `site/`: Site Mode inputs. `strategus_results_Site_A_with_violations.zip` was exported without censoring and triggers the lock.
+- `site/`: Site Mode inputs. Results come both as `strategus_results_Site_A.zip` and as the expanded `strategus_results_Site_A/` folder (for **Choose results folder…**).
+- `site/with_violations/`: an export made without censoring (ZIP and folder), plus an `executionSettings.json` that records `minCellCount: 0`. Use it in place of the files in `site/`: the audit locks packaging, and readiness warns that results were exported below the protocol's `minCellCount`.
 - `network/`: four packs. Site_A and Site_B are clean; their INPUTS blocks differ but they still match the protocol. Site_C was **tampered** with after sealing. Site_D **edited code below the protected marker**.
 
 The sample `renv.lock` and result values are illustrative. They are not a tested HADES release set.

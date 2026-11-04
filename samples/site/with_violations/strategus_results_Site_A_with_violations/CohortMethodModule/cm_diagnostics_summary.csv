@@ -1,0 +1,2 @@
+analysis_id,target_id,comparator_id,outcome_id,database_id,max_sdm,shared_max_sdm,equipoise,mdrr,ease,balance_diagnostic,shared_balance_diagnostic,equipoise_diagnostic,mdrr_diagnostic,ease_diagnostic,unblind
+1,1781,1782,1783,SITE_A_EHR,0.04,0.03,0.61,3.9,0.08,PASS,PASS,PASS,PASS,PASS,1

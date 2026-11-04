@@ -1,0 +1,2 @@
+analysis_id,exposures_outcome_set_id,covariate_id,rr,ci_95_lb,ci_95_ub,p,outcome_subjects,outcome_events,outcome_observation_periods,covariate_subjects,covariate_days,covariate_eras,covariate_outcomes,observed_days,log_rr,se_log_rr,database_id
+1,1,1000,2.41,0.62,9.3,0.2,4,5,4,4,920,4,2,5400,0.88,0.69,SITE_A_EHR

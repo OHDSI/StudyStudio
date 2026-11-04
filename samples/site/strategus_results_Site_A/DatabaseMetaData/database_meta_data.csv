@@ -1,0 +1,2 @@
+database_id,cdm_source_name,cdm_source_abbreviation,cdm_holder,source_release_date,cdm_version,vocabulary_version,max_obs_period_end_date
+SITE_A_EHR,Site_A hospital EHR (demo),Site_A,Demo holder,2026-09-30,5.4,v5.0 30-AUG-26,2026-09-30

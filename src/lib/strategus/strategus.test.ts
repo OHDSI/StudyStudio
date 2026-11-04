@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseAnalysisSpecification } from './spec'
-import { inputMinCellCount, protectedSection, protectedSectionHash } from './executeScript'
-import { auditResultFiles, normalizeResultPaths, parseRdms, rdmsCountColumns, readResultsZip, summarizeResultsAudit } from './results'
+import { executionSettingsMinCellCount, inputMinCellCount, protectedSection, protectedSectionHash } from './executeScript'
+import { auditResultFiles, normalizeResultPaths, parseRdms, rdmsCountColumns, readResultsZip, resultFilesFromList, summarizeResultsAudit } from './results'
 import { issueProtocol, locateStudyRepo, readProtocolFile, protocolZip, unzipRepo } from './protocol'
 
 const samples = path.resolve(__dirname, '../../../samples')
@@ -55,7 +55,7 @@ describe('Strategus results', () => {
     const clean = summarizeResultsAudit(auditResultFiles(await readResultsZip(read('site/strategus_results_Site_A.zip')), { minCellCount: 5 }))
     expect(clean.passed).toBe(true)
     expect(clean.files).toBe(9)
-    const dirtyFiles = await readResultsZip(read('site/strategus_results_Site_A_with_violations.zip'))
+    const dirtyFiles = await readResultsZip(read('site/with_violations/strategus_results_Site_A_with_violations.zip'))
     const dirtyAudits = auditResultFiles(dirtyFiles, { minCellCount: 5 })
     const dirty = summarizeResultsAudit(dirtyAudits)
     expect(dirty.passed).toBe(false)
@@ -64,6 +64,22 @@ describe('Strategus results', () => {
     const cg = dirtyAudits.get('CohortGeneratorModule/cg_cohort_count.csv')!
     expect(cg.sheets[0].countColumnSource).toBe('specification')
     expect(cg.findings.map((f) => f.column)).toEqual(['cohort_entries', 'cohort_subjects'])
+  })
+  it('reads the expanded results folders like the ZIPs', async () => {
+    const { readdirSync, statSync } = await import('node:fs')
+    const walk = (dir: string): string[] => readdirSync(path.join(samples, dir)).flatMap((n) => (statSync(path.join(samples, dir, n)).isDirectory() ? walk(`${dir}/${n}`) : [`${dir}/${n}`]))
+    for (const [dir, passed] of [['site/strategus_results_Site_A', true], ['site/with_violations/strategus_results_Site_A_with_violations', false]] as const) {
+      // Folder pickers report paths relative to the chosen folder's parent.
+      const parent = dir.slice(0, dir.lastIndexOf('/') + 1)
+      const files = resultFilesFromList(walk(dir).map((p) => ({ name: p.slice(parent.length), bytes: new Uint8Array(read(p)) })))
+      const zipped = await readResultsZip(read(`${dir}.zip`))
+      expect(files.map((f) => f.path)).toEqual(zipped.map((f) => f.path))
+      expect(summarizeResultsAudit(auditResultFiles(files, { minCellCount: 5 })).passed).toBe(passed)
+    }
+  })
+  it('pairs the uncensored export with executionSettings.json minCellCount 0', () => {
+    expect(executionSettingsMinCellCount(JSON.parse(read('site/executionSettings.json').toString()))).toBe(5)
+    expect(executionSettingsMinCellCount(JSON.parse(read('site/with_violations/executionSettings.json').toString()))).toBe(0)
   })
 })
 

@@ -1,45 +1,101 @@
 # Study Studio
 
-OHDSI Study & Regulatory Pack GUI Workspace. It's a fully client-side single-page app: no server, no Electron, **zero network transmission**.
+A browser-only workspace for running OHDSI network studies. It sits between the study coordinator and participating hospitals. Use it to:
 
-`npm run build` produces one self-contained `dist/index.html`. You can copy it into a hospital's closed network and open it directly from `file://`.
+1. **Distribute** a Strategus study with its code and settings pinned by SHA-256.
+2. **Check** each site's results for small cells before anything leaves the hospital.
+3. **Package** the results into a tamper-evident file (a *StudyPack*).
+4. **Verify** all the packs centrally and export CDISC Define-XML / Dataset-JSON for regulators.
 
-## Position in the OHDSI stack
+There is no server and nothing is sent over the network. `npm run build` produces a single `dist/index.html` that you can copy into a closed hospital network and open from `file://`.
 
-Study Studio does **not** write analysis code. Studies are designed and executed with OHDSI **Strategus** (HADES), the framework used by current OHDSI network studies. The [StrategusStudyRepoTemplate](https://github.com/ohdsi-studies/StrategusStudyRepoTemplate) layout is recognised but not required. Study Studio is the layer around Strategus that:
+---
 
-- **pins** the coordinator's analysis specification, execution script and `renv.lock` with SHA-256 and distributes them to sites;
-- **audits** each site's Strategus results in the browser (0 < n < minCellCount, direct identifiers) and **blocks export** until they are clean;
-- **seals** everything into a tamper-evident StudyPack. This is an offline alternative to SFTP upload for sites that cannot reach the internet;
-- **cross-checks** the packs from all sites, and exports CDISC **Define-XML v2.1/v2.0** and **Dataset-JSON v1.1/v1.0** plus an audit report.
+## Quick start
 
-## Zero-Transmission guarantees
-- The production build injects a CSP with `connect-src 'none'`, `form-action 'none'` and `frame-src 'none'`. The browser itself refuses fetch, XHR, WebSocket and beacons.
-- A runtime guard (`src/lib/security/networkGuard.ts`) also disables `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource` and `sendBeacon`.
-- All processing runs in memory: hashing with the Web Crypto API, ZIPs with JSZip, Excel with SheetJS, CSV with PapaParse.
+```bash
+npm install
+npm run dev        # open the printed URL
+```
 
-## Workflow
+Or build the single file and open it directly:
 
-| Who | Where | What |
+```bash
+npm run build      # → dist/index.html
+```
+
+## Try it with the demo data (about 5 minutes)
+
+Everything under `samples/` is synthetic. Switch roles with **Site Mode / Admin Mode** in the header.
+
+### 1. Coordinator: issue a protocol
+1. **Admin Mode → Protocol Issuer**.
+2. Drop `samples/study-repo.zip` (or the files in `samples/study-repo/`).
+3. Review the analysis specification summary and fill in the study metadata.
+4. Issue the protocol. You get `<studyId>_protocol.zip` and `study_config.json`. Ready-made copies are in `samples/protocol/`.
+
+### 2. Site: build a StudyPack
+1. **Site Mode**, then enter a **Site ID** (e.g. `Site_A`).
+2. **Step 1:** drop `samples/protocol/ACEI_ANGIO_2026_protocol.zip`. The spec, `ExecuteAnalyses.R` and `renv.lock` are filled in for you.
+3. **Step 2:** drop the files in `samples/site/`. They are assigned to slots by file name. For the Strategus results, use either:
+   - `strategus_results_Site_A.zip` (the drop zone), or
+   - the `strategus_results_Site_A/` folder (**Choose results folder…**).
+4. **Step 3:** **Download StudyPack**.
+
+To see the safety lock, use `samples/site/with_violations/` instead of the matching files in `samples/site/`: the results ZIP or folder, plus its `executionSettings.json`. Then:
+- The audit finds small cells and blocks the download.
+- A warning says the results were exported with a lower `minCellCount` (0) than the protocol requires (5).
+- **One-click auto-masking** fixes the cells (`-5` by default), and the download unlocks.
+
+### 3. Coordinator: verify and export
+1. **Admin Mode → Multi-Site Aggregator**.
+2. Drop the four packs in `samples/network/`. Optionally drop `samples/protocol/study_config.json` as well; without it, the majority hash is used as the reference.
+3. Expected result:
+
+   | Pack | Result | Why |
+   |---|---|---|
+   | Site_A | ✅ adopt | clean |
+   | Site_B | ✅ adopt | clean (its INPUTS block differs, which is allowed) |
+   | Site_C | ❌ exclude | a result file was changed after sealing |
+   | Site_D | ❌ exclude | code below the protected marker was edited |
+
+4. **Export Hub**:
+   - **Audit report:** live **Preview**, **Markdown source**, Markdown download, or **PDF (print)**.
+   - **Submission package:** choose the Define-XML / Dataset-JSON versions and the result tables, then generate the ZIP.
+
+---
+
+## How it fits with OHDSI Strategus
+
+Study Studio does **not** write or run analysis code. Analyses are designed and executed with OHDSI **Strategus** (HADES). Study Studio handles everything around that run:
+
+| Who | Tool | What they do |
 |---|---|---|
-| Study designer | R, StrategusStudyRepoTemplate (`scriptsForStudyDesigner/`) or own layout | Builds the analysis specification JSON: cohorts, negative controls, CohortMethod / SCCS / … modules |
-| Coordinator | 🌐 Admin → **Protocol Issuer** | Drops the study repository (GitHub ZIP or files), reviews the spec summary, issues `<studyId>_protocol.zip` + `study_config.json` |
-| Site | R | `renv::restore()`, fills in the INPUTS block of the execution script, runs `Strategus::execute()` |
-| Site | 🏥 Site Mode | Imports the protocol ZIP, drops DQD / ETL artifacts, the Strategus results folder or ZIP and `executionSettings.json`. The audit runs, auto-masking applies (`-5` by default), and `[siteId]_[studyId].studypack.zip` is produced |
-| Coordinator | 🌐 Admin → **Aggregator** / **Export Hub** | Verifies the packs, adopts or excludes sites, views the audit report, exports Define-XML / Dataset-JSON |
+| Study designer | R | Builds the analysis specification JSON (cohorts, negative controls, CohortMethod / SCCS / … modules) |
+| Coordinator | 🌐 Protocol Issuer | Pins the spec, execution script and `renv.lock`, and issues the protocol |
+| Site | R | `renv::restore()`, fills in the INPUTS block, runs `Strategus::execute()` |
+| Site | 🏥 Site Mode | Adds DQD / ETL artifacts and the results. Audits, masks and seals them into `[siteId]_[studyId].studypack.zip` |
+| Coordinator | 🌐 Aggregator / Export Hub | Verifies the packs, adopts or excludes sites, exports the audit report and CDISC files |
 
-### What is pinned and compared
+The [StrategusStudyRepoTemplate](https://github.com/ohdsi-studies/StrategusStudyRepoTemplate) layout is recognised but not required. A StudyPack is an offline alternative to SFTP upload for sites that cannot reach the internet.
 
-| StudyPack path | Comparison |
+## What gets checked
+
+### Protocol integrity
+
+| File in the pack | How it is compared to the protocol |
 |---|---|
-| `definitions/analysisSpecifications.json` | whole-file SHA-256 |
-| `code/renv.lock` | whole-file SHA-256 |
-| `code/ExecuteAnalyses.R` | SHA-256 of the code **below** `DO NOT MODIFY BELOW THIS POINT` when that marker is present, so sites can edit their INPUTS. Otherwise the whole file is pinned. Any `.R` script that calls `Strategus::execute()` is accepted |
+| `definitions/analysisSpecifications.json` | SHA-256 of the whole file |
+| `code/renv.lock` | SHA-256 of the whole file |
+| `code/ExecuteAnalyses.R` | SHA-256 of the code **below** `DO NOT MODIFY BELOW THIS POINT`, so sites can still edit their INPUTS. Without the marker, the whole file is pinned. Any `.R` script that calls `Strategus::execute()` is accepted |
 
-### Small-cell audit of Strategus results
-- Results are read as `<Module>/<table>.csv` from the folder written by `Strategus::execute()` or the ZIP from `Strategus::zipResults()`.
-- Each module's `resultsDataModelSpecification.csv` names the integer columns flagged `min_cell_count = Yes`, and exactly those are checked. Tables without a model fall back to column-name heuristics.
-- Censored values follow the HADES convention `-minCellCount`, which keeps the columns numeric for the OHDSI results database. One-click masking writes `-5` by default; `<5` and `NA` are optional.
+Every file in a pack is also listed with its SHA-256 in `manifest.json`, so any change after sealing is detected.
+
+### Small cells in Strategus results
+- **Input:** results are read as `<Module>/<table>.csv`, from the folder written by `Strategus::execute()` or the ZIP from `Strategus::zipResults()`.
+- **What is checked:** the columns that each module's `resultsDataModelSpecification.csv` flags `min_cell_count = Yes`. Values with 0 < n < minCellCount fail. Tables without that file fall back to column-name heuristics. Direct identifier columns are also flagged.
+- **Masking:** censored values follow the HADES convention `-minCellCount`, which keeps the columns numeric for the OHDSI results database. `<5` and `NA` are also available.
+- **Export settings:** if `executionSettings.json` records a lower `minCellCount` than the protocol, the site is warned before packaging.
 
 ## StudyPack layout
 ```
@@ -54,38 +110,49 @@ Study Studio does **not** write analysis code. Studies are designed and executed
 └── results/<ModuleName>/*.csv    # Strategus results (+ resultsDataModelSpecification.csv per module)
 ```
 
+## Zero transmission
+- **CSP:** the production build injects a CSP with `connect-src 'none'`, `form-action 'none'` and `frame-src 'none'`, so the browser itself refuses fetch, XHR, WebSocket and beacons.
+- **Runtime guard:** `src/lib/security/networkGuard.ts` also disables `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource` and `sendBeacon`.
+- **In memory only:** hashing uses the Web Crypto API, ZIPs use JSZip, Excel uses SheetJS and CSV uses PapaParse.
+
+---
+
 ## Development
 ```bash
-npm install
 npm run dev        # dev server (no CSP, so HMR works)
 npm test           # vitest
+npm run typecheck
 npm run build      # single-file dist/index.html
-npm run samples    # regenerate demo data under samples/
+npm run samples    # regenerate samples/ (scripts/make-samples.ts)
 ```
 
-### Demo data (`samples/`, synthetic)
-- `study-repo/`, `study-repo.zip`: a Strategus study repository in the template layout. Drop it into Protocol Issuer.
-- `protocol/`: the issued protocol (`study_config.json`, `ACEI_ANGIO_2026_protocol.zip`).
-- `site/`: Site Mode inputs. Results come both as `strategus_results_Site_A.zip` and as the expanded `strategus_results_Site_A/` folder (for **Choose results folder…**).
-- `site/with_violations/`: an export made without censoring (ZIP and folder), plus an `executionSettings.json` that records `minCellCount: 0`. Use it in place of the files in `site/`: the audit locks packaging, and readiness warns that results were exported below the protocol's `minCellCount`.
-- `network/`: four packs. Site_A and Site_B are clean; their INPUTS blocks differ but they still match the protocol. Site_C was **tampered** with after sealing. Site_D **edited code below the protected marker**.
+### Demo data reference (`samples/`)
+
+| Path | Contents |
+|---|---|
+| `study-repo/`, `study-repo.zip` | Strategus study repository (template layout) for Protocol Issuer |
+| `protocol/` | Issued protocol: `study_config.json`, `ACEI_ANGIO_2026_protocol.zip` |
+| `site/` | Clean Site Mode inputs. Results come as both a ZIP and an expanded folder |
+| `site/with_violations/` | Uncensored results (ZIP and folder) plus `executionSettings.json` with `minCellCount: 0` |
+| `network/` | Four StudyPacks: Site_A and Site_B clean, Site_C tampered, Site_D with edited protected code |
+| `templates/` | Source files used by `npm run samples` |
 
 The sample `renv.lock` and result values are illustrative. They are not a tested HADES release set.
 
-## Layout
+### Code layout
 ```
-src/lib/strategus/               analysis specification, execution-script protected section, results + RDMS audit, protocol issuance
-src/lib/audit/cellAuditor.ts     small-cell / identifier audit + remediation (CSV, XLSX)
+src/lib/strategus/               analysis spec, protected section of the execution script, results + RDMS audit, protocol issuance
+src/lib/audit/cellAuditor.ts     small-cell / identifier audit + masking (CSV, XLSX)
 src/lib/integrity/hasher.ts      SHA-256 (Web Crypto)
-src/lib/studypack/               slots, readiness guardrail, pack builder (manifest, RO-Crate, audit_report)
-src/lib/network/                 multi-pack verification, cross-site hash checks, DQD summary
+src/lib/studypack/               slots, readiness checks, pack builder (manifest, RO-Crate, audit_report)
+src/lib/network/                 pack verification, cross-site hash checks, DQD summary
 src/lib/cdisc/                   Define-XML v2.1/v2.0, Dataset-JSON v1.1/v1.0, ScanReport / mapping parsers
-src/lib/export/                  audit reports + regulatory submission ZIP
+src/lib/export/                  audit reports (+ Markdown preview parser), regulatory submission ZIP
 src/store/useStudyStore.ts       Zustand store
 src/features/{site,admin}/       screens
 ```
 
-## Notes / limitations
-- Define-XML and Dataset-JSON outputs validate against the official CDISC schemas (Define-XML v2.1/v2.0 XSD, Dataset-JSON v1.1/v1.0 JSON Schema). They have **not** been run through Pinnacle 21. OMOP / Strategus tables are not SDTM/ADaM, so expect conformance-rule warnings.
-- Define-XML v2.0 cannot flag non-standard datasets, so its XSD does not check Origin Type terminology.
-- Large Strategus outputs (e.g. covariate balance) are parsed in the main thread. Use the Export Hub table selection to keep submissions focused.
+## Limitations
+- **CDISC validation:** Define-XML and Dataset-JSON outputs validate against the official CDISC schemas (Define-XML v2.1/v2.0 XSD, Dataset-JSON v1.1/v1.0 JSON Schema). They have **not** been run through Pinnacle 21. OMOP / Strategus tables are not SDTM/ADaM, so expect conformance-rule warnings.
+- **Define-XML v2.0:** non-standard datasets cannot be flagged, so its XSD does not check Origin Type terminology.
+- **Large results:** big Strategus outputs (e.g. covariate balance) are parsed on the main thread. Use the Export Hub table selection to keep submissions focused.

@@ -10,6 +10,7 @@ import { Field, Select } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Hash } from '@/features/common/Hash'
+import { MarkdownPreview } from '@/features/common/MarkdownPreview'
 import { download, formatBytes } from '@/lib/utils'
 import { safeId } from '@/lib/studypack/builder'
 import { DEFINE_XML_VERSIONS, type DefineXmlVersion } from '@/lib/cdisc/defineXml'
@@ -117,7 +118,18 @@ export function ExportHub() {
         </CardHeader>
         <CardContent>
           {report ? (
-            <pre className="max-h-[480px] overflow-auto whitespace-pre-wrap rounded-md border bg-muted/30 p-3 text-xs">{report.markdown}</pre>
+            <Tabs defaultValue="preview">
+              <TabsList>
+                <TabsTrigger value="preview">Preview</TabsTrigger>
+                <TabsTrigger value="source">Markdown source</TabsTrigger>
+              </TabsList>
+              <TabsContent value="preview">
+                <MarkdownPreview markdown={report.markdown} className="max-h-[560px] overflow-auto rounded-md border p-4" />
+              </TabsContent>
+              <TabsContent value="source">
+                <pre className="max-h-[560px] overflow-auto whitespace-pre-wrap rounded-md border bg-muted/30 p-3 text-xs">{report.markdown}</pre>
+              </TabsContent>
+            </Tabs>
           ) : (
             <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">Load site StudyPacks in the Multi-Site Aggregator to see the audit report.</div>
           )}

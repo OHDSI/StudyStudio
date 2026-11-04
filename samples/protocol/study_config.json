@@ -1,0 +1,55 @@
+{
+  "configVersion": "1.0.0",
+  "studyId": "ACEI_ANGIO_2026",
+  "studyTitle": "ACE inhibitors vs thiazides and angioedema",
+  "description": "Multi-site OMOP network study (demo).",
+  "principalInvestigator": "Demo PI",
+  "sponsor": "Demo Sponsor",
+  "cdmVersion": "5.4",
+  "issuedAt": "2026-11-01T09:00:00.000Z",
+  "minCellCount": 5,
+  "framework": {
+    "name": "Strategus",
+    "modules": [
+      "CohortGeneratorModule",
+      "CohortDiagnosticsModule",
+      "CohortMethodModule",
+      "SelfControlledCaseSeriesModule"
+    ]
+  },
+  "cohorts": [
+    {
+      "cohortId": 1781,
+      "cohortName": "New users of ACE inhibitors (Target)",
+      "roles": [
+        "target (CM)",
+        "exposure (SCCS)"
+      ]
+    },
+    {
+      "cohortId": 1782,
+      "cohortName": "New users of thiazide diuretics (Comparator)",
+      "roles": [
+        "comparator (CM)"
+      ]
+    },
+    {
+      "cohortId": 1783,
+      "cohortName": "Angioedema (Outcome)",
+      "roles": [
+        "outcome (CM)",
+        "outcome (SCCS)"
+      ]
+    }
+  ],
+  "expectedHashes": {
+    "definitions/analysisSpecifications.json": "f6be4c72a18b982f9e703268bc330ed55ca1e8ebfe7a1e7f51af9a6a3920de1f",
+    "code/renv.lock": "697aec8d1c6cbad5bdaaf3ec15e775d4e06f4db797cb9af5aaf14e256d833b9e"
+  },
+  "protectedSections": {
+    "code/ExecuteAnalyses.R": {
+      "marker": "DO NOT MODIFY BELOW THIS POINT",
+      "sha256": "a0fa243df0363ef61b74231c271744cd8dc4894768c826de12869a1009b8be33"
+    }
+  }
+}

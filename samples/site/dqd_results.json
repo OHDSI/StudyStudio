@@ -1,0 +1,8 @@
+{
+  "startTimestamp": "2026-10-28 09:12:03",
+  "endTimestamp": "2026-10-28 10:41:55",
+  "executionTime": "89.9 mins",
+  "Metadata": [ { "CDM_SOURCE_NAME": "Demo Hospital EHR", "CDM_VERSION": "5.4", "DQD_VERSION": "2.6.1", "VOCABULARY_VERSION": "v5.0 30-AUG-26" } ],
+  "Overview": { "countTotal": 3621, "countThresholdFailed": 98, "countErrorFailed": 2, "countOverallFailed": 100, "countPassed": 3521, "percentPassed": 97.24, "percentFailed": 2.76 },
+  "CheckResults": []
+}

@@ -1,0 +1,14 @@
+{
+  "R": {
+    "Version": "4.4.1",
+    "Repositories": [{ "Name": "CRAN", "URL": "https://cloud.r-project.org" }]
+  },
+  "Packages": {
+    "Strategus": { "Package": "Strategus", "Version": "1.6.0", "Source": "GitHub", "RemoteType": "github", "RemoteHost": "api.github.com", "RemoteUsername": "OHDSI", "RemoteRepo": "Strategus", "RemoteRef": "v1.6.0" },
+    "CohortGenerator": { "Package": "CohortGenerator", "Version": "1.0.0", "Source": "Repository", "Repository": "CRAN" },
+    "CohortMethod": { "Package": "CohortMethod", "Version": "6.0.0", "Source": "Repository", "Repository": "CRAN" },
+    "SelfControlledCaseSeries": { "Package": "SelfControlledCaseSeries", "Version": "6.0.0", "Source": "Repository", "Repository": "CRAN" },
+    "DatabaseConnector": { "Package": "DatabaseConnector", "Version": "7.0.0", "Source": "Repository", "Repository": "CRAN" },
+    "ParallelLogger": { "Package": "ParallelLogger", "Version": "3.4.0", "Source": "Repository", "Repository": "CRAN" }
+  }
+}

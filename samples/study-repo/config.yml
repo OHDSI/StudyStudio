@@ -1,0 +1,4 @@
+default:
+  studyName: "ACEI_ANGIO_2026"
+  projectRootFolder: !expr getwd()
+  studySpecificationFileName: "analysisSpecifications.json"

@@ -1,0 +1,65 @@
+[
+  {
+    "id": 1781,
+    "name": "New users of ACE inhibitors (Target)",
+    "expression": {
+      "ConceptSets": [
+        { "id": 0, "name": "ACE inhibitors", "expression": { "items": [ { "concept": { "CONCEPT_ID": 1308216, "CONCEPT_NAME": "lisinopril", "DOMAIN_ID": "Drug", "VOCABULARY_ID": "RxNorm" }, "includeDescendants": true } ] } }
+      ],
+      "PrimaryCriteria": {
+        "CriteriaList": [ { "DrugExposure": { "CodesetId": 0, "First": true } } ],
+        "ObservationWindow": { "PriorDays": 365, "PostDays": 0 },
+        "PrimaryCriteriaLimit": { "Type": "First" }
+      },
+      "QualifiedLimit": { "Type": "First" },
+      "ExpressionLimit": { "Type": "First" },
+      "InclusionRules": [ { "name": "Has hypertension diagnosis", "expression": { "Type": "ALL", "CriteriaList": [], "DemographicCriteriaList": [], "Groups": [] } } ],
+      "CensoringCriteria": [],
+      "CollapseSettings": { "CollapseType": "ERA", "EraPad": 0 },
+      "CensorWindow": {},
+      "cdmVersionRange": ">=5.0.0"
+    }
+  },
+  {
+    "id": 1782,
+    "name": "New users of thiazide diuretics (Comparator)",
+    "expression": {
+      "ConceptSets": [
+        { "id": 0, "name": "Thiazides", "expression": { "items": [ { "concept": { "CONCEPT_ID": 974166, "CONCEPT_NAME": "hydrochlorothiazide", "DOMAIN_ID": "Drug", "VOCABULARY_ID": "RxNorm" }, "includeDescendants": true } ] } }
+      ],
+      "PrimaryCriteria": {
+        "CriteriaList": [ { "DrugExposure": { "CodesetId": 0, "First": true } } ],
+        "ObservationWindow": { "PriorDays": 365, "PostDays": 0 },
+        "PrimaryCriteriaLimit": { "Type": "First" }
+      },
+      "QualifiedLimit": { "Type": "First" },
+      "ExpressionLimit": { "Type": "First" },
+      "InclusionRules": [],
+      "CensoringCriteria": [],
+      "CollapseSettings": { "CollapseType": "ERA", "EraPad": 0 },
+      "CensorWindow": {},
+      "cdmVersionRange": ">=5.0.0"
+    }
+  },
+  {
+    "id": 1783,
+    "name": "Angioedema (Outcome)",
+    "expression": {
+      "ConceptSets": [
+        { "id": 0, "name": "Angioedema", "expression": { "items": [ { "concept": { "CONCEPT_ID": 432791, "CONCEPT_NAME": "Angioedema", "DOMAIN_ID": "Condition", "VOCABULARY_ID": "SNOMED" }, "includeDescendants": true } ] } }
+      ],
+      "PrimaryCriteria": {
+        "CriteriaList": [ { "ConditionOccurrence": { "CodesetId": 0 } }, { "VisitOccurrence": { "CodesetId": 0 } } ],
+        "ObservationWindow": { "PriorDays": 0, "PostDays": 0 },
+        "PrimaryCriteriaLimit": { "Type": "All" }
+      },
+      "QualifiedLimit": { "Type": "All" },
+      "ExpressionLimit": { "Type": "All" },
+      "InclusionRules": [],
+      "CensoringCriteria": [],
+      "CollapseSettings": { "CollapseType": "ERA", "EraPad": 30 },
+      "CensorWindow": {},
+      "cdmVersionRange": ">=5.0.0"
+    }
+  }
+]

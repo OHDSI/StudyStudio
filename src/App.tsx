@@ -45,8 +45,8 @@ export default function App() {
           <div className="flex items-center gap-2">
             <ShieldCheck className="size-6 text-primary" />
             <div>
-              <div className="text-base font-bold leading-tight">Study Studio</div>
-              <div className="text-[11px] leading-tight text-muted-foreground">OHDSI Study &amp; Regulatory Pack Workspace</div>
+              <div className="text-base font-bold leading-tight">OHDSI Study Studio</div>
+              <div className="text-[11px] leading-tight text-muted-foreground">Study &amp; Regulatory Pack Workspace</div>
             </div>
           </div>
           <ModeToggle />

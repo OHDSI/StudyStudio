@@ -8,7 +8,7 @@ import type { AuditResult } from '@/lib/audit/cellAuditor'
 import { GENERATED_PATHS } from './slots'
 import { PACK_VERSION, type FileRole, type ManifestFileEntry, type RoleMode, type StudyPackManifest } from '@/types/studypack'
 
-export const APP_NAME = 'Study Studio'
+export const APP_NAME = 'OHDSI Study Studio'
 export const APP_VERSION = '0.1.0'
 
 export interface PackInputFile {

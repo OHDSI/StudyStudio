@@ -167,7 +167,7 @@ export function buildDatasetJson(table: CombinedTable, opts: DatasetJsonOptions)
     fileOID: `${opts.studyOID}.${table.name}`,
     dbLastModifiedDateTime: ts,
     originator: opts.originator,
-    sourceSystem: { name: 'Study Studio', version: opts.sourceVersion },
+    sourceSystem: { name: 'OHDSI Study Studio', version: opts.sourceVersion },
     studyOID: opts.studyOID,
     metaDataVersionOID: opts.metaDataVersionOID,
     metaDataRef: 'define.xml',
@@ -221,7 +221,7 @@ export function buildDatasetJson10(table: CombinedTable, opts: DatasetJsonOption
     fileOID: `${opts.studyOID}.${table.name}`,
     asOfDateTime: ts,
     originator: opts.originator,
-    sourceSystem: 'Study Studio',
+    sourceSystem: 'OHDSI Study Studio',
     sourceSystemVersion: opts.sourceVersion,
     clinicalData: {
       studyOID: opts.studyOID,

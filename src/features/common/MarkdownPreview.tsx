@@ -17,7 +17,7 @@ function Inlines({ parts }: { parts: Inline[] }) {
 
 const HEADING = ['text-xl font-semibold', 'mt-6 border-b pb-1 text-base font-semibold', 'mt-4 text-sm font-semibold', 'text-sm font-semibold', 'text-sm font-semibold', 'text-sm font-semibold']
 
-/** Renders a Study Studio generated Markdown report (see parseMarkdown for the supported subset). */
+/** Renders a OHDSI Study Studio generated Markdown report (see parseMarkdown for the supported subset). */
 export function MarkdownPreview({ markdown, className }: { markdown: string; className?: string }) {
   const blocks = React.useMemo(() => parseMarkdown(markdown), [markdown])
   return (

@@ -101,7 +101,7 @@ export function ProtocolIssuer() {
               <a className="underline" href={TEMPLATE_URL} target="_blank" rel="noreferrer">StrategusStudyRepoTemplate</a>{' '}
               or your own Strategus layout, then drop the repository ZIP (GitHub “Download ZIP”) or its files here: the analysis specification JSON,
               the R script that calls <code>Strategus::execute()</code> (e.g. <code>ExecuteAnalyses.R</code>), <code>renv.lock</code> (and optionally <code>config.yml</code>).
-              Study Studio does not generate analysis code — it pins and distributes these artifacts.
+              OHDSI Study Studio does not generate analysis code — it pins and distributes these artifacts.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
@@ -197,7 +197,7 @@ export function ProtocolIssuer() {
             <Field label="Description" className="md:col-span-3"><Textarea value={meta.description} onChange={(e) => setMeta({ ...meta, description: e.target.value })} /></Field>
             {scriptMin !== undefined && scriptMin < meta.minCellCount && (
               <Alert variant="warning" className="md:col-span-3">
-                <AlertDescription>ExecuteAnalyses.R defaults to minCellCount {scriptMin}, below the protocol's {meta.minCellCount}. Sites may export small cells; Study Studio will block them, but consider raising the default.</AlertDescription>
+                <AlertDescription>ExecuteAnalyses.R defaults to minCellCount {scriptMin}, below the protocol's {meta.minCellCount}. Sites may export small cells; OHDSI Study Studio will block them, but consider raising the default.</AlertDescription>
               </Alert>
             )}
           </CardContent>

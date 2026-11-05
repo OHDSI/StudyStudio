@@ -262,7 +262,7 @@ export function buildDefineXml(input: DefineInput): string {
   L.push(
     `<ODM xmlns="http://www.cdisc.org/ns/odm/v1.3" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:def="http://www.cdisc.org/ns/def/v${v20 ? '2.0' : '2.1'}"` +
       ` ODMVersion="1.3.2" FileType="Snapshot" FileOID="DEFINE.${oid(input.studyId)}" CreationDateTime="${now}"` +
-      ` Originator="${xmlEscape(input.originator ?? 'Study Studio')}" SourceSystem="Study Studio" SourceSystemVersion="${xmlEscape(input.sourceSystemVersion)}"${v20 ? '' : ' def:Context="Submission"'}>`,
+      ` Originator="${xmlEscape(input.originator ?? 'OHDSI Study Studio')}" SourceSystem="OHDSI Study Studio" SourceSystemVersion="${xmlEscape(input.sourceSystemVersion)}"${v20 ? '' : ' def:Context="Submission"'}>`,
   )
   L.push(`  <Study OID="${studyOid}">`)
   L.push('    <GlobalVariables>')
@@ -270,7 +270,7 @@ export function buildDefineXml(input: DefineInput): string {
   L.push(`      <StudyDescription>${xmlEscape(input.description || input.studyTitle)}</StudyDescription>`)
   L.push(`      <ProtocolName>${xmlEscape(input.protocolName || input.studyTitle)}</ProtocolName>`)
   L.push('    </GlobalVariables>')
-  L.push(`    <MetaDataVersion OID="${mdvOid}" Name="${xmlEscape(input.studyTitle)} — OMOP network study" Description="Generated from OHDSI StudyPacks by Study Studio" ${v20 ? 'def:DefineVersion="2.0.0" def:StandardName="ADaMIG" def:StandardVersion="1.3"' : 'def:DefineVersion="2.1.0"'}>`)
+  L.push(`    <MetaDataVersion OID="${mdvOid}" Name="${xmlEscape(input.studyTitle)} — OMOP network study" Description="Generated from StudyPacks by OHDSI Study Studio" ${v20 ? 'def:DefineVersion="2.0.0" def:StandardName="ADaMIG" def:StandardVersion="1.3"' : 'def:DefineVersion="2.1.0"'}>`)
   if (!v20) {
     L.push('      <def:Standards>')
     L.push('        <def:Standard OID="STD.ADAMIG.1.3" Name="ADaMIG" Type="IG" Version="1.3" Status="Final"/>')

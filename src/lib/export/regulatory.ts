@@ -66,7 +66,7 @@ export function buildMarkdownReport(i: ReportInput): string {
   L.push(`- **Study:** ${i.studyTitle}`)
   if (i.config?.principalInvestigator) L.push(`- **Principal Investigator:** ${i.config.principalInvestigator}`)
   if (i.config?.sponsor) L.push(`- **Sponsor:** ${i.config.sponsor}`)
-  L.push(`- **Generated:** ${i.generatedAt} by Study Studio ${APP_VERSION} (offline, in-browser)`)
+  L.push(`- **Generated:** ${i.generatedAt} by OHDSI Study Studio ${APP_VERSION} (offline, in-browser)`)
   L.push(`- **Protocol issued:** ${i.config?.issuedAt ?? '— (no study_config.json loaded; majority hashes used as reference)'}`)
   L.push(`- **Minimum cell count:** ${i.config?.minCellCount ?? 5} (values 0 < n < ${i.config?.minCellCount ?? 5} must be suppressed)`)
   if (i.standards) L.push(`- **Submission standards:** ${standardsLine(i)}`)
@@ -141,7 +141,7 @@ export function buildHtmlReport(i: ReportInput): string {
 <button class="noprint" onclick="window.print()" style="float:right">Print / Save as PDF</button>
 <h1>Network Integrity &amp; Privacy Audit Report</h1>
 <div class="meta">${xmlEscape(i.studyId)} — ${xmlEscape(i.studyTitle)}<br>
-Generated ${xmlEscape(i.generatedAt)} · Study Studio ${APP_VERSION} · min cell count ${i.config?.minCellCount ?? 5}<br>
+Generated ${xmlEscape(i.generatedAt)} · OHDSI Study Studio ${APP_VERSION} · min cell count ${i.config?.minCellCount ?? 5}<br>
 Sites received ${i.rows.length} · adopted ${adopted} · excluded ${i.rows.length - adopted}${i.standards ? `<br>${standardsLine(i)}` : ''}</div>
 <h2>1. Protocol reference hashes (SHA-256)</h2>
 <table><tr><th>Artifact</th><th>Reference</th><th>Source</th></tr>${refs}</table>
@@ -287,7 +287,7 @@ export async function buildRegulatoryExport(params: {
     datasets[`datasets/${t.sourceTable}.json`] = serializeDatasetJson(standards.datasetJson, t, {
       studyOID,
       metaDataVersionOID: mdvOID,
-      originator: params.config?.sponsor || 'Study Studio',
+      originator: params.config?.sponsor || 'OHDSI Study Studio',
       sourceVersion: APP_VERSION,
       now: params.now,
     })

@@ -4,7 +4,7 @@
  */
 export function installNetworkGuard() {
   const deny = (api: string) => () => {
-    throw new Error(`[Study Studio] ${api} is disabled: this application never transmits data.`)
+    throw new Error(`[OHDSI Study Studio] ${api} is disabled: this application never transmits data.`)
   }
   const g = globalThis as unknown as Record<string, unknown>
   try {

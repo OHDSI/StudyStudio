@@ -1,5 +1,5 @@
 /**
- * Minimal Markdown parser for previewing the reports Study Studio generates itself
+ * Minimal Markdown parser for previewing the reports OHDSI Study Studio generates itself
  * (headings, bullet lists with one nesting level, pipe tables, rules, paragraphs;
  * inline **bold**, _italic_ and `code`). It returns a plain AST so the UI can render
  * React elements without innerHTML. It is not a general CommonMark implementation.

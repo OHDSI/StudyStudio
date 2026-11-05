@@ -2,7 +2,7 @@
  * Protocol issuance from a Strategus study repository. The ohdsi-studies/StrategusStudyRepoTemplate
  * layout is recognised, but not required: any repository with a Strategus analysis specification,
  * an R script that calls Strategus::execute() and a renv.lock works.
- * The coordinator's repository is the source of truth; Study Studio pins its artifacts with SHA-256
+ * The coordinator's repository is the source of truth; OHDSI Study Studio pins its artifacts with SHA-256
  * and distributes them to sites as <studyId>_protocol.zip.
  */
 import JSZip from 'jszip'

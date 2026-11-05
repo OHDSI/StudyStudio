@@ -1,7 +1,7 @@
 /**
  * Strategus analysis specification (inst/analysisSpecifications.json) parsing.
  * The file is produced by ParallelLogger::saveSettingsToJson() in the study designer's R session
- * (see ohdsi-studies/StrategusStudyRepoTemplate). Study Studio only reads and pins it.
+ * (see ohdsi-studies/StrategusStudyRepoTemplate). OHDSI Study Studio only reads and pins it.
  */
 import { isCirceExpression } from '@/lib/codegen/circe'
 

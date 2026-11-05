@@ -1,4 +1,4 @@
-# Study Studio
+# OHDSI Study Studio
 
 A browser-only workspace for running OHDSI network studies. It sits between the study coordinator and participating hospitals. Use it to:
 
@@ -67,7 +67,7 @@ To see the safety lock, use `samples/site/with_violations/` instead of the match
 
 ## How it fits with OHDSI Strategus
 
-Study Studio does **not** write or run analysis code. Analyses are designed and executed with OHDSI **Strategus** (HADES). Study Studio handles everything around that run:
+OHDSI Study Studio does **not** write or run analysis code. Analyses are designed and executed with OHDSI **Strategus** (HADES). OHDSI Study Studio handles everything around that run:
 
 | Who | Tool | What they do |
 |---|---|---|

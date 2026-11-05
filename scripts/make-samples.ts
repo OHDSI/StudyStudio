@@ -305,7 +305,7 @@ async function main() {
     'ExecuteAnalyses.R': executeText,
     'renv.lock': renvText,
     'config.yml': configYml,
-    'README.md': `# ${STUDY}\n\nSynthetic demo study repository for Study Studio (StrategusStudyRepoTemplate layout).\n`,
+    'README.md': `# ${STUDY}\n\nSynthetic demo study repository for OHDSI Study Studio (StrategusStudyRepoTemplate layout).\n`,
   }
   for (const [p, t] of Object.entries(repoFiles)) out(`study-repo/${p}`, t)
   out('study-repo.zip', await zipOf(Object.fromEntries(Object.entries(repoFiles).map(([p, t]) => [`${STUDY}-main/${p}`, t]))))
@@ -336,7 +336,7 @@ async function main() {
   rmSync(path.join(root, 'site/strategus_results_Site_A_with_violations.zip'), { force: true }) // old location
   out('site/executionSettings.json', executionSettings(MIN))
   await writeResults('site', 'strategus_results_Site_A', strategusResults('Site_A', 1, MIN))
-  // Exported with minCellCount = 0 (no censoring) → small cells that Study Studio must block. The matching
+  // Exported with minCellCount = 0 (no censoring) → small cells that OHDSI Study Studio must block. The matching
   // executionSettings.json records 0, so the "exported below the protocol's minCellCount" warning fires too.
   out('site/with_violations/executionSettings.json', executionSettings(0))
   await writeResults('site/with_violations', 'strategus_results_Site_A_with_violations', strategusResults('Site_A', 1, 0))

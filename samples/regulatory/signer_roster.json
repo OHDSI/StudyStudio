@@ -1,0 +1,55 @@
+{
+  "format": "studypack-signer-roster/1",
+  "studyId": "ACEI_ANGIO_2026",
+  "signers": [
+    {
+      "kid": "XwTOIuEp7nivqcYSZoPJkA8_vHAYbyugxelIweFqWTY",
+      "name": "Carol Coordinator",
+      "organization": "OHDSI Demo Network",
+      "role": "coordinator",
+      "enrolledAt": "2026-10-25T00:00:00.000Z",
+      "verifiedBy": "Carol Coordinator",
+      "verificationMethod": "Video call with government ID; key fingerprint read back by the signer"
+    },
+    {
+      "kid": "3QRw6l1Mh1WoOeXo8mHeZKY80saw5ez6n0hwEWpDi3s",
+      "name": "Olivia Operator",
+      "organization": "Site A Hospital",
+      "role": "operator",
+      "siteId": "Site_A",
+      "enrolledAt": "2026-10-25T00:00:00.000Z",
+      "verifiedBy": "Carol Coordinator",
+      "verificationMethod": "Video call with government ID; key fingerprint read back by the signer"
+    },
+    {
+      "kid": "ujSyVGof3NW73LgPyhzT0-hqY0o8DKDIx7PSTt8PRiM",
+      "name": "Paul Investigator",
+      "organization": "Site A Hospital",
+      "role": "site-pi",
+      "siteId": "Site_A",
+      "enrolledAt": "2026-10-25T00:00:00.000Z",
+      "verifiedBy": "Carol Coordinator",
+      "verificationMethod": "Video call with government ID; key fingerprint read back by the signer"
+    },
+    {
+      "kid": "Yvv_TeN76gDxo9AcAloc4wFJjOxVvMDI5NNcJ-zj_rs",
+      "name": "Bea Operator",
+      "organization": "Site B Hospital",
+      "role": "operator",
+      "siteId": "Site_B",
+      "enrolledAt": "2026-10-25T00:00:00.000Z",
+      "verifiedBy": "Carol Coordinator",
+      "verificationMethod": "Video call with government ID; key fingerprint read back by the signer"
+    },
+    {
+      "kid": "3aUqz6bYqFdvH0NXHgk2j88YHPw5dt8UyyFMhBjxCXQ",
+      "name": "Dana Operator",
+      "organization": "Site D Hospital",
+      "role": "operator",
+      "siteId": "Site_D",
+      "enrolledAt": "2026-10-25T00:00:00.000Z",
+      "verifiedBy": "Carol Coordinator",
+      "verificationMethod": "Video call with government ID; key fingerprint read back by the signer"
+    }
+  ]
+}

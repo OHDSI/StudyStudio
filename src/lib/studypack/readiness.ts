@@ -90,7 +90,8 @@ export function evaluateReadiness(p: ReadinessInput): Readiness {
     if (p.protocolSignature?.some((c) => !c.valid)) blockers.push('The coordinator signature on the protocol is invalid — reload the protocol you received')
     else if (regulatory && !p.protocolSignature?.length) blockers.push('Regulatory protocols must carry the coordinator signature (load the protocol ZIP, not a bare study_config.json)')
   }
-  if (!p.signers?.length) (regulatory ? blockers : warnings).push(regulatory ? 'Regulatory studies must be signed: unlock your signing key' : 'The StudyPack will not be signed (no signing key unlocked)')
+  // Signing is optional in standard studies, so an unsigned pack is not worth a warning there.
+  if (regulatory && !p.signers?.length) blockers.push('Regulatory studies must be signed: unlock your signing key')
 
   return { canPackage: blockers.length === 0, blockers, warnings, privacyViolations }
 }

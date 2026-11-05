@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Field, Input, Select, Textarea } from '@/components/ui/input'
 import { SigningKeys } from '@/features/common/SigningKeys'
+import { verifyDetachedJws } from '@/lib/security/signer'
 import type { AssuranceLevel } from '@/types/studypack'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { DropZone, type DroppedFile } from '@/features/common/DropZone'
@@ -77,7 +78,8 @@ export function ProtocolIssuer() {
     try {
       const p = await issueProtocol(repo, { ...meta, studyId: meta.studyId.trim(), studyTitle: meta.studyTitle.trim(), signer: coordinator })
       setIssued(p)
-      await setConfig(p.config, undefined, { config: p.config, configBytes: p.configBytes, files: {}, errors: [] })
+      const signatureChecks = p.signature ? await verifyDetachedJws(p.signature, p.configBytes) : undefined
+      await setConfig(p.config, undefined, { config: p.config, configBytes: p.configBytes, signatureChecks, files: {}, errors: [] })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {

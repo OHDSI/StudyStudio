@@ -14,7 +14,7 @@
  * ParallelLogger::saveSettingsToJson() for a Strategus study; result tables and their
  * resultsDataModelSpecification.csv follow the HADES results data model column names.
  */
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import * as XLSX from 'xlsx'
 import JSZip from 'jszip'
@@ -25,6 +25,19 @@ import { auditWorkbook } from '../src/lib/audit/cellAuditor'
 import { buildStudyPack, type PackInputFile } from '../src/lib/studypack/builder'
 import { redactLog } from '../src/lib/audit/logAuditor'
 import { evaluateEvidence } from '../src/lib/studypack/evidence'
+import {
+  addSignature,
+  createKeyFile,
+  enrollmentCard,
+  parseKeyFile,
+  rosterBytes,
+  unlockKeyFile,
+  type SignatureMeaning,
+  type SignerInfo,
+  type SignerRoster,
+  type UnlockedSigner,
+} from '../src/lib/security/signer'
+import type { IssuedProtocol } from '../src/lib/strategus/protocol'
 import { SLOT_BY_ID, type SlotId } from '../src/lib/studypack/slots'
 
 const root = path.resolve(import.meta.dirname, '..', 'samples')
@@ -36,6 +49,8 @@ const enc = new TextEncoder()
 const now = new Date('2026-11-01T09:00:00Z')
 const STUDY = 'ACEI_ANGIO_2026'
 const MIN = 5
+/** Passphrase of the demo keys in samples/regulatory/keys. Public on purpose — demo only. */
+const DEMO_PASSPHRASE = 'demo-passphrase-not-secret'
 
 // ---------------------------------------------------------------------------
 // Analysis specification (synthetic, Strategus/ParallelLogger JSON structure)
@@ -281,7 +296,7 @@ const executionSettings = (min: number) =>
   ) + '\n'
 
 /** OHDSI DQD output (synthetic): metadata matching the site's cdm_source, plus per-check results. */
-function dqdResults(siteId: string): string {
+function dqdResults(siteId: string, opts: { structuralFailure?: boolean } = {}): string {
   const check = (checkName: string, category: string, table: string, field: string | null, failed: 0 | 1, pct = 0) => ({
     checkId: `${checkName}_${table}${field ? `_${field}` : ''}`.toLowerCase(),
     checkName,
@@ -307,14 +322,17 @@ function dqdResults(siteId: string): string {
     check('plausibleDuringLife', 'Plausibility', 'OBSERVATION_PERIOD', 'OBSERVATION_PERIOD_END_DATE', 0),
     // A known, tolerated failure on a table the study does not use.
     check('measureValueCompleteness', 'Completeness', 'NOTE', 'NOTE_TEXT', 1, 0.31),
+    // A required field missing on a table the study uses: blocks a regulatory study.
+    ...(opts.structuralFailure ? [check('isRequired', 'Conformance', 'DRUG_EXPOSURE', 'DRUG_EXPOSURE_START_DATE', 1, 0.042)] : []),
   ]
+  const failed = checks.filter((c) => c.failed).length
   return JSON.stringify(
     {
       startTimestamp: '2026-10-28 09:12:03',
       endTimestamp: '2026-10-28 10:41:55',
       executionTime: '89.9 mins',
       Metadata: [{ CDM_SOURCE_NAME: `${siteId} hospital EHR (demo)`, CDM_VERSION: '5.4', DQD_VERSION: '2.6.1', VOCABULARY_VERSION: 'v5.0 30-AUG-26' }],
-      Overview: { countTotal: checks.length, countThresholdFailed: 1, countErrorFailed: 0, countOverallFailed: 1, countPassed: checks.length - 1, percentPassed: ((checks.length - 1) / checks.length) * 100 },
+      Overview: { countTotal: checks.length, countThresholdFailed: failed, countErrorFailed: 0, countOverallFailed: failed, countPassed: checks.length - failed, percentPassed: ((checks.length - failed) / checks.length) * 100 },
       CheckResults: checks,
     },
     null,
@@ -422,7 +440,13 @@ async function main() {
   const siteFile = (p: string) => new Uint8Array(readFileSync(path.join(root, 'site', p)))
   const inputsFor = (siteId: string) =>
     executeText.replace('databaseName       <- "MY_DATABASE"', `databaseName       <- "${siteId}"`).replace('cdmDatabaseSchema  <- "cdm"', `cdmDatabaseSchema  <- "${siteId.toLowerCase()}_cdm"`)
-  const makePack = async (siteId: string, scale: number, execute = inputsFor(siteId)) => {
+  interface PackOptions {
+    protocol?: IssuedProtocol
+    signers?: { signer: UnlockedSigner; meaning: SignatureMeaning }[]
+    structuralFailure?: boolean
+  }
+  const makePack = async (siteId: string, scale: number, execute = inputsFor(siteId), opts: PackOptions = {}) => {
+    const proto = opts.protocol ?? protocol
     const results = Object.entries(strategusResults(siteId, scale, MIN)).map(([p, t]) => ({ path: p, bytes: enc.encode(t) }))
     const audits = auditResultFiles(results, { minCellCount: MIN })
     const slot = (id: SlotId, bytes: Uint8Array, originalName = SLOT_BY_ID[id].label): PackInputFile => ({
@@ -441,10 +465,10 @@ async function main() {
       { ...slot('scanReport', scanMasked), remediated: true },
       slot('mappingSpec', siteFile('mapping_specification.json')),
       slot('vocabularyVersion', siteFile('vocabulary_version.json')),
-      slot('dqdResults', enc.encode(dqdResults(siteId))),
-      slot('analysisSpecifications', protocol.files['definitions/analysisSpecifications.json']),
+      slot('dqdResults', enc.encode(dqdResults(siteId, { structuralFailure: opts.structuralFailure }))),
+      slot('analysisSpecifications', proto.files['definitions/analysisSpecifications.json']),
       slot('executeAnalyses', enc.encode(execute)),
-      slot('renvLock', protocol.files['code/renv.lock']),
+      slot('renvLock', proto.files['code/renv.lock']),
       slot('executionSettings', enc.encode(executionSettings(MIN))),
       ...results.map((r) => ({ path: `results/${r.path}`, role: 'result' as const, originalName: r.path, bytes: r.bytes, audit: audits.get(r.path) })),
     ]
@@ -461,15 +485,18 @@ async function main() {
     const sealed = new Date(now.getTime() + 2 * 24 * 3600 * 1000)
     const pack = await buildStudyPack({
       studyId: STUDY,
-      studyTitle: protocol.config.studyTitle,
+      studyTitle: proto.config.studyTitle,
       siteId,
       cdmVersion: '5.4',
       minCellCount: MIN,
       exportedMinCellCount: MIN,
       files,
       now: sealed,
-      protocolBytes: protocol.configBytes,
-      evidence: evaluateEvidence({ config: protocol.config, files: Object.fromEntries(files.map((f) => [f.path, f.bytes])), sealedAt: sealed.toISOString() }),
+      assurance: proto.config.assurance ?? 'standard',
+      protocolBytes: proto.configBytes,
+      protocolSignatureBytes: proto.signature ? enc.encode(JSON.stringify(proto.signature, null, 2) + '\n') : undefined,
+      signers: opts.signers,
+      evidence: evaluateEvidence({ config: proto.config, files: Object.fromEntries(files.map((f) => [f.path, f.bytes])), sealedAt: sealed.toISOString() }),
     })
     return { name: pack.zipName, bytes: new Uint8Array(await pack.zipBlob.arrayBuffer()) }
   }
@@ -491,6 +518,69 @@ async function main() {
     inputsFor('Site_D').replace('  minCellCount = minCellCount\n)', '  minCellCount = minCellCount,\n  modulesToExecute = c("CohortGeneratorModule", "CohortMethodModule")\n)'),
   )
   out(`network/${divergent.name}`, divergent.bytes)
+
+  // ---- Regulatory demo set ---------------------------------------------------
+  // Keys are created once and reused, so re-running the generator keeps the same identities.
+  // DEMO ONLY: the passphrase is public. Never reuse these keys.
+  for (const d of ['regulatory/protocol', 'regulatory/network']) rmSync(path.join(root, d), { recursive: true, force: true })
+  const demoKey = async (file: string, signer: SignerInfo): Promise<UnlockedSigner> => {
+    const keyPath = path.join(root, 'regulatory/keys', `${file}.key.json`)
+    let kf = existsSync(keyPath) ? parseKeyFile(JSON.parse(readFileSync(keyPath, 'utf8'))) : undefined
+    if (!kf) {
+      kf = await createKeyFile(signer, DEMO_PASSPHRASE, { now: new Date('2026-10-20T00:00:00Z') })
+      out(`regulatory/keys/${file}.key.json`, JSON.stringify(kf, null, 2) + '\n')
+      out(`regulatory/keys/${file}.enrollment.json`, JSON.stringify(enrollmentCard(kf), null, 2) + '\n')
+    }
+    return unlockKeyFile(kf, DEMO_PASSPHRASE)
+  }
+  const coord = await demoKey('coordinator', { name: 'Carol Coordinator', organization: 'OHDSI Demo Network', role: 'coordinator' })
+  const opA = await demoKey('site_a_operator', { name: 'Olivia Operator', organization: 'Site A Hospital', role: 'operator' })
+  const piA = await demoKey('site_a_pi', { name: 'Paul Investigator', organization: 'Site A Hospital', role: 'site-pi' })
+  const opB = await demoKey('site_b_operator', { name: 'Bea Operator', organization: 'Site B Hospital', role: 'operator' })
+  const opC = await demoKey('site_c_operator', { name: 'Cal Operator', organization: 'Site C Hospital', role: 'operator' })
+  const opD = await demoKey('site_d_operator', { name: 'Dana Operator', organization: 'Site D Hospital', role: 'operator' })
+
+  const regProtocol = await issueProtocol(repo, {
+    studyId: STUDY,
+    studyTitle: 'ACE inhibitors vs thiazides and angioedema (regulatory demo)',
+    description: 'Multi-site OMOP network study with regulatory assurance (demo).',
+    principalInvestigator: 'Demo PI',
+    sponsor: 'Demo Sponsor',
+    cdmVersion: '5.4',
+    minCellCount: MIN,
+    now,
+    assurance: 'regulatory',
+    vocabularyVersion: 'v5.0 30-AUG-26',
+    signer: coord,
+  })
+  out('regulatory/protocol/study_config.json', regProtocol.configBytes)
+  out('regulatory/protocol/study_config.jws.json', JSON.stringify(regProtocol.signature, null, 2) + '\n')
+  out(`regulatory/protocol/${STUDY}_protocol.zip`, new Uint8Array(await (await protocolZip(regProtocol)).arrayBuffer()))
+
+  // Site C's operator is deliberately not enrolled.
+  const enrolled = (u: UnlockedSigner, siteId?: string) => ({
+    kid: u.kid,
+    name: u.signer.name,
+    organization: u.signer.organization,
+    role: u.signer.role,
+    siteId,
+    enrolledAt: '2026-10-25T00:00:00.000Z',
+    verifiedBy: 'Carol Coordinator',
+    verificationMethod: 'Video call with government ID; key fingerprint read back by the signer',
+  })
+  const roster: SignerRoster = { format: 'studypack-signer-roster/1', studyId: STUDY, signers: [enrolled(coord), enrolled(opA, 'Site_A'), enrolled(piA, 'Site_A'), enrolled(opB, 'Site_B'), enrolled(opD, 'Site_D')] }
+  const rb = rosterBytes(roster)
+  out('regulatory/signer_roster.json', rb)
+  out('regulatory/signer_roster.jws.json', JSON.stringify(await addSignature(undefined, rb, coord, 'roster-approved', new Date('2026-10-26T00:00:00Z')), null, 2) + '\n')
+
+  const sealedBy = (...s: UnlockedSigner[]) => s.map((signer) => ({ signer, meaning: (signer.signer.role === 'site-pi' ? 'approved-for-release' : 'sealed') as SignatureMeaning }))
+  const regPacks = [
+    await makePack('Site_A', 1, undefined, { protocol: regProtocol, signers: sealedBy(opA, piA) }),
+    await makePack('Site_B', 0.7, undefined, { protocol: regProtocol, signers: sealedBy(opB) }),
+    await makePack('Site_C', 1.3, undefined, { protocol: regProtocol, signers: sealedBy(opC) }),
+    await makePack('Site_D', 0.9, undefined, { protocol: regProtocol, signers: sealedBy(opD), structuralFailure: true }),
+  ]
+  for (const p of regPacks) out(`regulatory/network/${p.name}`, p.bytes)
 
   console.log(`samples written to ${root}`)
 }

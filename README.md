@@ -54,7 +54,7 @@ To see the safety lock, use `samples/site/with_violations/` instead of the match
 - **One-click auto-masking** fixes the cells (`-5` by default), and the download unlocks.
 
 ### 3. Coordinator: verify and export
-1. **Admin Mode → Multi-Site Aggregator**, and enter who you are (every receipt and decision is attributed to you).
+1. **Admin Mode → Multi-Site Aggregator**. Optionally enter who you are (required in regulatory studies; every receipt and decision is attributed to that person).
 2. Drop the four packs in `samples/network/`. Optionally drop `samples/protocol/study_config.json` as well; without it, the majority hash is used as the reference.
 3. Expected result:
 
@@ -71,6 +71,20 @@ To see the safety lock, use `samples/site/with_violations/` instead of the match
    - **Submission package:** choose the Define-XML / Dataset-JSON versions and the result tables, then generate the ZIP. It includes the disposition log and each site's manifest, signature and audit report.
 
 ---
+
+### 4. Regulatory walkthrough (`samples/regulatory/`)
+The same study issued with **regulatory** assurance. All demo keys use the passphrase `demo-passphrase-not-secret` (demo only — never reuse these keys).
+1. **Site Mode:** drop `regulatory/protocol/ACEI_ANGIO_2026_protocol.zip`; the coordinator signature is verified. Load the files from `samples/site/` as above, then unlock `regulatory/keys/site_a_operator.key.json` in **Electronic signature** and download the signed StudyPack.
+2. **Admin Mode → Multi-Site Aggregator:** drop `regulatory/protocol/ACEI_ANGIO_2026_protocol.zip` as the reference, then `regulatory/signer_roster.json` together with `signer_roster.jws.json` (signed by the protocol issuer), enter your name, and drop the four packs in `regulatory/network/`:
+
+   | Pack | Result | Why |
+   |---|---|---|
+   | Site_A | ✅ adopt | signed by the enrolled operator and the site PI |
+   | Site_B | ✅ adopt | signed by the enrolled operator |
+   | Site_C | ❌ exclude | signed with a key that is not in the roster |
+   | Site_D | ❌ exclude | DQD: a required field fails on a table the study uses (`DATA_QUALITY`) |
+
+3. Record the recommendations, lock, and export. In a regulatory study the export stays disabled until the dispositions are locked.
 
 ## How it fits with OHDSI Strategus
 
@@ -113,13 +127,13 @@ Evaluated at the site, sealed into `audit_report.json`, and evaluated again by t
 
 ## Regulatory controls
 
-Designed against ICH M14, ICH E6(R3), the FDA RWD and Part 11 Q&A guidances, the EMA computerised-systems guideline and the MHLW/PMDA database-study notices. [`docs/regulatory/requirements.md`](docs/regulatory/requirements.md) maps each requirement to its source, its implementation and its test, and lists the known limitations.
+Designed against ICH M14, ICH E6(R3), the FDA RWD and Part 11 Q&A guidances, the EMA computerised-systems guideline and the MHLW/PMDA database-study notices. [`docs/regulatory/requirements.md`](docs/regulatory/requirements.md) maps each requirement to its source, its implementation and its test, and lists the known limitations. [`docs/regulatory/validation-plan.md`](docs/regulatory/validation-plan.md) is a template for validating the tool for a study: risk assessment, data flow, traceability, IQ/OQ/PQ and the SOPs it relies on.
 
 | Control | What it does |
 |---|---|
 | **Assurance level** | `study_config.assurance`: `standard` (everything below is a warning) or `regulatory` (the rules block, and the data-quality gate, CDM requirements and exclusion reasons are pre-specified in the protocol) |
 | **Electronic signatures** | ECDSA P-256 keys generated in the browser and kept as passphrase-protected key files. Detached JWS (ES256) over `manifest.json` and `study_config.json`, showing name, role, time, time zone and meaning. Verifiable with any JOSE library |
-| **Signer roster** | The coordinator enrolls each site's public key after verifying identity out of band. Only enrolled, unrevoked keys count; revocation is judged against the coordinator's receipt time |
+| **Signer roster** | The coordinator enrolls each site's public key after verifying identity out of band, then signs the roster with the key that issued the protocol. Only enrolled, unrevoked keys in a roster signed that way count; revocation is judged against the coordinator's receipt time |
 | **Originals of modified files** | Masked results and redacted logs carry a salted commitment to the original (a plain hash would let anyone brute-force the masked values). The salts stay at the site in a retention receipt |
 | **Disposition audit trail** | Every receipt, adoption, exclusion, lock and export is an append-only, hash-chained entry with who / when / old → new / why. Exclusions need a pre-specified reason code. In regulatory studies the dispositions must be locked, with an attestation that comparative results were not viewed, before the submission package is generated |
 
@@ -168,6 +182,7 @@ npm run samples    # regenerate samples/ (scripts/make-samples.ts)
 | `site/` | Clean Site Mode inputs, including DQD results and a Strategus log. Results come as both a ZIP and an expanded folder |
 | `site/with_violations/` | Uncensored results (ZIP and folder) plus `executionSettings.json` with `minCellCount: 0` |
 | `network/` | Four StudyPacks: Site_A and Site_B clean, Site_C tampered, Site_D with edited protected code |
+| `regulatory/` | Regulatory-assurance set: signed protocol, demo keys (`keys/`, passphrase `demo-passphrase-not-secret`), signed signer roster, four signed packs |
 | `templates/` | Source files used by `npm run samples` |
 
 The sample `renv.lock` and result values are illustrative. They are not a tested HADES release set.

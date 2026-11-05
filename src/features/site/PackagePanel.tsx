@@ -81,7 +81,8 @@ export function PackagePanel() {
       })
       setBuilt(pack)
       download(pack.zipName, pack.zipBlob)
-      if (pack.retention.originals.length) download(retentionFileName(pack.manifest.siteId, pack.manifest.studyId), JSON.stringify(pack.retention, null, 2) + '\n', 'application/json')
+      // Regulatory studies must keep the receipt; in standard studies it is offered, not pushed.
+      if (pack.retention.originals.length && config.assurance === 'regulatory') download(retentionFileName(pack.manifest.siteId, pack.manifest.studyId), JSON.stringify(pack.retention, null, 2) + '\n', 'application/json')
     } catch (e) {
       setError(String(e))
     } finally {
@@ -154,15 +155,15 @@ export function PackagePanel() {
                 </div>
               )}
               {built.retention.originals.length > 0 && (
-                <Alert variant="warning">
+                <Alert variant={config?.assurance === 'regulatory' ? 'warning' : 'default'}>
                   <Archive />
-                  <AlertTitle>Keep the retention receipt and the originals at this site</AlertTitle>
+                  <AlertTitle>{config?.assurance === 'regulatory' ? 'Keep the retention receipt and the originals at this site' : 'Optional: retention receipt for the masked originals'}</AlertTitle>
                   <AlertDescription>
                     <p>
                       {built.retention.originals.length} file(s) were masked or redacted. The StudyPack carries only salted commitments to the originals. The receipt <code>{retentionFileName(built.manifest.siteId, built.manifest.studyId)}</code> holds the salts that prove which originals you held — keep it with the unmasked files for the retention period and do not send it.
                     </p>
                     <Button size="sm" variant="outline" className="mt-2" onClick={() => download(retentionFileName(built.manifest.siteId, built.manifest.studyId), JSON.stringify(built.retention, null, 2) + '\n', 'application/json')}>
-                      <Download /> Save retention receipt again
+                      <Download /> {config?.assurance === 'regulatory' ? 'Save retention receipt again' : 'Save retention receipt'}
                     </Button>
                   </AlertDescription>
                 </Alert>

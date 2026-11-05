@@ -1,0 +1,16 @@
+{
+  "format": "studypack-enrollment-card/1",
+  "kid": "3QRw6l1Mh1WoOeXo8mHeZKY80saw5ez6n0hwEWpDi3s",
+  "publicJwk": {
+    "kty": "EC",
+    "crv": "P-256",
+    "x": "WhR3i-Fywbbjw_FQ89k389bBaXhAoG5PikNuOjjOrXE",
+    "y": "4Dt8IRnNk2i0TIC1e4DxHWNTtLaxUjlQ54UDM37jNsU"
+  },
+  "signer": {
+    "name": "Olivia Operator",
+    "organization": "Site A Hospital",
+    "role": "operator"
+  },
+  "createdAt": "2026-10-20T00:00:00.000Z"
+}

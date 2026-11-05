@@ -159,3 +159,45 @@ describe('regulatory controls end to end', () => {
     expect(siteVerdict(forged, crossCheckSites([forged]), 'S').reasons.some((x) => x.startsWith('Invalid signature'))).toBe(true)
   })
 })
+
+describe('regulatory demo set (samples/regulatory)', () => {
+  it('adopts the signed, enrolled, clean sites and excludes the others for pre-specified reasons', async () => {
+    const { readProtocolFile } = await import('@/lib/strategus/protocol')
+    const { parseJws, verifyRoster, withEnrollment, parseRoster } = await import('@/lib/security/signer')
+    const { evaluateEvidence } = await import('@/lib/studypack/evidence')
+    const reg = path.join(samples, 'regulatory')
+    const proto = await readProtocolFile('p.zip', readFileSync(path.join(reg, 'protocol/ACEI_ANGIO_2026_protocol.zip')))
+    expect(proto.errors).toEqual([])
+    expect(proto.config?.assurance).toBe('regulatory')
+    const issuer = proto.signatureChecks!.filter((c) => c.valid).map((c) => c.kid)
+    expect(issuer).toHaveLength(1)
+
+    const rb = new Uint8Array(readFileSync(path.join(reg, 'signer_roster.json')))
+    const status = await verifyRoster(rb, parseJws(JSON.parse(readFileSync(path.join(reg, 'signer_roster.jws.json'), 'utf8'))), issuer)
+    expect(status.trust).toBe('signed-by-issuer')
+    const roster = parseRoster(JSON.parse(new TextDecoder().decode(rb)))
+
+    const dir = path.join(reg, 'network')
+    const sites = await Promise.all(readdirSync(dir).map((f) => loadStudyPack(f, readFileSync(path.join(dir, f)), 5, new Date('2026-11-05T00:00:00Z'))))
+    const cfg = proto.config!
+    const cross = crossCheckSites(sites, cfg.expectedHashes, cfg.protectedSections, [...Object.keys(cfg.expectedHashes), ...Object.keys(cfg.protectedSections)])
+    const verdicts = Object.fromEntries(
+      sites.map((s) => {
+        const evidence = evaluateEvidence({ config: cfg, files: s.files, sealedAt: s.manifest?.sealedAt?.utc, receivedAt: s.receivedAt })
+        const signatures = withEnrollment(s.signatureChecks, roster, s.siteId, s.receivedAt)
+        return [s.siteId, siteVerdict(s, cross, cfg.studyId, sites, { config: cfg, evidence, signatures })]
+      }),
+    )
+    expect(verdicts.Site_A).toMatchObject({ recommended: 'adopt', reasons: [] })
+    expect(verdicts.Site_B).toMatchObject({ recommended: 'adopt', reasons: [] })
+    expect(verdicts.Site_C.recommended).toBe('exclude')
+    expect(verdicts.Site_C.reasons.join()).toMatch(/not in the signer roster/)
+    expect(verdicts.Site_D.recommended).toBe('exclude')
+    expect(verdicts.Site_D.codes).toEqual(['DATA_QUALITY'])
+    expect(sites.find((s) => s.siteId === 'Site_A')!.signatureChecks.map((c) => c.meaning)).toEqual(['sealed', 'approved-for-release'])
+
+    // Without the issuer's roster signature, nobody counts as enrolled.
+    const unverified = withEnrollment(sites[0].signatureChecks, roster, sites[0].siteId, undefined, 'The signer roster is not signed')
+    expect(unverified.every((c) => !c.enrolled)).toBe(true)
+  })
+})

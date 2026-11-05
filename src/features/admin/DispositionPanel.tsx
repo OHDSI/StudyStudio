@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { Check, Download, History, Lock, ScrollText, UserCheck, Users, X } from 'lucide-react'
 import { useStudyStore } from '@/store/useStudyStore'
-import { kidFingerprint, parseEnrollmentCard, parseRoster, type EnrollmentCard, type SignerRoster } from '@/lib/security/signer'
+import { kidFingerprint, parseEnrollmentCard, parseJws, type EnrollmentCard, type SignerRoster } from '@/lib/security/signer'
 import type { DispositionEntry } from '@/lib/network/dispositionLog'
 import type { SiteRow } from '@/lib/export/regulatory'
 import type { ReasonCode } from '@/types/studypack'
@@ -23,12 +23,16 @@ const errText = (e: unknown) => (e instanceof Error ? e.message : String(e))
 export function ActorCard() {
   const actor = useStudyStore((s) => s.actor)
   const setActor = useStudyStore((s) => s.setActor)
+  const regulatory = useStudyStore((s) => s.config?.assurance === 'regulatory')
   const [form, setForm] = React.useState({ name: actor?.name ?? '', role: actor?.role ?? 'Network coordinator', organization: actor?.organization ?? '' })
   return (
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-sm"><UserCheck className="size-4" /> Who is recording decisions</CardTitle>
-        <CardDescription className="text-xs">Every receipt, adoption, exclusion and export is attributed to this person in the disposition audit trail.</CardDescription>
+        <CardDescription className="text-xs">
+          Every receipt, adoption, exclusion and export is attributed to this person in the disposition audit trail.{' '}
+          {regulatory ? 'Required for this regulatory study.' : 'Optional in a standard study (entries are recorded as "Not identified").'}
+        </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-2 text-xs">
         {actor ? (
@@ -55,18 +59,27 @@ export function ActorCard() {
 export function RosterCard() {
   const config = useStudyStore((s) => s.config)
   const roster = useStudyStore((s) => s.roster)
-  const setRoster = useStudyStore((s) => s.setRoster)
+  const status = useStudyStore((s) => s.rosterStatus)
+  const signature = useStudyStore((s) => s.rosterSignature)
+  const bytes = useStudyStore((s) => s.rosterBytes)
+  const loadRoster = useStudyStore((s) => s.loadRoster)
+  const updateRoster = useStudyStore((s) => s.updateRoster)
+  const signRoster = useStudyStore((s) => s.signRoster)
+  const coordinator = useStudyStore((s) => s.signers.some((x) => x.signer.signer.role === 'coordinator'))
   const actor = useStudyStore((s) => s.actor)
   const [card, setCard] = React.useState<EnrollmentCard>()
   const [form, setForm] = React.useState({ siteId: '', method: 'Video call with government ID; fingerprint read back by the signer' })
   const [error, setError] = React.useState<string>()
 
-  const onDrop = async (bytes: Uint8Array) => {
+  const onDrop = async (files: { name: string; bytes: Uint8Array }[]) => {
     setError(undefined)
     try {
-      const json = JSON.parse(dec.decode(bytes))
-      if (json?.format === 'studypack-signer-roster/1') return setRoster(parseRoster(json))
-      setCard(await parseEnrollmentCard(json))
+      const parsed = files.map((f) => ({ ...f, json: JSON.parse(dec.decode(f.bytes)) }))
+      const rosterFile = parsed.find((f) => f.json?.format === 'studypack-signer-roster/1')
+      const sigFile = parsed.find((f) => Array.isArray(f.json?.signatures))
+      if (rosterFile) return await loadRoster(rosterFile.bytes, sigFile ? parseJws(sigFile.json) : undefined)
+      if (sigFile && bytes) return await loadRoster(bytes, parseJws(sigFile.json))
+      setCard(await parseEnrollmentCard(parsed[0].json))
     } catch (e) {
       setError(errText(e))
     }
@@ -74,7 +87,7 @@ export function RosterCard() {
   const enroll = () => {
     if (!card) return
     const base: SignerRoster = roster ?? { format: 'studypack-signer-roster/1', studyId: config?.studyId ?? '', signers: [] }
-    setRoster({
+    void updateRoster({
       ...base,
       signers: [
         ...base.signers.filter((s) => s.kid !== card.kid),
@@ -93,15 +106,20 @@ export function RosterCard() {
     setCard(undefined)
   }
   const revoke = (kid: string) =>
-    roster && setRoster({ ...roster, signers: roster.signers.map((s) => (s.kid === kid && !s.revokedAt ? { ...s, revokedAt: new Date().toISOString() } : s)) })
+    roster && updateRoster({ ...roster, signers: roster.signers.map((s) => (s.kid === kid && !s.revokedAt ? { ...s, revokedAt: new Date().toISOString() } : s)) })
 
   return (
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-sm"><Users className="size-4" /> Signer roster</CardTitle>
-        <CardDescription className="text-xs">Signatures are only trusted from enrolled keys. Drop a site's *.enrollment.json, confirm its fingerprint with the signer, then enroll. Drop a saved signer_roster.json to reuse it.</CardDescription>
+        <CardDescription className="text-xs">Signatures are only trusted from enrolled keys. Drop a site's *.enrollment.json, confirm its fingerprint with the signer, then enroll. Drop a saved signer_roster.json together with its .jws.json to reuse it. The roster itself must be signed by the key that issued the protocol.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-2 text-xs">
+        {status && (
+          <Badge variant={status.trust === 'signed-by-issuer' ? 'success' : status.trust === 'invalid' ? 'destructive' : 'warning'} className="w-fit">
+            {status.message}
+          </Badge>
+        )}
         {roster?.signers.map((s) => (
           <div key={s.kid} className="flex flex-wrap items-center gap-2 border-b pb-1 last:border-0">
             <span className="font-medium">{s.name}</span>
@@ -124,14 +142,29 @@ export function RosterCard() {
             </div>
           </div>
         ) : (
-          <DropZone compact accept=".json" onFiles={(fs) => onDrop(fs[0].bytes)}>
-            <span className="text-xs text-muted-foreground">Drop *.enrollment.json or signer_roster.json</span>
+          <DropZone compact multiple accept=".json" onFiles={onDrop}>
+            <span className="text-xs text-muted-foreground">Drop *.enrollment.json, or signer_roster.json + signer_roster.jws.json</span>
           </DropZone>
         )}
-        {roster && (
-          <Button size="sm" variant="outline" className="w-fit" onClick={() => download(`${safeId(roster.studyId || 'study')}_signer_roster.json`, JSON.stringify(roster, null, 2) + '\n', 'application/json')}>
-            <Download /> Save signer_roster.json
-          </Button>
+        {roster && bytes && (
+          <div className="flex flex-wrap gap-2">
+            {status?.trust !== 'signed-by-issuer' && (
+              <Button size="sm" disabled={!coordinator} title={coordinator ? '' : 'Unlock the coordinator key (left) first'} onClick={() => signRoster().catch((e) => setError(errText(e)))}>
+                Sign roster{coordinator ? '' : ' (unlock coordinator key)'}
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                const base = `${safeId(roster.studyId || 'study')}_signer_roster`
+                download(`${base}.json`, bytes, 'application/json')
+                if (signature) download(`${base}.jws.json`, JSON.stringify(signature, null, 2) + '\n', 'application/json')
+              }}
+            >
+              <Download /> Save roster{signature ? ' + signature' : ''}
+            </Button>
+          </div>
         )}
         {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
       </CardContent>
@@ -230,7 +263,7 @@ export function LockCard({ rows, regulatory }: { rows: SiteRow[]; regulatory: bo
             <Button
               size="sm"
               className="w-fit"
-              disabled={!attest || !actor || rows.length === 0 || undecided.length > 0}
+              disabled={!attest || (regulatory && !actor) || rows.length === 0 || undecided.length > 0}
               onClick={() => lock(LOCK_STATEMENT).catch((e) => setError(errText(e)))}
             >
               <Lock /> Lock {rows.length} site disposition(s)

@@ -13,7 +13,7 @@ import { executionSettingsMinCellCount, inputMinCellCount, protectedSectionHash 
 import { auditResultFiles, collectRdms, auditOptionsFor, type ResultFile } from '@/lib/strategus/results'
 import { loadStudyPack, type LoadedSitePack } from '@/lib/network/aggregator'
 import { DEFAULT_REASON_CODES, DispositionLog, type Actor } from '@/lib/network/dispositionLog'
-import type { SignatureCheck, SignatureMeaning, SignerRoster, UnlockedSigner } from '@/lib/security/signer'
+import { addSignature, rosterBytes, verifyRoster, type DetachedJws, type RosterStatus, type SignatureCheck, type SignatureMeaning, type SignerRoster, type UnlockedSigner } from '@/lib/security/signer'
 import type { RoleMode, StudyConfig } from '@/types/studypack'
 
 export interface SlotFile {
@@ -67,6 +67,10 @@ interface StudyState {
   issued?: IssuedProtocol
   sites: LoadedSitePack[]
   roster?: SignerRoster
+  /** Exact bytes the roster signature covers, the signature, and its trust status. */
+  rosterBytes?: Uint8Array
+  rosterSignature?: DetachedJws
+  rosterStatus?: RosterStatus
   /** Who is making disposition entries in this session. */
   actor?: Actor
   log: DispositionLog
@@ -88,7 +92,12 @@ interface StudyState {
 
   setRepo: (r?: StudyRepo) => void
   setIssued: (p?: IssuedProtocol) => void
-  setRoster: (r?: SignerRoster) => void
+  /** Load a roster file (and its signature) exactly as saved. */
+  loadRoster: (bytes: Uint8Array, signature?: DetachedJws) => Promise<void>
+  /** Change the roster (enroll / revoke). Any existing signature no longer applies. */
+  updateRoster: (r: SignerRoster) => Promise<void>
+  /** Sign the current roster with the unlocked coordinator key. */
+  signRoster: () => Promise<void>
   setActor: (a?: Actor) => void
   addSitePacks: (files: { name: string; bytes: Uint8Array }[]) => Promise<string[]>
   removeSite: (key: string) => Promise<void>
@@ -161,11 +170,22 @@ export const useStudyStore = create<StudyState>((set, get) => {
     await get().log.append(e, codes)
     set((s) => ({ logRev: s.logRev + 1 }))
   }
+  /** Regulatory studies require a named person for every entry; standard studies record "not identified". */
   const actorOrThrow = (): Actor => {
     const a = get().actor
-    if (!a?.name.trim()) throw new Error('Identify yourself (name, role, organisation) before recording decisions')
+    if (!a?.name.trim()) {
+      if (get().config?.assurance === 'regulatory') throw new Error('Identify yourself (name, role, organisation) before recording decisions')
+      return { name: 'Not identified', role: '', organization: '' }
+    }
     const kid = get().signers.find((x) => x.signer.signer.role === 'coordinator')?.signer.kid
     return kid ? { ...a, kid } : a
+  }
+  /** The roster is trusted against the key that signed the protocol. */
+  const refreshRoster = async () => {
+    const { rosterBytes: bytes, rosterSignature, protocol } = get()
+    if (!bytes) return set({ rosterStatus: undefined })
+    const issuerKids = (protocol?.signatureChecks ?? []).filter((c) => c.valid).map((c) => c.kid)
+    set({ rosterStatus: await verifyRoster(bytes, rosterSignature, issuerKids) })
   }
 
   return {
@@ -197,6 +217,7 @@ export const useStudyStore = create<StudyState>((set, get) => {
       set({ slots })
       const r = get().results
       if (r) await get().ingestResults(r.source, Object.entries(r.files).map(([path, f]) => ({ path, bytes: f.bytes })))
+      await refreshRoster()
     },
 
     ingest: async (slotId, name, bytes, opts = {}) => {
@@ -310,7 +331,24 @@ export const useStudyStore = create<StudyState>((set, get) => {
 
     setRepo: (repo) => set({ repo, issued: undefined }),
     setIssued: (issued) => set({ issued }),
-    setRoster: (roster) => set({ roster }),
+    loadRoster: async (bytes, signature) => {
+      const { parseRoster } = await import('@/lib/security/signer')
+      const roster = parseRoster(JSON.parse(dec.decode(bytes)))
+      set({ roster, rosterBytes: bytes, rosterSignature: signature })
+      await refreshRoster()
+    },
+    updateRoster: async (roster) => {
+      set({ roster, rosterBytes: rosterBytes(roster), rosterSignature: undefined })
+      await refreshRoster()
+    },
+    signRoster: async () => {
+      const coordinator = get().signers.find((x) => x.signer.signer.role === 'coordinator')?.signer
+      const bytes = get().rosterBytes
+      if (!coordinator) throw new Error('Unlock the coordinator key to sign the roster')
+      if (!bytes) return
+      set({ rosterSignature: await addSignature(undefined, bytes, coordinator, 'roster-approved') })
+      await refreshRoster()
+    },
     setActor: (actor) => set({ actor }),
 
     addSitePacks: async (files) => {

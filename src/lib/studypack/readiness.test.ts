@@ -49,10 +49,10 @@ describe('evaluateReadiness', () => {
     expect(edited.warnings.join('\n')).toMatch(/differs from the protocol/)
     expect(edited.warnings.join('\n')).toMatch(/minCellCount 0/)
   })
-  it('warns about a missing signature in standard mode and blocks it in regulatory mode', () => {
+  it('does not nag about signatures in standard mode and blocks a missing one in regulatory mode', () => {
     const std = evaluateReadiness({ siteId: 'A', config, slots, results: result('cohort_id,cohort_subjects\n1,9\n') })
     expect(std.canPackage).toBe(true)
-    expect(std.warnings).toEqual(['The StudyPack will not be signed (no signing key unlocked)'])
+    expect(std.warnings).toEqual([])
     const reg = evaluateReadiness({ siteId: 'A', config: { ...config, assurance: 'regulatory' }, slots, results: result('cohort_id,cohort_subjects\n1,9\n') })
     expect(reg.canPackage).toBe(false)
     expect(reg.blockers.join('\n')).toMatch(/must be signed/)

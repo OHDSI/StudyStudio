@@ -115,3 +115,21 @@ describe('detached JWS', () => {
     expect(r.error).toMatch(/Key ID/)
   })
 })
+
+describe('signer roster trust', () => {
+  it('trusts only a roster signed by the protocol issuer key with the roster-approved meaning', async () => {
+    const { verifyRoster, rosterBytes } = await import('./signer')
+    const coord = await unlockKeyFile(await createKeyFile({ name: 'C', organization: 'N', role: 'coordinator' }, PASS, fast), PASS)
+    const other = await unlockKeyFile(await createKeyFile({ name: 'X', organization: 'N', role: 'coordinator' }, PASS, fast), PASS)
+    const roster: SignerRoster = { format: 'studypack-signer-roster/1', studyId: 'S', signers: [] }
+    const bytes = rosterBytes(roster)
+    expect((await verifyRoster(bytes, undefined, [coord.kid])).trust).toBe('unsigned')
+    const good = await addSignature(undefined, bytes, coord, 'roster-approved')
+    expect((await verifyRoster(bytes, good, [coord.kid])).trust).toBe('signed-by-issuer')
+    expect((await verifyRoster(bytes, await addSignature(undefined, bytes, other, 'roster-approved'), [coord.kid])).trust).toBe('signed-by-other')
+    expect((await verifyRoster(bytes, await addSignature(undefined, bytes, coord, 'sealed'), [coord.kid])).trust).toBe('signed-by-other')
+    // Adding a signer after signing invalidates the roster signature.
+    const edited = rosterBytes({ ...roster, signers: [{ kid: other.kid, name: 'X', organization: 'N', role: 'operator', siteId: 'Site_A', enrolledAt: 't', verifiedBy: 'C', verificationMethod: 'm' }] })
+    expect((await verifyRoster(edited, good, [coord.kid])).trust).toBe('invalid')
+  })
+})

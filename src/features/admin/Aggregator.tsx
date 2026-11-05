@@ -109,7 +109,7 @@ export function Aggregator() {
                 accept=".json,.zip"
                 onFiles={async (fs) => {
                   const r = await readProtocolFile(fs[0].name, fs[0].bytes)
-                  if (r.config) await setConfig(r.config)
+                  if (r.config) await setConfig(r.config, undefined, r)
                   setMsg(r.errors.join(' / ') || undefined)
                 }}
                 title="Drop study_config.json"
@@ -123,10 +123,10 @@ export function Aggregator() {
             <CardDescription className="text-xs">Drop multiple *.studypack.zip files. They are extracted in memory and every SHA-256 in manifest.json is recomputed to detect tampering.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-2">
-            {actor ? (
+            {actor || !regulatory ? (
               <DropZone multiple accept=".zip" onFiles={onPacks} title={loading ? 'Verifying…' : 'Drop *.studypack.zip'} hint="Load several sites at once — each receipt is recorded in the disposition audit trail" />
             ) : (
-              <Alert variant="warning"><AlertDescription>Identify yourself above first: every receipt is recorded with who received it.</AlertDescription></Alert>
+              <Alert variant="warning"><AlertDescription>Regulatory study: identify yourself above first — every receipt is recorded with who received it.</AlertDescription></Alert>
             )}
             {msg && <div className="text-xs text-amber-700">{msg}</div>}
           </CardContent>
@@ -144,7 +144,7 @@ export function Aggregator() {
               <Button
                 size="sm"
                 variant="outline"
-                disabled={locked || !actor || rows.every((r) => r.decision)}
+                disabled={locked || (regulatory && !actor) || rows.every((r) => r.decision)}
                 onClick={async () => {
                   for (const r of rows.filter((x) => !x.decision))
                     await decide(r.site.key, r.verdict.recommended, r.verdict.recommended, r.verdict.recommended === 'exclude' ? r.verdict.codes[0] : undefined).catch((e) => setMsg(e instanceof Error ? e.message : String(e)))
@@ -217,7 +217,7 @@ export function Aggregator() {
                         {verdict.recommended === 'adopt' ? <Badge variant="success">Adopt</Badge> : <Badge variant="destructive" title={verdict.reasons.join('\n')}>❌ Exclude</Badge>}
                       </TableCell>
                       <TableCell>
-                        <DecisionCell row={row} reasonCodes={reasonCodes} locked={locked} canDecide={!!actor} />
+                        <DecisionCell row={row} reasonCodes={reasonCodes} locked={locked} canDecide={!!actor || !regulatory} />
                       </TableCell>
                       <TableCell>
                         <Button size="icon" variant="ghost" onClick={() => removeSite(site.key)} aria-label="Remove"><Trash2 /></Button>

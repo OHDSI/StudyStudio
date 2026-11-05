@@ -118,12 +118,13 @@ export async function unlockKeyFile(file: KeyFile, passphrase: string): Promise<
 
 // ---------------------------------------------------------------- detached JWS
 
-export type SignatureMeaning = 'protocol-issued' | 'sealed' | 'approved-for-release' | 'disposition-locked' | 'disposition-exported'
+export type SignatureMeaning = 'protocol-issued' | 'sealed' | 'approved-for-release' | 'roster-approved' | 'disposition-locked' | 'disposition-exported'
 
 export const MEANING_STATEMENT: Record<SignatureMeaning, string> = {
   'protocol-issued': 'I issue this protocol for the network study.',
   sealed: 'I sealed this StudyPack and confirm that its contents are the results produced at this site.',
   'approved-for-release': 'I approve the release of this StudyPack from this site.',
+  'roster-approved': 'I verified the identity of each enrolled signer and approve this signer roster.',
   'disposition-locked': 'I lock the site dispositions. Comparative results between exposure groups were not viewed when making them.',
   'disposition-exported': 'I confirm this disposition log as exported with the submission package.',
 }
@@ -264,9 +265,10 @@ export async function verifyDetachedJws(jws: DetachedJws, payload: Uint8Array, r
 }
 
 /** Re-evaluate enrollment of already-verified signatures (e.g. after a roster is loaded). */
-export function withEnrollment(checks: SignatureCheck[], roster: SignerRoster | undefined, siteId?: string, receivedAt?: string): SignatureCheck[] {
+export function withEnrollment(checks: SignatureCheck[], roster: SignerRoster | undefined, siteId?: string, receivedAt?: string, rosterIssue?: string): SignatureCheck[] {
   return checks.map((c) => {
     if (!c.valid) return c
+    if (rosterIssue) return { ...c, enrolled: false, enrollmentIssue: rosterIssue }
     const { enrolled, issue } = enrollment(roster, c.kid, c.signedAt, siteId, receivedAt)
     return { ...c, enrolled, enrollmentIssue: issue }
   })
@@ -297,4 +299,31 @@ export async function parseEnrollmentCard(v: unknown): Promise<EnrollmentCard> {
   if (!c || c.format !== 'studypack-enrollment-card/1' || !c.publicJwk || !c.kid || !c.signer) throw new Error('Not a StudyPack enrollment card')
   if ((await jwkThumbprint(c.publicJwk)) !== c.kid) throw new Error('Enrollment card key ID does not match its public key')
   return c as EnrollmentCard
+}
+
+// ---------------------------------------------------------------- roster trust
+
+export type RosterTrust = 'signed-by-issuer' | 'signed-by-other' | 'unsigned' | 'invalid'
+
+export interface RosterStatus {
+  trust: RosterTrust
+  checks: SignatureCheck[]
+  message: string
+}
+
+/**
+ * A roster is only as trustworthy as whoever signed it. The trust anchor is the key that signed the
+ * protocol (study_config.json): the roster must carry a valid "roster-approved" signature by that key.
+ */
+export async function verifyRoster(rosterBytes: Uint8Array, signature: DetachedJws | undefined, issuerKids: readonly string[]): Promise<RosterStatus> {
+  if (!signature) return { trust: 'unsigned', checks: [], message: 'The signer roster is not signed' }
+  const checks = await verifyDetachedJws(signature, rosterBytes)
+  if (checks.some((c) => !c.valid)) return { trust: 'invalid', checks, message: 'The signer roster signature is invalid — the roster was changed after signing' }
+  const byIssuer = checks.find((c) => issuerKids.includes(c.kid) && c.meaning === 'roster-approved')
+  if (byIssuer) return { trust: 'signed-by-issuer', checks, message: `Signed by ${byIssuer.signer?.name ?? 'the protocol issuer'} (protocol issuer key)` }
+  return { trust: 'signed-by-other', checks, message: issuerKids.length ? 'The signer roster is signed, but not by the key that issued the protocol' : 'The signer roster is signed, but the protocol is unsigned, so there is no key to trust it against' }
+}
+
+export function rosterBytes(r: SignerRoster): Uint8Array {
+  return enc.encode(JSON.stringify(r, null, 2) + '\n')
 }

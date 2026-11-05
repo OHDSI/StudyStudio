@@ -1,0 +1,16 @@
+{
+  "format": "studypack-enrollment-card/1",
+  "kid": "3aUqz6bYqFdvH0NXHgk2j88YHPw5dt8UyyFMhBjxCXQ",
+  "publicJwk": {
+    "kty": "EC",
+    "crv": "P-256",
+    "x": "Fv8cWFo4PgWLGeH6-dhwkjpsRCL8z8IcTe8txat7pkQ",
+    "y": "Z8kUF2fi6Ac5MCs-7m3Uxa6yhELapES8Vjn-Uugigog"
+  },
+  "signer": {
+    "name": "Dana Operator",
+    "organization": "Site D Hospital",
+    "role": "operator"
+  },
+  "createdAt": "2026-10-20T00:00:00.000Z"
+}

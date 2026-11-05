@@ -43,7 +43,7 @@ interpretation and should be confirmed in a PMDA consultation.
 | R1.2 | Signature is linked to the record so it cannot be excised or reused; any change visibly invalidates it | FDA-P11 §III.E (11.70); EMA-CS §4.8 | Detached JWS (ES256) over the exact bytes of `manifest.json`, which lists the SHA-256 of every file |
 | R1.3 | Signature records the time zone (or UTC) | EMA-CS §4.8; FDA-P11 Q14 | `sp:signedAt` is ISO-8601 UTC with `sp:tzOffsetMinutes` |
 | R1.4 | Two distinct identification components for non-biometric signatures | FDA-P11 §III.E (11.200) | Key file (possession) + passphrase (knowledge); private key never stored unencrypted. *Two-factor at login (EMA-CS A4.12) is not achievable offline — documented limitation* |
-| R1.5 | Identity verified before a signer is enrolled; record of who may sign, when added/revoked | FDA-P11 Q11, Q26; EMA-CS §5.4, A3 | `signer_roster.json` (kid, name, role, organisation, siteId, enrolledAt, verifiedBy, method, revokedAt), checked by the Aggregator. Revocation is judged against the coordinator's receipt time, not the signer's clock. Verification itself is an SOP |
+| R1.5 | Identity verified before a signer is enrolled; record of who may sign, when added/revoked | FDA-P11 Q11, Q26; EMA-CS §5.4, A3 | `signer_roster.json` (kid, name, role, organisation, siteId, enrolledAt, verifiedBy, method, revokedAt), signed by the protocol issuer's key (`roster-approved`) and checked by the Aggregator; any edit voids that signature. Revocation is judged against the coordinator's receipt time, not the signer's clock. Verification itself is an SOP |
 | R1.6 | No method is mandated; PKI not required; the method must be validated | FDA-P11 Q24, Q28; EMA-CS §4.8 | Standard JOSE format (RFC 7515/7518/7638) so signatures verify outside the tool; unit tests with fixed vectors |
 
 ### R2 — Contemporaneous: time
@@ -106,4 +106,4 @@ interpretation and should be confirmed in a PMDA consultation.
 5. The CDISC export contains aggregate Strategus results. It is not SDTM/ADaM and is not presented as
    §745A-conformant study data (FDA-DS).
 6. The tool's own validation package (risk assessment, test evidence, change control — FDA-P11 Q7,
-   EMA-CS Annex 2, E6 §4.3.4) is maintained separately; this document and the test suite are inputs to it.
+   EMA-CS Annex 2, E6 §4.3.4) is maintained per study; [validation-plan.md](validation-plan.md) is the template.

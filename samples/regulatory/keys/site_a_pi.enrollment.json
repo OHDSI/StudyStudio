@@ -1,0 +1,16 @@
+{
+  "format": "studypack-enrollment-card/1",
+  "kid": "ujSyVGof3NW73LgPyhzT0-hqY0o8DKDIx7PSTt8PRiM",
+  "publicJwk": {
+    "kty": "EC",
+    "crv": "P-256",
+    "x": "Y_KnJ5NX7ODT60zq2D6lVYD2nzKgNbPE2_jwwp-ESbs",
+    "y": "36dOMuPEB9hw-0_HI-cooKiq0MO9EYRiI04fD_iu4Fw"
+  },
+  "signer": {
+    "name": "Paul Investigator",
+    "organization": "Site A Hospital",
+    "role": "site-pi"
+  },
+  "createdAt": "2026-10-20T00:00:00.000Z"
+}

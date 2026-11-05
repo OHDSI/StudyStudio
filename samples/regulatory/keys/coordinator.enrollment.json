@@ -1,0 +1,16 @@
+{
+  "format": "studypack-enrollment-card/1",
+  "kid": "XwTOIuEp7nivqcYSZoPJkA8_vHAYbyugxelIweFqWTY",
+  "publicJwk": {
+    "kty": "EC",
+    "crv": "P-256",
+    "x": "-3tH_GLuPtUtFb9wTRzqsFLguANmXEyuOS2eFG33goQ",
+    "y": "iVQmpwGSk9FTrT8bVgGBi5oqZ1YmV2gYFtNjcunE4ic"
+  },
+  "signer": {
+    "name": "Carol Coordinator",
+    "organization": "OHDSI Demo Network",
+    "role": "coordinator"
+  },
+  "createdAt": "2026-10-20T00:00:00.000Z"
+}

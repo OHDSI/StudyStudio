@@ -1,0 +1,16 @@
+{
+  "format": "studypack-enrollment-card/1",
+  "kid": "J5QKQ-dSrYZKrDNpyjAr9gsRvsUBz8hpRWL7r75LV2A",
+  "publicJwk": {
+    "kty": "EC",
+    "crv": "P-256",
+    "x": "arsoxHOxLl1Mjtnq5VrF7zhKL6DwpxZChS6mRqB73Lk",
+    "y": "yNXx6FqwRLLYsfxQM4o20GTE8qAIYF-ntnkOeNjSbsU"
+  },
+  "signer": {
+    "name": "Cal Operator",
+    "organization": "Site C Hospital",
+    "role": "operator"
+  },
+  "createdAt": "2026-10-20T00:00:00.000Z"
+}

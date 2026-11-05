@@ -1,0 +1,16 @@
+{
+  "format": "studypack-enrollment-card/1",
+  "kid": "Yvv_TeN76gDxo9AcAloc4wFJjOxVvMDI5NNcJ-zj_rs",
+  "publicJwk": {
+    "kty": "EC",
+    "crv": "P-256",
+    "x": "a3Rw1tFon7xaAy3lSVqzEfcscpQXs37DNoZO1IpFXMQ",
+    "y": "VSqS2v2rKMjqkdgg5FjLmuV2YO1ZhKxHZknR4SRabhU"
+  },
+  "signer": {
+    "name": "Bea Operator",
+    "organization": "Site B Hospital",
+    "role": "operator"
+  },
+  "createdAt": "2026-10-20T00:00:00.000Z"
+}

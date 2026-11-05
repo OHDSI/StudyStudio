@@ -1,0 +1,143 @@
+{
+  "configVersion": "1.0.0",
+  "studyId": "ACEI_ANGIO_2026",
+  "studyTitle": "ACE inhibitors vs thiazides and angioedema (regulatory demo)",
+  "description": "Multi-site OMOP network study with regulatory assurance (demo).",
+  "principalInvestigator": "Demo PI",
+  "sponsor": "Demo Sponsor",
+  "cdmVersion": "5.4",
+  "issuedAt": "2026-11-01T09:00:00.000Z",
+  "minCellCount": 5,
+  "framework": {
+    "name": "Strategus",
+    "modules": [
+      "CohortGeneratorModule",
+      "CohortDiagnosticsModule",
+      "CohortMethodModule",
+      "SelfControlledCaseSeriesModule"
+    ]
+  },
+  "cohorts": [
+    {
+      "cohortId": 1781,
+      "cohortName": "New users of ACE inhibitors (Target)",
+      "roles": [
+        "target (CM)",
+        "exposure (SCCS)"
+      ]
+    },
+    {
+      "cohortId": 1782,
+      "cohortName": "New users of thiazide diuretics (Comparator)",
+      "roles": [
+        "comparator (CM)"
+      ]
+    },
+    {
+      "cohortId": 1783,
+      "cohortName": "Angioedema (Outcome)",
+      "roles": [
+        "outcome (CM)",
+        "outcome (SCCS)"
+      ]
+    }
+  ],
+  "expectedHashes": {
+    "definitions/analysisSpecifications.json": "f6be4c72a18b982f9e703268bc330ed55ca1e8ebfe7a1e7f51af9a6a3920de1f",
+    "code/renv.lock": "697aec8d1c6cbad5bdaaf3ec15e775d4e06f4db797cb9af5aaf14e256d833b9e"
+  },
+  "protectedSections": {
+    "code/ExecuteAnalyses.R": {
+      "marker": "DO NOT MODIFY BELOW THIS POINT",
+      "sha256": "a0fa243df0363ef61b74231c271744cd8dc4894768c826de12869a1009b8be33"
+    }
+  },
+  "assurance": "regulatory",
+  "dataQuality": {
+    "policyVersion": "studypack-dq-1",
+    "requireDqd": true,
+    "requireCheckResults": true,
+    "studyTables": [
+      "CONDITION_ERA",
+      "CONDITION_OCCURRENCE",
+      "DEVICE_EXPOSURE",
+      "DRUG_ERA",
+      "DRUG_EXPOSURE",
+      "MEASUREMENT",
+      "OBSERVATION",
+      "OBSERVATION_PERIOD",
+      "PERSON",
+      "PROCEDURE_OCCURRENCE",
+      "VISIT_OCCURRENCE"
+    ],
+    "errorSeverity": "block",
+    "rules": [
+      {
+        "id": "structural-conformance",
+        "severity": "block",
+        "match": {
+          "checkName": [
+            "cdmTable",
+            "cdmField",
+            "cdmDatatype",
+            "isRequired",
+            "isPrimaryKey",
+            "isForeignKey"
+          ],
+          "studyTablesOnly": true
+        },
+        "rationale": "Structural conformance failure on a table the study uses: cohort extraction is not well-defined."
+      },
+      {
+        "id": "study-table",
+        "severity": "warn",
+        "match": {
+          "studyTablesOnly": true
+        },
+        "rationale": "Data-quality failure on a table the study uses; the coordinator reviews its impact."
+      }
+    ],
+    "defaultFailedSeverity": "info"
+  },
+  "adoptionPolicy": {
+    "reasonCodes": [
+      {
+        "code": "INTEGRITY",
+        "label": "Pack integrity failure (hash mismatch, invalid manifest, invalid signature)"
+      },
+      {
+        "code": "PROTOCOL_DEVIATION",
+        "label": "Protocol deviation (analysis specification, protected code or renv.lock differs)"
+      },
+      {
+        "code": "PRIVACY",
+        "label": "Privacy violation (small cells or identifiers in results)"
+      },
+      {
+        "code": "DATA_QUALITY",
+        "label": "Data quality below the pre-specified gate"
+      },
+      {
+        "code": "CDM_REQUIREMENT",
+        "label": "CDM / vocabulary version does not meet the protocol"
+      },
+      {
+        "code": "DUPLICATE",
+        "label": "Duplicate submission for the same site (superseded)"
+      },
+      {
+        "code": "WITHDRAWN",
+        "label": "Site withdrew from the study"
+      },
+      {
+        "code": "OTHER",
+        "label": "Other (justification required)",
+        "requiresText": true
+      }
+    ]
+  },
+  "cdmRequirements": {
+    "cdmVersion": "5.4",
+    "vocabularyVersion": "v5.0 30-AUG-26"
+  }
+}

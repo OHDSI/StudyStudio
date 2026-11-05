@@ -66,7 +66,7 @@ export function SigningKeys({ roles, description }: { roles: SignerRole[]; descr
             <span className="font-medium">{s.signer.name}</span>
             <span className="text-muted-foreground">{s.signer.organization}</span>
             <Badge variant="outline">{s.signer.role}</Badge>
-            <Badge variant="secondary">signs as: {meaning}</Badge>
+            <Badge variant="secondary">{s.signer.role === 'coordinator' ? 'signs: protocol, roster, disposition log' : `signs as: ${meaning}`}</Badge>
             <code className="text-muted-foreground" title={s.kid}>{kidFingerprint(s.kid)}</code>
             <Button size="icon" variant="ghost" className="ml-auto" onClick={() => removeSigner(s.kid)} aria-label="Lock key"><Trash2 /></Button>
           </div>

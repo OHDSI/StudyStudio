@@ -4,6 +4,9 @@
  */
 import JSZip from 'jszip'
 import type { CrossSiteResult, LoadedSitePack, SiteVerdict } from '@/lib/network/aggregator'
+import type { SiteEvidence } from '@/lib/studypack/evidence'
+import { kidFingerprint, type DetachedJws, type SignatureCheck } from '@/lib/security/signer'
+import type { DispositionEntry } from '@/lib/network/dispositionLog'
 import { buildDefineXml, xmlEscape, type DefineXmlVersion } from '@/lib/cdisc/defineXml'
 import { combineSiteCsvs, serializeDatasetJson, type CombinedTable, type DatasetJsonVersion } from '@/lib/cdisc/datasetJson'
 import { parseMappingSpec, parseScanReport, type MappingSpec, type SourceTable } from '@/lib/cdisc/sources'
@@ -18,6 +21,11 @@ export interface SiteRow {
   site: LoadedSitePack
   verdict: SiteVerdict
   adopted: boolean
+  evidence?: SiteEvidence
+  /** Signature checks with roster enrollment applied. */
+  signatures?: SignatureCheck[]
+  /** Explicit decision recorded in the disposition log (undefined = following the recommendation, not yet decided). */
+  decision?: 'adopt' | 'exclude'
 }
 
 export interface ReportInput {
@@ -29,7 +37,44 @@ export interface ReportInput {
   generatedAt: string
   exportedFiles?: { path: string; sha256: string; sizeBytes: number }[]
   standards?: { defineXml: DefineXmlVersion; datasetJson: DatasetJsonVersion }
+  /** Disposition audit trail entries (R6). */
+  disposition?: readonly DispositionEntry[]
+  dispositionHead?: string
 }
+
+/** Latest decision entry per pack, for the disposition table. */
+function lastDecision(entries: readonly DispositionEntry[] | undefined, packSha256: string): DispositionEntry | undefined {
+  return [...(entries ?? [])].reverse().find((e) => (e.action === 'adopt' || e.action === 'exclude') && e.packSha256 === packSha256)
+}
+
+function signatureLine(c?: SignatureCheck[]): string {
+  if (!c?.length) return 'unsigned'
+  return c.map((x) => `${x.valid ? (x.enrolled ? '✅' : '⚠️') : '❌'} ${x.signer?.name ?? '?'} (${x.signer?.role ?? '?'}, ${x.meaning ?? '?'}, ${x.signedAt ?? '?'}, key ${kidFingerprint(x.kid)}${x.valid && !x.enrolled ? `; ${x.enrollmentIssue}` : ''})`).join('; ')
+}
+
+function dispositionRows(i: ReportInput) {
+  return i.rows.map((r) => {
+    const d = lastDecision(i.disposition, r.site.zipSha256)
+    return {
+      siteId: r.site.siteId,
+      pack: r.site.zipSha256,
+      recommended: r.verdict.recommended,
+      decision: r.decision ?? (r.adopted ? 'adopt (not recorded)' : 'exclude (not recorded)'),
+      code: d?.reasonCode ?? '—',
+      text: d?.reasonText ?? (r.verdict.reasons.join('; ') || '—'),
+      by: d ? `${d.actor.name} (${d.actor.role}${d.actor.organization ? `, ${d.actor.organization}` : ''})` : '—',
+      at: d?.at ?? '—',
+      deviates: !!d?.deviatesFromRecommendation,
+    }
+  })
+}
+
+const LIMITATIONS = [
+  'Seal, signature and decision times come from device clocks; no trusted time source is available offline. Seal times are only bounded by the protocol issue time and the coordinator receipt time.',
+  'Masked results and redacted logs are represented by salted commitments; the originals and their salts are retained at each site.',
+  'Data-quality evaluation checks the CDM’s internal consistency (OHDSI DQD); source-to-CDM reconciliation is documented by each data holder.',
+  'Exported datasets contain aggregate Strategus results, not patient-level SDTM/ADaM data.',
+]
 
 const standardsLine = (i: ReportInput) =>
   i.standards ? `CDISC Define-XML v${i.standards.defineXml} / Dataset-JSON v${i.standards.datasetJson}` : undefined
@@ -52,9 +97,9 @@ function siteFacts(r: SiteRow, cross: CrossSiteResult) {
     renv: st(PROTOCOL_PATHS.renvLock),
     dqd: pct(s.dqd?.percentPassed),
     cells: !a ? '—' : a.passed ? `✅ Passed (${a.files} files)` : `❌ ${a.smallCellCount + a.identifierCount} finding(s) in ${a.failing.length} file(s)`,
-    decision: r.adopted
-      ? r.verdict.recommended === 'exclude' ? 'Adopted (manual override)' : 'Adopted'
-      : r.verdict.recommended === 'adopt' ? 'Excluded (manual)' : 'Excluded',
+    decision: (r.adopted
+      ? r.verdict.recommended === 'exclude' ? 'Adopted (against recommendation)' : 'Adopted'
+      : r.verdict.recommended === 'adopt' ? 'Excluded (against recommendation)' : 'Excluded') + (r.decision ? '' : ' — not recorded'),
     reasons: r.verdict.reasons.join('; ') || '—',
   }
 }
@@ -106,8 +151,43 @@ export function buildMarkdownReport(i: ReportInput): string {
     L.push('')
   }
 
+  const lock = i.disposition?.find((e) => e.action === 'lock')
+  L.push('## 4. Site disposition', '')
+  L.push(`- **Assurance level:** ${i.config?.assurance ?? 'standard'}`)
+  L.push(`- **Exclusion reasons pre-specified in the protocol:** ${(i.config?.adoptionPolicy?.reasonCodes ?? []).map((r) => r.code).join(', ') || '— (default reason codes)'}`)
+  L.push(`- **Dispositions locked:** ${lock ? `yes — by ${lock.actor.name} at ${lock.at}. Attestation: “${lock.reasonText ?? ''}”` : 'no'}`, '')
+  L.push('| Site | Pack SHA-256 | Recommended | Decision | Reason code | Justification / reasons | Decided by | When (UTC) |', '|---|---|---|---|---|---|---|---|')
+  for (const d of dispositionRows(i))
+    L.push(`| ${mdCell(d.siteId)} | \`${short(d.pack)}\` | ${d.recommended} | **${d.decision}**${d.deviates ? ' ⚠️ against recommendation' : ''} | ${d.code} | ${mdCell(d.text)} | ${mdCell(d.by)} | ${d.at} |`)
+  L.push('')
+
+  L.push('## 5. Signatures, data quality and provenance', '')
+  L.push('| Site | Signatures | DQD gate (block/warn) | CDM / vocabulary | Log errors | Provenance & time issues |', '|---|---|---|---|---|---|')
+  for (const r of i.rows) {
+    const e = r.evidence
+    const cs = e?.provenance.cdmSource
+    const issues = e ? [...e.provenance.issues.map((x) => x.message), ...e.timeline.issues.map((x) => x.message)] : []
+    L.push(
+      `| ${mdCell(r.site.siteId)} | ${mdCell(signatureLine(r.signatures))} | ${e ? `${e.dqdGate.counts.block}/${e.dqdGate.counts.warn} (${e.dqdGate.checksEvaluated} checks, policy ${e.dqdPolicy.policyVersion})` : '—'} | ${cs ? mdCell(`${cs.cdmSourceName ?? '?'} · CDM ${cs.cdmVersion ?? '?'} · ${cs.vocabularyVersion ?? '?'}`) : '—'} | ${e?.log ? e.log.counts.ERROR + e.log.counts.FATAL : 'no log'} | ${mdCell(issues.join('; ') || '—')} |`,
+    )
+  }
+  L.push('')
+
+  if (i.disposition?.length) {
+    L.push('## 6. Disposition audit trail', '')
+    L.push(`Append-only; each entry carries the SHA-256 of the previous one. Head: \`${i.dispositionHead ?? '—'}\` (${i.disposition.length} entries).`, '')
+    L.push('| # | When (UTC) | Who | Action | Site | Change | Reason |', '|---|---|---|---|---|---|---|')
+    for (const e of i.disposition)
+      L.push(`| ${e.seq} | ${e.at} | ${mdCell(`${e.actor.name} (${e.actor.role})`)} | ${e.action} | ${mdCell(e.siteId ?? '—')} | ${e.to ? `${e.from ?? '—'} → ${e.to}` : '—'} | ${mdCell([e.reasonCode, e.reasonText].filter(Boolean).join(': ') || '—')} |`)
+    L.push('')
+  }
+
+  L.push('## Limitations', '')
+  for (const l of LIMITATIONS) L.push(`- ${l}`)
+  L.push('')
+
   if (i.exportedFiles?.length) {
-    L.push('## 4. Submission package contents', '')
+    L.push('## 7. Submission package contents', '')
     L.push('| File | SHA-256 | Bytes |', '|---|---|---|')
     for (const f of i.exportedFiles) L.push(`| \`${f.path}\` | \`${f.sha256}\` | ${f.sizeBytes} |`)
     L.push('')
@@ -148,10 +228,36 @@ Sites received ${i.rows.length} · adopted ${adopted} · excluded ${i.rows.lengt
 <h2>2. Site verification summary</h2>
 <table><tr><th>Site</th><th>Manifest</th><th>Analysis spec</th><th>ExecuteAnalyses.R</th><th>renv.lock</th><th>DQD</th><th>Small cells</th><th>Decision</th><th>Reasons</th></tr>
 ${rows}</table>
-${files ? `<h2>3. Submission package contents</h2><table><tr><th>File</th><th>SHA-256</th><th>Bytes</th></tr>${files}</table>` : ''}
+${htmlDisposition(i)}
+${files ? `<h2>7. Submission package contents</h2><table><tr><th>File</th><th>SHA-256</th><th>Bytes</th></tr>${files}</table>` : ''}
 <p class="foot">All processing was performed client-side; no data was transmitted to any server.</p>
 </body></html>
 `
+}
+
+function htmlDisposition(i: ReportInput): string {
+  const lock = i.disposition?.find((e) => e.action === 'lock')
+  const disp = dispositionRows(i)
+    .map((d) => `<tr><td>${xmlEscape(d.siteId)}</td><td><code>${short(d.pack)}</code></td><td>${d.recommended}</td><td><b>${xmlEscape(d.decision)}</b>${d.deviates ? ' ⚠️' : ''}</td><td>${xmlEscape(d.code)}</td><td>${xmlEscape(d.text)}</td><td>${xmlEscape(d.by)}</td><td>${d.at}</td></tr>`)
+    .join('\n')
+  const ev = i.rows
+    .map((r) => {
+      const e = r.evidence
+      const cs = e?.provenance.cdmSource
+      const issues = e ? [...e.provenance.issues.map((x) => x.message), ...e.timeline.issues.map((x) => x.message)] : []
+      return `<tr><td>${xmlEscape(r.site.siteId)}</td><td>${xmlEscape(signatureLine(r.signatures))}</td><td>${e ? `${e.dqdGate.counts.block}/${e.dqdGate.counts.warn}` : '—'}</td><td>${cs ? xmlEscape(`${cs.cdmSourceName ?? '?'} · CDM ${cs.cdmVersion ?? '?'} · ${cs.vocabularyVersion ?? '?'}`) : '—'}</td><td>${e?.log ? e.log.counts.ERROR + e.log.counts.FATAL : 'no log'}</td><td>${xmlEscape(issues.join('; ') || '—')}</td></tr>`
+    })
+    .join('\n')
+  const trail = (i.disposition ?? [])
+    .map((e) => `<tr><td>${e.seq}</td><td>${e.at}</td><td>${xmlEscape(`${e.actor.name} (${e.actor.role})`)}</td><td>${e.action}</td><td>${xmlEscape(e.siteId ?? '—')}</td><td>${e.to ? `${e.from ?? '—'} → ${e.to}` : '—'}</td><td>${xmlEscape([e.reasonCode, e.reasonText].filter(Boolean).join(': ') || '—')}</td></tr>`)
+    .join('\n')
+  return `<h2>4. Site disposition</h2>
+<p>Assurance: ${i.config?.assurance ?? 'standard'} · Dispositions locked: ${lock ? `yes — ${xmlEscape(lock.actor.name)} at ${lock.at}` : 'no'}</p>
+<table><tr><th>Site</th><th>Pack</th><th>Recommended</th><th>Decision</th><th>Code</th><th>Justification / reasons</th><th>Decided by</th><th>When (UTC)</th></tr>${disp}</table>
+<h2>5. Signatures, data quality and provenance</h2>
+<table><tr><th>Site</th><th>Signatures</th><th>DQD block/warn</th><th>CDM / vocabulary</th><th>Log errors</th><th>Issues</th></tr>${ev}</table>
+${trail ? `<h2>6. Disposition audit trail</h2><p>Head <code>${i.dispositionHead ?? '—'}</code></p><table><tr><th>#</th><th>When (UTC)</th><th>Who</th><th>Action</th><th>Site</th><th>Change</th><th>Reason</th></tr>${trail}</table>` : ''}
+<h2>Limitations</h2><ul>${LIMITATIONS.map((l) => `<li>${xmlEscape(l)}</li>`).join('')}</ul>`
 }
 
 const enc = new TextEncoder()
@@ -223,6 +329,8 @@ export async function buildRegulatoryExport(params: {
   /** "<Module>/<table>" keys to include; default all. */
   tables?: string[]
   now?: Date
+  /** Disposition audit trail to ship with the package (R6.4). */
+  disposition?: { entries: readonly DispositionEntry[]; jsonl: string; headHash: string; head: Uint8Array; headSignature?: DetachedJws }
 }): Promise<RegulatoryExport> {
   const standards = { defineXml: params.defineXmlVersion ?? '2.1', datasetJson: params.datasetJsonVersion ?? '1.1' } as const
   const generatedAt = (params.now ?? new Date()).toISOString()
@@ -311,11 +419,19 @@ export async function buildRegulatoryExport(params: {
     ...Object.entries(datasets).map(([path, text]) => ({ path, bytes: enc.encode(text), role: 'result' as FileRole })),
   ]
   for (const s of params.rows) {
-    const m = s.site.files['manifest.json']
-    if (m) content.push({ path: `sites/${safeId(s.site.siteId)}/manifest.json`, bytes: m, role: 'evidence' })
+    for (const f of ['manifest.json', 'manifest.jws.json', 'audit_report.json']) {
+      const b = s.site.files[f]
+      if (b) content.push({ path: `sites/${safeId(s.site.siteId)}/${f}`, bytes: b, role: 'evidence' })
+    }
+  }
+  const d = params.disposition
+  if (d) {
+    content.push({ path: 'disposition/disposition_log.jsonl', bytes: enc.encode(d.jsonl), role: 'evidence' })
+    content.push({ path: 'disposition/disposition_head.json', bytes: d.head, role: 'evidence' })
+    if (d.headSignature) content.push({ path: 'disposition/disposition_head.jws.json', bytes: enc.encode(JSON.stringify(d.headSignature, null, 2) + '\n'), role: 'evidence' })
   }
   const exportedFiles = await manifestEntries(content)
-  const reportInput: ReportInput = { ...params, generatedAt, exportedFiles, standards }
+  const reportInput: ReportInput = { ...params, generatedAt, exportedFiles, standards, disposition: d?.entries, dispositionHead: d?.headHash }
   const markdown = buildMarkdownReport(reportInput)
   const html = buildHtmlReport(reportInput)
   content.push({ path: 'audit_report.md', bytes: enc.encode(markdown), role: 'evidence' })
@@ -328,6 +444,8 @@ export async function buildRegulatoryExport(params: {
     roleMode: 'admin',
     generatedAt,
     cdmVersion: params.config?.cdmVersion ?? adopted[0].manifest?.cdmVersion ?? 'unknown',
+    assurance: params.config?.assurance ?? 'standard',
+    tool: { name: 'OHDSI Study Studio', version: APP_VERSION },
     files: await manifestEntries(content),
   }
   const zip = new JSZip()

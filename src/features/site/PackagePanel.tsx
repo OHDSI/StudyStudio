@@ -1,8 +1,11 @@
 import * as React from 'react'
-import { AlertTriangle, CheckCircle2, Download, Loader2, Lock, PackageCheck } from 'lucide-react'
-import { exportedMinCellCount, useStudyStore, type SlotFile } from '@/store/useStudyStore'
+import { AlertTriangle, Archive, CheckCircle2, Download, Loader2, Lock, PackageCheck, PenLine } from 'lucide-react'
+import { exportedMinCellCount, siteFiles, useStudyStore, type SlotFile } from '@/store/useStudyStore'
 import { evaluateReadiness } from '@/lib/studypack/readiness'
-import { buildStudyPack, packFileName, type BuiltPack, type ProtocolCheck } from '@/lib/studypack/builder'
+import { evaluateEvidence } from '@/lib/studypack/evidence'
+import { buildStudyPack, packFileName, retentionFileName, type BuiltPack, type ProtocolCheck } from '@/lib/studypack/builder'
+import { kidFingerprint } from '@/lib/security/signer'
+import { SigningKeys } from '@/features/common/SigningKeys'
 import { RESULTS_DIR, SLOT_BY_ID, type SlotId } from '@/lib/studypack/slots'
 import { hashesEqual } from '@/lib/integrity/hasher'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -15,18 +18,29 @@ import { StepHeader } from '@/features/common/StepHeader'
 import { download, formatBytes } from '@/lib/utils'
 
 export function PackagePanel() {
-  const { siteId, config, slots, results } = useStudyStore()
+  const { siteId, config, slots, results, signers, protocol } = useStudyStore()
   const exportedMin = React.useMemo(() => exportedMinCellCount(slots), [slots])
+  const evidence = React.useMemo(() => evaluateEvidence({ config, files: siteFiles({ slots, results }) }), [config, slots, results])
   const readiness = React.useMemo(
-    () => evaluateReadiness({ siteId, config, slots, results: results?.files ?? {}, exportedMinCellCount: exportedMin }),
-    [siteId, config, slots, results, exportedMin],
+    () =>
+      evaluateReadiness({
+        siteId,
+        config,
+        slots,
+        results: results?.files ?? {},
+        exportedMinCellCount: exportedMin,
+        evidence,
+        signers: signers.map((s) => ({ role: s.signer.signer.role })),
+        protocolSignature: protocol?.signatureChecks,
+      }),
+    [siteId, config, slots, results, exportedMin, evidence, signers, protocol],
   )
   const [built, setBuilt] = React.useState<BuiltPack>()
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string>()
 
   // Invalidate a previously built pack whenever inputs change.
-  React.useEffect(() => setBuilt(undefined), [siteId, config, slots, results])
+  React.useEffect(() => setBuilt(undefined), [siteId, config, slots, results, signers])
 
   const build = async () => {
     if (!config || !readiness.canPackage) return
@@ -45,7 +59,14 @@ export function PackagePanel() {
           return { path, kind: 'section' as const, expected: sec.sha256, actual, match: hashesEqual(actual, sec.sha256) }
         }),
       ]
+      const now = new Date()
       const pack = await buildStudyPack({
+        now,
+        assurance: config.assurance ?? 'standard',
+        protocolBytes: protocol?.bytes,
+        protocolSignatureBytes: protocol?.signatureBytes,
+        evidence: evaluateEvidence({ config, files: siteFiles({ slots, results }), sealedAt: now.toISOString() }),
+        signers,
         studyId: config.studyId,
         studyTitle: config.studyTitle,
         siteId: siteId.trim(),
@@ -53,13 +74,14 @@ export function PackagePanel() {
         minCellCount: config.minCellCount,
         exportedMinCellCount: exportedMin,
         files: [
-          ...entries.map(([id, f]) => ({ path: SLOT_BY_ID[id].path, role: SLOT_BY_ID[id].role, originalName: f.name, bytes: f.bytes, audit: f.audit, remediated: f.remediated })),
-          ...Object.entries(results?.files ?? {}).map(([p, f]) => ({ path: `${RESULTS_DIR}/${p}`, role: 'result' as const, originalName: p, bytes: f.bytes, audit: f.audit, remediated: f.remediated })),
+          ...entries.map(([id, f]) => ({ path: SLOT_BY_ID[id].path, role: SLOT_BY_ID[id].role, originalName: f.name, bytes: f.bytes, audit: f.audit, remediated: f.remediated, original: f.original, modification: f.modification })),
+          ...Object.entries(results?.files ?? {}).map(([p, f]) => ({ path: `${RESULTS_DIR}/${p}`, role: 'result' as const, originalName: p, bytes: f.bytes, audit: f.audit, remediated: f.remediated, original: f.original, modification: f.modification })),
         ],
         protocolChecks,
       })
       setBuilt(pack)
       download(pack.zipName, pack.zipBlob)
+      if (pack.retention.originals.length) download(retentionFileName(pack.manifest.siteId, pack.manifest.studyId), JSON.stringify(pack.retention, null, 2) + '\n', 'application/json')
     } catch (e) {
       setError(String(e))
     } finally {
@@ -72,6 +94,10 @@ export function PackagePanel() {
       <StepHeader n={3} title="Package & Download" description="After the audit passes, the SHA-256 of every file is sealed into manifest.json and the submission ZIP is produced." done={!!built} />
       <Card>
         <CardContent className="flex flex-col gap-4 pt-5">
+          <SigningKeys
+            roles={['operator', 'site-pi']}
+            description={`Sign manifest.json with your key (operator: "sealed", site PI: "approved for release"). ${config?.assurance === 'regulatory' ? 'Required for this regulatory study.' : 'Optional for this study.'} Signatures cover every file through its SHA-256.`}
+          />
           {readiness.blockers.length > 0 && (
             <Alert variant={readiness.privacyViolations ? 'destructive' : 'warning'}>
               <Lock />
@@ -119,6 +145,28 @@ export function PackagePanel() {
                   <Download /> Download again
                 </Button>
               </div>
+              {built.signature && (
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <PenLine className="size-4 text-success" /> Signed by
+                  {built.auditReport.signers?.map((s) => (
+                    <Badge key={s.kid} variant="success">{s.name} · {s.meaning} · {kidFingerprint(s.kid)}</Badge>
+                  ))}
+                </div>
+              )}
+              {built.retention.originals.length > 0 && (
+                <Alert variant="warning">
+                  <Archive />
+                  <AlertTitle>Keep the retention receipt and the originals at this site</AlertTitle>
+                  <AlertDescription>
+                    <p>
+                      {built.retention.originals.length} file(s) were masked or redacted. The StudyPack carries only salted commitments to the originals. The receipt <code>{retentionFileName(built.manifest.siteId, built.manifest.studyId)}</code> holds the salts that prove which originals you held — keep it with the unmasked files for the retention period and do not send it.
+                    </p>
+                    <Button size="sm" variant="outline" className="mt-2" onClick={() => download(retentionFileName(built.manifest.siteId, built.manifest.studyId), JSON.stringify(built.retention, null, 2) + '\n', 'application/json')}>
+                      <Download /> Save retention receipt again
+                    </Button>
+                  </AlertDescription>
+                </Alert>
+              )}
               <Table>
                 <TableHeader>
                   <TableRow>

@@ -3,13 +3,30 @@
  * audit_report.json, ro-crate-metadata.json and manifest.json, then zips it all in memory.
  */
 import JSZip from 'jszip'
-import { sha256Hex } from '@/lib/integrity/hasher'
+import { sha256Hex, sha256OfBlob } from '@/lib/integrity/hasher'
+import { commit } from '@/lib/integrity/commitment'
 import type { AuditResult } from '@/lib/audit/cellAuditor'
+import type { DqdFinding } from '@/lib/audit/dqdAuditor'
+import type { LogMessage } from '@/lib/audit/logAuditor'
+import type { ProvenanceReport } from '@/lib/provenance/cdmSource'
+import type { Timeline } from '@/lib/provenance/timeline'
+import { deviceNow } from '@/lib/provenance/timeline'
+import { addSignature, type DetachedJws, type SignatureMeaning, type UnlockedSigner } from '@/lib/security/signer'
+import type { SiteEvidence } from './evidence'
 import { GENERATED_PATHS } from './slots'
-import { PACK_VERSION, type FileRole, type ManifestFileEntry, type RoleMode, type StudyPackManifest } from '@/types/studypack'
+import { PACK_VERSION, type AssuranceLevel, type FileRole, type GateSeverity, type ManifestFileEntry, type RoleMode, type SourcedTime, type StudyPackManifest } from '@/types/studypack'
 
 export const APP_NAME = 'OHDSI Study Studio'
 export const APP_VERSION = '0.1.0'
+
+/** Why and how a file differs from what the site produced (R5.2). */
+export interface FileModification {
+  kind: 'small-cell-masking' | 'log-redaction'
+  rule: string
+  /** e.g. { maskedCells, droppedIdentifierColumns } or redactions per kind. */
+  counts: Record<string, number>
+  reason: string
+}
 
 export interface PackInputFile {
   /** Path inside the StudyPack, e.g. "code/renv.lock" or "results/CohortMethodModule/cm_result.csv". */
@@ -20,6 +37,9 @@ export interface PackInputFile {
   /** Audit result when the file is subject to the zero-PHI / small-cell audit. */
   audit?: AuditResult
   remediated?: boolean
+  /** The file before masking/redaction. Never packed: only a salted commitment to it is (R5.3). */
+  original?: Uint8Array
+  modification?: FileModification
 }
 
 export interface ProtocolCheck {
@@ -42,9 +62,64 @@ export interface BuildPackParams {
   files: PackInputFile[]
   protocolChecks?: ProtocolCheck[]
   now?: Date
+  assurance?: AssuranceLevel
+  /** study_config.json exactly as received, and the coordinator's signature over it, if any. */
+  protocolBytes?: Uint8Array
+  protocolSignatureBytes?: Uint8Array
+  evidence?: SiteEvidence
+  /** Each unlocked key signs manifest.json with the given meaning. */
+  signers?: { signer: UnlockedSigner; meaning: SignatureMeaning }[]
 }
 
-export interface SiteAuditReport {
+export interface ModificationRecord extends FileModification {
+  path: string
+  originalCommitment: string
+}
+
+export interface SiteAuditReportSections {
+  assurance?: AssuranceLevel
+  sealedAt?: SourcedTime
+  modifications?: ModificationRecord[]
+  dataQuality?: {
+    policySource: 'protocol' | 'derived'
+    policyVersion: string
+    policySha256: string
+    studyTables: string[]
+    present: boolean
+    checksEvaluated: number
+    counts: Record<GateSeverity, number>
+    findings: DqdFinding[]
+    metadata: SiteEvidence['dqdGate']['metadata']
+  }
+  provenance?: ProvenanceReport
+  executionLog?: {
+    lines: number
+    entries: number
+    firstTimestamp?: string
+    lastTimestamp?: string
+    counts: Record<string, number>
+    errors: LogMessage[]
+    warningCount: number
+    minCellCounts: number[]
+  }
+  timeline?: Timeline
+  signers?: { kid: string; name: string; organization: string; role: string; meaning: SignatureMeaning }[]
+}
+
+/** Kept at the site, never sent: lets the site prove later which originals it held (R5.4). */
+export interface RetentionReceipt {
+  format: 'studypack-retention-receipt/1'
+  notice: string
+  studyId: string
+  siteId: string
+  packFileName: string
+  packSha256: string
+  manifestSha256: string
+  sealedAt: SourcedTime
+  originals: { path: string; kind: FileModification['kind']; originalSha256: string; commitment: string; salt: string }[]
+}
+
+export interface SiteAuditReport extends SiteAuditReportSections {
   reportVersion: '1.0.0'
   tool: { name: string; version: string }
   studyId: string
@@ -74,6 +149,8 @@ export interface BuiltPack {
   rootDir: string
   manifest: StudyPackManifest
   auditReport: SiteAuditReport
+  signature?: DetachedJws
+  retention: RetentionReceipt
 }
 
 export function safeId(s: string): string {
@@ -100,7 +177,7 @@ function mimeOf(path: string): string {
   return 'application/octet-stream'
 }
 
-export function buildAuditReport(p: BuildPackParams, generatedAt: string): SiteAuditReport {
+export function buildAuditReport(p: BuildPackParams, generatedAt: string, sections: SiteAuditReportSections = {}): SiteAuditReport {
   const files = p.files
     .filter((f) => f.audit)
     .map((f) => {
@@ -129,10 +206,41 @@ export function buildAuditReport(p: BuildPackParams, generatedAt: string): SiteA
     passed: files.every((f) => f.passed),
     files,
     protocolChecks: p.protocolChecks ?? [],
+    ...sections,
+  }
+}
+
+async function evidenceSections(e: SiteEvidence): Promise<SiteAuditReportSections> {
+  const g = e.dqdGate
+  return {
+    dataQuality: {
+      policySource: e.dqdPolicySource,
+      policyVersion: e.dqdPolicy.policyVersion,
+      policySha256: await sha256Hex(JSON.stringify(e.dqdPolicy)),
+      studyTables: e.dqdPolicy.studyTables,
+      present: g.present,
+      checksEvaluated: g.checksEvaluated,
+      counts: g.counts,
+      findings: g.findings.filter((f) => f.severity !== 'info'),
+      metadata: g.metadata,
+    },
+    provenance: e.provenance,
+    executionLog: e.log && {
+      lines: e.log.lines,
+      entries: e.log.entries,
+      firstTimestamp: e.log.firstTimestamp,
+      lastTimestamp: e.log.lastTimestamp,
+      counts: e.log.counts,
+      errors: e.log.errors.slice(0, 20),
+      warningCount: e.log.counts.WARN,
+      minCellCounts: e.log.minCellCounts,
+    },
+    timeline: e.timeline,
   }
 }
 
 function buildRoCrate(p: BuildPackParams, generatedAt: string, entries: { path: string; size: number; role: FileRole }[]) {
+  const people = (p.signers ?? []).map(({ signer: s }) => ({ '@id': `#signer-${s.kid}`, '@type': 'Person', name: s.signer.name, affiliation: s.signer.organization, identifier: s.kid, jobTitle: s.signer.role }))
   return {
     '@context': 'https://w3id.org/ro/crate/1.1/context',
     '@graph': [
@@ -150,8 +258,10 @@ function buildRoCrate(p: BuildPackParams, generatedAt: string, entries: { path: 
         description: `StudyPack for study ${p.studyId} produced at site ${p.siteId} (OMOP CDM ${p.cdmVersion}, OHDSI Strategus).`,
         datePublished: generatedAt,
         sourceOrganization: { '@id': `#site-${safeId(p.siteId)}` },
+        ...(people.length ? { author: people.map((x) => ({ '@id': x['@id'] })) } : {}),
         hasPart: entries.map((e) => ({ '@id': e.path })),
       },
+      ...people,
       { '@id': `#site-${safeId(p.siteId)}`, '@type': 'Organization', name: p.siteId },
       { '@id': `#${safeId(APP_NAME)}`, '@type': 'SoftwareApplication', name: APP_NAME, version: APP_VERSION },
       ...entries.map((e) => ({
@@ -167,18 +277,52 @@ function buildRoCrate(p: BuildPackParams, generatedAt: string, entries: { path: 
 }
 
 /** Produce manifest entries (sorted by path) for a set of path → bytes. */
-export async function manifestEntries(files: { path: string; bytes: Uint8Array; role: FileRole }[]): Promise<ManifestFileEntry[]> {
+export async function manifestEntries(files: { path: string; bytes: Uint8Array; role: FileRole; originalCommitment?: string }[]): Promise<ManifestFileEntry[]> {
   const out = await Promise.all(
-    files.map(async (f) => ({ path: f.path, sha256: await sha256Hex(f.bytes), sizeBytes: f.bytes.byteLength, role: f.role })),
+    files.map(async (f) => ({
+      path: f.path,
+      sha256: await sha256Hex(f.bytes),
+      sizeBytes: f.bytes.byteLength,
+      role: f.role,
+      ...(f.originalCommitment ? { originalCommitment: f.originalCommitment } : {}),
+    })),
   )
   return out.sort((a, b) => a.path.localeCompare(b.path))
 }
 
 export async function buildStudyPack(p: BuildPackParams): Promise<BuiltPack> {
-  const generatedAt = (p.now ?? new Date()).toISOString()
-  const auditReport = buildAuditReport(p, generatedAt)
+  const now = p.now ?? new Date()
+  const generatedAt = now.toISOString()
+  const sealedAt = deviceNow(now)
 
-  const content: { path: string; bytes: Uint8Array; role: FileRole }[] = p.files.map((f) => ({ path: f.path, bytes: f.bytes, role: f.role }))
+  // Salted commitments to every original that was masked or redacted (R5.3).
+  const commitments = new Map<string, { commitment: string; salt: string; originalSha256: string; kind: FileModification['kind'] }>()
+  for (const f of p.files) {
+    if (!f.original || !f.modification) continue
+    const c = await commit(f.original)
+    commitments.set(f.path, { ...c, originalSha256: await sha256Hex(f.original), kind: f.modification.kind })
+  }
+  const modifications: ModificationRecord[] = p.files
+    .filter((f) => f.modification && commitments.has(f.path))
+    .map((f) => ({ path: f.path, ...f.modification!, originalCommitment: commitments.get(f.path)!.commitment }))
+
+  const sections: SiteAuditReportSections = {
+    assurance: p.assurance ?? 'standard',
+    sealedAt,
+    modifications,
+    ...(p.evidence ? await evidenceSections(p.evidence) : {}),
+    signers: (p.signers ?? []).map(({ signer: s, meaning }) => ({ kid: s.kid, name: s.signer.name, organization: s.signer.organization, role: s.signer.role, meaning })),
+  }
+  const auditReport = buildAuditReport(p, generatedAt, sections)
+
+  const content: { path: string; bytes: Uint8Array; role: FileRole; originalCommitment?: string }[] = p.files.map((f) => ({
+    path: f.path,
+    bytes: f.bytes,
+    role: f.role,
+    originalCommitment: commitments.get(f.path)?.commitment,
+  }))
+  if (p.protocolBytes) content.push({ path: GENERATED_PATHS.protocol, bytes: p.protocolBytes, role: 'definition' })
+  if (p.protocolSignatureBytes) content.push({ path: GENERATED_PATHS.protocolSignature, bytes: p.protocolSignatureBytes, role: 'definition' })
   content.push({ path: GENERATED_PATHS.auditReport, bytes: json(auditReport), role: 'evidence' })
 
   const roCrate = buildRoCrate(p, generatedAt, content.map((c) => ({ path: c.path, size: c.bytes.byteLength, role: c.role })))
@@ -191,16 +335,41 @@ export async function buildStudyPack(p: BuildPackParams): Promise<BuiltPack> {
     roleMode: p.roleMode ?? 'site',
     generatedAt,
     cdmVersion: p.cdmVersion,
+    assurance: p.assurance ?? 'standard',
+    tool: { name: APP_NAME, version: APP_VERSION },
+    sealedAt,
     files: await manifestEntries(content),
   }
+  const manifestBytes = json(manifest)
+
+  // Each signature covers the exact manifest bytes, which list the SHA-256 of every other file (R1.2).
+  let signature: DetachedJws | undefined
+  for (const s of p.signers ?? []) signature = await addSignature(signature, manifestBytes, s.signer, s.meaning, now)
 
   const rootDir = packRootDir(p.studyId)
   const zip = new JSZip()
   const root = zip.folder(rootDir)!
-  const date = p.now ?? new Date()
-  for (const c of content) root.file(c.path, c.bytes, { date })
-  root.file(GENERATED_PATHS.manifest, json(manifest), { date })
+  for (const c of content) root.file(c.path, c.bytes, { date: now })
+  root.file(GENERATED_PATHS.manifest, manifestBytes, { date: now })
+  if (signature) root.file(GENERATED_PATHS.manifestSignature, json(signature), { date: now })
 
   const zipBlob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } })
-  return { zipBlob, zipName: packFileName(p.siteId, p.studyId), rootDir, manifest, auditReport }
+  const zipName = packFileName(p.siteId, p.studyId)
+  const retention: RetentionReceipt = {
+    format: 'studypack-retention-receipt/1',
+    notice:
+      'Keep this file at the site with the unmasked originals for the retention period. It is not part of the StudyPack and must not be sent: the salts let anyone holding the originals prove they match the commitments in manifest.json.',
+    studyId: p.studyId,
+    siteId: p.siteId,
+    packFileName: zipName,
+    packSha256: await sha256OfBlob(zipBlob),
+    manifestSha256: await sha256Hex(manifestBytes),
+    sealedAt,
+    originals: [...commitments.entries()].map(([path, c]) => ({ path, kind: c.kind, originalSha256: c.originalSha256, commitment: c.commitment, salt: c.salt })),
+  }
+  return { zipBlob, zipName, rootDir, manifest, auditReport, signature, retention }
+}
+
+export function retentionFileName(siteId: string, studyId: string): string {
+  return `${safeId(siteId)}_${safeId(studyId)}.retention.json`
 }

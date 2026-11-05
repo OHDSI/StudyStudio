@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { FileCog, FileJson, RotateCcw } from 'lucide-react'
+import { FileCog, FileJson, RotateCcw, ShieldAlert, ShieldCheck } from 'lucide-react'
+import { kidFingerprint } from '@/lib/security/signer'
 import { useStudyStore } from '@/store/useStudyStore'
 import { readProtocolFile } from '@/lib/strategus/protocol'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -22,7 +23,7 @@ export function ProtocolImport() {
     const f = files[0]
     const res = await readProtocolFile(f.name, f.bytes)
     setErrors(res.errors)
-    if (res.config) await setConfig(res.config, res.files)
+    if (res.config) await setConfig(res.config, res.files, res)
   }
 
   const applyManual = async () => {
@@ -106,11 +107,13 @@ function ConfigSummary({ config, onReset }: { config: StudyConfig; onReset: () =
           </div>
         </div>
         <Badge variant="secondary">{config.framework?.name ?? 'Strategus'}</Badge>
+        {config.assurance === 'regulatory' ? <Badge variant="default">Regulatory assurance</Badge> : <Badge variant="outline">Standard assurance</Badge>}
         <Badge variant="warning">Suppress: 0 &lt; n &lt; {config.minCellCount}</Badge>
         <Button variant="ghost" size="sm" className="ml-auto" onClick={onReset}>
           <RotateCcw /> Change
         </Button>
       </div>
+      <ProtocolSignature />
       {config.framework?.modules.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
           <span className="text-muted-foreground">Modules</span>
@@ -153,6 +156,28 @@ function ConfigSummary({ config, onReset }: { config: StudyConfig; onReset: () =
           </CardContent>
         </Card>
       )}
+    </div>
+  )
+}
+
+function ProtocolSignature() {
+  const checks = useStudyStore((s) => s.protocol?.signatureChecks)
+  if (!checks?.length) return <div className="flex items-center gap-1 text-xs text-muted-foreground"><ShieldAlert className="size-3.5" /> The protocol is not signed by the coordinator.</div>
+  return (
+    <div className="flex flex-col gap-1 text-xs">
+      {checks.map((c, i) => (
+        <div key={i} className={c.valid ? 'flex items-center gap-1 text-success' : 'flex items-center gap-1 text-destructive'}>
+          {c.valid ? <ShieldCheck className="size-3.5" /> : <ShieldAlert className="size-3.5" />}
+          {c.valid ? (
+            <span>
+              Issued and signed by <b>{c.signer?.name}</b> ({c.signer?.organization}) at {c.signedAt} · key <code>{kidFingerprint(c.kid)}</code>
+              <span className="text-muted-foreground"> — confirm this fingerprint with the coordinator</span>
+            </span>
+          ) : (
+            <span>Invalid coordinator signature{c.error ? `: ${c.error}` : ''} — the protocol may have been altered</span>
+          )}
+        </div>
+      ))}
     </div>
   )
 }

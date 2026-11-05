@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { auditCsvText } from '@/lib/audit/cellAuditor'
 import { evaluateReadiness } from './readiness'
+import { evaluateEvidence } from './evidence'
 import type { StudyConfig } from '@/types/studypack'
 
 const config = {
@@ -16,6 +17,7 @@ const slots = {
   renvLock: { name: 'r', sha256: 'a'.repeat(64) },
   executeAnalyses: { name: 'e', sha256: 'whatever-the-site-typed', protectedSha256: 'b'.repeat(64) },
 }
+const signers = [{ role: 'operator' }]
 const result = (csv: string) => ({ 'CohortGeneratorModule/cg_cohort_count.csv': { name: 'cg', sha256: 'x', audit: auditCsvText(csv, 'cg', { countColumns: ['cohort_subjects'] }) } })
 
 describe('evaluateReadiness', () => {
@@ -23,7 +25,7 @@ describe('evaluateReadiness', () => {
     const dirty = evaluateReadiness({ siteId: 'A', config, slots, results: result('cohort_id,cohort_subjects\n1,3\n') })
     expect(dirty.canPackage).toBe(false)
     expect(dirty.privacyViolations).toBe(1)
-    const clean = evaluateReadiness({ siteId: 'A', config, slots, results: result('cohort_id,cohort_subjects\n1,-5\n') })
+    const clean = evaluateReadiness({ siteId: 'A', config, slots, signers, results: result('cohort_id,cohort_subjects\n1,-5\n') })
     expect(clean.canPackage).toBe(true)
     expect(clean.warnings).toEqual([])
   })
@@ -34,7 +36,7 @@ describe('evaluateReadiness', () => {
     expect(r.blockers.length).toBeGreaterThanOrEqual(6)
   })
   it('compares ExecuteAnalyses.R on its protected section only, and warns on a lower exported minCellCount', () => {
-    const ok = evaluateReadiness({ siteId: 'A', config, slots, results: result('cohort_id,cohort_subjects\n1,9\n') })
+    const ok = evaluateReadiness({ siteId: 'A', config, slots, signers, results: result('cohort_id,cohort_subjects\n1,9\n') })
     expect(ok.warnings).toEqual([])
     const edited = evaluateReadiness({
       siteId: 'A',
@@ -46,5 +48,23 @@ describe('evaluateReadiness', () => {
     expect(edited.canPackage).toBe(true)
     expect(edited.warnings.join('\n')).toMatch(/differs from the protocol/)
     expect(edited.warnings.join('\n')).toMatch(/minCellCount 0/)
+  })
+  it('warns about a missing signature in standard mode and blocks it in regulatory mode', () => {
+    const std = evaluateReadiness({ siteId: 'A', config, slots, results: result('cohort_id,cohort_subjects\n1,9\n') })
+    expect(std.canPackage).toBe(true)
+    expect(std.warnings).toEqual(['The StudyPack will not be signed (no signing key unlocked)'])
+    const reg = evaluateReadiness({ siteId: 'A', config: { ...config, assurance: 'regulatory' }, slots, results: result('cohort_id,cohort_subjects\n1,9\n') })
+    expect(reg.canPackage).toBe(false)
+    expect(reg.blockers.join('\n')).toMatch(/must be signed/)
+  })
+  it('turns regulatory evidence findings into blockers', () => {
+    const evidence = evaluateEvidence({ config: { ...config, assurance: 'regulatory' }, files: {} })
+    const r = evaluateReadiness({ siteId: 'A', config: { ...config, assurance: 'regulatory' }, slots, signers, results: result('cohort_id,cohort_subjects\n1,9\n'), evidence })
+    const text = r.blockers.join('\n')
+    expect(text).toMatch(/Data quality \(dqd-missing\)/)
+    expect(text).toMatch(/cdm_source/)
+    expect(text).toMatch(/execution log is missing/)
+    const std = evaluateEvidence({ config, files: {} })
+    expect(evaluateReadiness({ siteId: 'A', config, slots, signers, results: result('cohort_id,cohort_subjects\n1,9\n'), evidence: std }).canPackage).toBe(true)
   })
 })

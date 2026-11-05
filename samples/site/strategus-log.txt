@@ -1,0 +1,10 @@
+2026-11-02 01:00:00	[Main thread]	INFO	Strategus	execute	Strategus 1.2.0 — executing analysis specification
+Connecting using PostgreSQL driver: server = "db01.site_a.local/cdm", user = "omop_admin", password = "demo-only"
+2026-11-02 01:00:02	[Main thread]	INFO	Strategus	execute	minCellCount = 5
+2026-11-02 01:00:05	[Main thread]	INFO	Strategus	execute	Running CohortGeneratorModule
+2026-11-02 01:20:44	[Main thread]	INFO	Strategus	execute	Running CohortDiagnosticsModule
+2026-11-02 01:41:10	[Main thread]	INFO	Strategus	execute	Running CohortMethodModule
+2026-11-02 02:55:31	[Main thread]	WARN	CohortMethod	fitOutcomeModel	High correlation between a covariate and treatment; covariate excluded
+2026-11-02 03:02:09	[Main thread]	INFO	Strategus	execute	Running SelfControlledCaseSeriesModule
+2026-11-02 03:40:57	[Main thread]	INFO	Strategus	execute	Results written to /home/analyst/acei_angio_2026/results/Site_A
+2026-11-02 03:41:02	[Main thread]	INFO	Strategus	execute	Finished

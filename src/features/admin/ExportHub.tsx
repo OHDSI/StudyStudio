@@ -1,6 +1,8 @@
 import * as React from 'react'
 import { Download, FileCode, FileText, Loader2, Package, Printer, ScrollText } from 'lucide-react'
 import { useNetworkAnalysis } from './useNetworkAnalysis'
+import { useStudyStore } from '@/store/useStudyStore'
+import { addSignature } from '@/lib/security/signer'
 import { buildHtmlReport, buildMarkdownReport, buildRegulatoryExport, listResultTables, type RegulatoryExport } from '@/lib/export/regulatory'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -34,7 +36,9 @@ function printHtml(html: string) {
 }
 
 export function ExportHub() {
-  const { rows, cross, config, sites } = useNetworkAnalysis()
+  const { rows, cross, config, sites, log, locked, regulatory } = useNetworkAnalysis()
+  const logExport = useStudyStore((s) => s.logExport)
+  const coordinator = useStudyStore((s) => s.signers.find((x) => x.signer.signer.role === 'coordinator')?.signer)
   const [out, setOut] = React.useState<RegulatoryExport>()
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string>()
@@ -59,9 +63,9 @@ export function ExportHub() {
   // The network audit report depends only on the verification state, not on the submission standards.
   const report = React.useMemo(() => {
     if (rows.length === 0) return undefined
-    const input = { studyId, studyTitle, config, cross, rows, generatedAt: new Date().toISOString() }
+    const input = { studyId, studyTitle, config, cross, rows, generatedAt: new Date().toISOString(), disposition: log.entries, dispositionHead: log.headHash }
     return { markdown: buildMarkdownReport(input), html: buildHtmlReport(input) }
-  }, [studyId, studyTitle, config, cross, rows])
+  }, [studyId, studyTitle, config, cross, rows, log])
 
   React.useEffect(() => setOut(undefined), [rows, config, defineXmlVersion, datasetJsonVersion, deselected])
 
@@ -69,7 +73,24 @@ export function ExportHub() {
     setBusy(true)
     setError(undefined)
     try {
-      setOut(await buildRegulatoryExport({ studyId, studyTitle, config, cross, rows, defineXmlVersion, datasetJsonVersion, tables: selectedKeys }))
+      if (regulatory && !locked) throw new Error('Lock the site dispositions (Multi-Site Aggregator) before generating the submission package')
+      // The export is itself an audit-trail event (EMA-CS §6.2.1), recorded before the log is packaged.
+      await logExport({ standards: { defineXml: defineXmlVersion, datasetJson: datasetJsonVersion }, tables: selectedKeys, adoptedSites: adopted.map((r) => r.site.siteId) })
+      const head = log.headBytes(studyId)
+      const headSignature = coordinator ? await addSignature(undefined, head, coordinator, 'disposition-exported') : undefined
+      setOut(
+        await buildRegulatoryExport({
+          studyId,
+          studyTitle,
+          config,
+          cross,
+          rows,
+          defineXmlVersion,
+          datasetJsonVersion,
+          tables: selectedKeys,
+          disposition: { entries: log.entries, jsonl: log.toJsonl(), headHash: log.headHash, head, headSignature },
+        }),
+      )
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -186,7 +207,8 @@ export function ExportHub() {
             </details>
           )}
           <div className="flex flex-wrap gap-2">
-            <Button disabled={!adopted.length || !selectedKeys.length || busy} onClick={generate}>
+            {regulatory && !locked && <span className="self-center text-xs text-amber-700">Regulatory study: lock the site dispositions first.</span>}
+            <Button disabled={!adopted.length || !selectedKeys.length || busy || (regulatory && !locked)} onClick={generate}>
               {busy ? <Loader2 className="animate-spin" /> : <FileCode />} Generate submission package
             </Button>
             {!adopted.length && rows.length > 0 && <span className="self-center text-xs text-muted-foreground">Adopt at least one site to build the package.</span>}

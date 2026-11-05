@@ -10,8 +10,10 @@ import type { SiteAuditReport } from '@/lib/studypack/builder'
 import { auditResultFiles, summarizeResultsAudit, type ResultsAuditSummary } from '@/lib/strategus/results'
 import { executionSettingsMinCellCount, PROTECTED_MARKER, protectedSectionHash } from '@/lib/strategus/executeScript'
 import { PROTOCOL_PATHS } from '@/lib/strategus/protocol'
-import type { ProtectedSection, StudyPackManifest } from '@/types/studypack'
+import type { ProtectedSection, StudyConfig, StudyPackManifest } from '@/types/studypack'
 import { summarizeDqd, type DqdSummary } from './dqd'
+import { parseJws, verifyDetachedJws, type DetachedJws, type SignatureCheck } from '@/lib/security/signer'
+import { judgeEvidence, type SiteEvidence } from '@/lib/studypack/evidence'
 
 /** Artifacts every site must share. */
 export const PROTOCOL_KEY_PATHS = [PROTOCOL_PATHS.analysisSpecifications, PROTOCOL_PATHS.executeAnalyses, PROTOCOL_PATHS.renvLock] as const
@@ -54,6 +56,13 @@ export interface LoadedSitePack {
   reAuditFiles?: Map<string, AuditResult>
   exportedMinCellCount?: number
   dqd?: DqdSummary
+  /** Coordinator's receipt time (device clock). */
+  receivedAt: string
+  signature?: DetachedJws
+  /** Cryptographic checks of manifest.jws.json against manifest.json (roster-independent). */
+  signatureChecks: SignatureCheck[]
+  /** The protocol the site sealed with (protocol/study_config.json), when included. */
+  sealedProtocol?: StudyConfig
 }
 
 const dec = new TextDecoder()
@@ -87,7 +96,7 @@ function parseJson<T>(bytes?: Uint8Array): T | undefined {
   }
 }
 
-export async function loadStudyPack(fileName: string, data: ArrayBuffer | Uint8Array, minCellCount = 5): Promise<LoadedSitePack> {
+export async function loadStudyPack(fileName: string, data: ArrayBuffer | Uint8Array, minCellCount = 5, now = new Date()): Promise<LoadedSitePack> {
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data)
   const zipSha256 = await sha256Hex(bytes)
   const errors: string[] = []
@@ -107,6 +116,8 @@ export async function loadStudyPack(fileName: string, data: ArrayBuffer | Uint8A
     files: {},
     fileHashes: {},
     sectionHashes: {},
+    receivedAt: now.toISOString(),
+    signatureChecks: [],
   }
   if (!zip) return empty
 
@@ -155,10 +166,22 @@ export async function loadStudyPack(fileName: string, data: ArrayBuffer | Uint8A
     else if (files[f.path].byteLength !== f.sizeBytes) mismatched.push({ path: f.path, expected: `${f.sizeBytes} bytes`, actual: `${files[f.path].byteLength} bytes` })
     else verifiedCount++
   }
-  const unlisted = Object.keys(files).filter((p) => p !== GENERATED_PATHS.manifest && !listed.has(p))
+  const unlisted = Object.keys(files).filter((p) => p !== GENERATED_PATHS.manifest && p !== GENERATED_PATHS.manifestSignature && !listed.has(p))
   const status: IntegrityStatus = errors.length > 0 ? 'invalid' : mismatched.length || missing.length || unlisted.length ? 'tampered' : 'verified'
 
   const auditReport = parseJson<SiteAuditReport>(files[GENERATED_PATHS.auditReport])
+
+  let signature: DetachedJws | undefined
+  let signatureChecks: SignatureCheck[] = []
+  const sigBytes = files[GENERATED_PATHS.manifestSignature]
+  if (sigBytes) {
+    try {
+      signature = parseJws(parseJson(sigBytes))
+      signatureChecks = await verifyDetachedJws(signature, files[GENERATED_PATHS.manifest])
+    } catch (e) {
+      signatureChecks = [{ kid: '?', valid: false, enrolled: false, error: e instanceof Error ? e.message : String(e) }]
+    }
+  }
   const resultFiles = Object.entries(files)
     .filter(([p]) => p.startsWith(RESULTS_DIR + '/') && p.endsWith('.csv'))
     .map(([p, b]) => ({ path: p.slice(RESULTS_DIR.length + 1), bytes: b }))
@@ -181,6 +204,10 @@ export async function loadStudyPack(fileName: string, data: ArrayBuffer | Uint8A
     reAuditFiles,
     exportedMinCellCount: executionSettingsMinCellCount(parseJson(files['code/executionSettings.json'])),
     dqd: summarizeDqd(parseJson(files['evidence/dqd_results.json'])),
+    receivedAt: now.toISOString(),
+    signature,
+    signatureChecks,
+    sealedProtocol: parseJson<StudyConfig>(files[GENERATED_PATHS.protocol]),
   }
 }
 
@@ -238,20 +265,46 @@ export function crossCheckSites(
 export interface SiteVerdict {
   recommended: 'adopt' | 'exclude'
   reasons: string[]
+  /** Pre-specified reason codes (dispositionLog DEFAULT_REASON_CODES) the reasons fall under. */
+  codes: string[]
 }
 
-export function siteVerdict(site: LoadedSitePack, cross: CrossSiteResult, expectedStudyId?: string, allSites: LoadedSitePack[] = []): SiteVerdict {
+export interface VerdictContext {
+  config?: StudyConfig
+  evidence?: SiteEvidence
+  /** Signature checks with roster enrollment applied. */
+  signatures?: SignatureCheck[]
+}
+
+export function siteVerdict(site: LoadedSitePack, cross: CrossSiteResult, expectedStudyId?: string, allSites: LoadedSitePack[] = [], ctx: VerdictContext = {}): SiteVerdict {
   const reasons: string[] = []
-  if (allSites.filter((s) => s.siteId === site.siteId).length > 1) reasons.push(`Duplicate Site ID (${site.siteId}) — only one package per site can be adopted`)
-  if (site.integrity.status === 'invalid') reasons.push('Invalid manifest')
-  if (site.integrity.status === 'tampered') reasons.push('Tampering detected (hash mismatch)')
-  if (expectedStudyId && site.studyId !== expectedStudyId) reasons.push(`Study ID mismatch (${site.studyId || '—'})`)
+  const codes = new Set<string>()
+  const add = (code: string, reason: string) => {
+    reasons.push(reason)
+    codes.add(code)
+  }
+  if (allSites.filter((s) => s.siteId === site.siteId).length > 1) add('DUPLICATE', `Duplicate Site ID (${site.siteId}) — only one package per site can be adopted`)
+  if (site.integrity.status === 'invalid') add('INTEGRITY', 'Invalid manifest')
+  if (site.integrity.status === 'tampered') add('INTEGRITY', 'Tampering detected (hash mismatch)')
+  if (expectedStudyId && site.studyId !== expectedStudyId) add('PROTOCOL_DEVIATION', `Study ID mismatch (${site.studyId || '—'})`)
+  const cfg = ctx.config
+  if (cfg && site.sealedProtocol && (site.sealedProtocol.issuedAt !== cfg.issuedAt || site.sealedProtocol.studyId !== cfg.studyId))
+    add('PROTOCOL_DEVIATION', `Sealed with a different protocol issue (${site.sealedProtocol.issuedAt ?? '—'})`)
   for (const [p, r] of Object.entries(cross.perSite[site.key] ?? {})) {
     const name = p.split('/').pop()
-    if (r.status === 'mismatch') reasons.push(`${name} ${cross.references[p]?.kind === 'section' ? 'protected section' : 'definition'} mismatch`)
-    if (r.status === 'missing') reasons.push(`${name} missing`)
+    if (r.status === 'mismatch') add('PROTOCOL_DEVIATION', `${name} ${cross.references[p]?.kind === 'section' ? 'protected section' : 'definition'} mismatch`)
+    if (r.status === 'missing') add('PROTOCOL_DEVIATION', `${name} missing`)
   }
-  if (!site.reAudit) reasons.push('No Strategus results')
-  else if (!site.reAudit.passed) reasons.push(`${site.reAudit.smallCellCount + site.reAudit.identifierCount} small-cell/identifier finding(s) in ${site.reAudit.failing.length} result file(s)`)
-  return { recommended: reasons.length ? 'exclude' : 'adopt', reasons }
+  if (!site.reAudit) add('INTEGRITY', 'No Strategus results')
+  else if (!site.reAudit.passed) add('PRIVACY', `${site.reAudit.smallCellCount + site.reAudit.identifierCount} small-cell/identifier finding(s) in ${site.reAudit.failing.length} result file(s)`)
+
+  const sigs = ctx.signatures ?? site.signatureChecks
+  for (const s of sigs.filter((x) => !x.valid)) add('INTEGRITY', `Invalid signature${s.signer ? ` by ${s.signer.name}` : ''}${s.error ? ` (${s.error})` : ''}`)
+  if (cfg?.assurance === 'regulatory') {
+    if (!sigs.some((s) => s.valid && s.enrolled)) add('INTEGRITY', sigs.some((s) => s.valid) ? `No signature by an enrolled signer (${sigs.map((s) => s.enrollmentIssue).filter(Boolean).join('; ')})` : 'Not signed')
+    if (ctx.evidence) {
+      for (const b of judgeEvidence(ctx.evidence).blockers) add(b.startsWith('Data quality') ? 'DATA_QUALITY' : b.startsWith('Provenance') && /requires|version/.test(b) ? 'CDM_REQUIREMENT' : 'PROTOCOL_DEVIATION', b)
+    }
+  }
+  return { recommended: reasons.length ? 'exclude' : 'adopt', reasons, codes: [...codes] }
 }

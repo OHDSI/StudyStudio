@@ -103,3 +103,59 @@ describe('cross-site verification (demo network)', () => {
     expect(siteVerdict(a1, cross, undefined, [a1, a2]).reasons.join()).toContain('Duplicate Site ID')
   })
 })
+
+describe('regulatory controls end to end', () => {
+  it('sample packs carry clean evidence, a sealed protocol and log commitments', async () => {
+    const { evaluateEvidence, judgeEvidence } = await import('@/lib/studypack/evidence')
+    const s = await network()
+    const a = s.Site_A
+    const e = evaluateEvidence({ config, files: a.files, sealedAt: a.manifest?.sealedAt?.utc, receivedAt: '2026-11-05T00:00:00Z' })
+    expect(judgeEvidence(e)).toEqual({ blockers: [], warnings: [] })
+    expect(e.dqdGate.counts).toEqual({ block: 0, warn: 0, info: 1 })
+    expect(a.sealedProtocol?.issuedAt).toBe(config.issuedAt)
+    const log = a.manifest!.files.find((f) => f.path === 'logs/execution.log')!
+    expect(log.originalCommitment).toMatch(/^[0-9a-f]{64}$/)
+    expect(new TextDecoder().decode(a.files['logs/execution.log'])).not.toContain('omop_admin')
+  })
+
+  it('signs, verifies against the roster, and recommends exclusion of unsigned packs in regulatory mode', async () => {
+    const { createKeyFile, unlockKeyFile, withEnrollment } = await import('@/lib/security/signer')
+    const { commit } = await import('@/lib/integrity/commitment')
+    const kf = await createKeyFile({ name: 'Op', organization: 'X', role: 'operator' }, 'long enough passphrase', { iterations: 1000 })
+    const signer = await unlockKeyFile(kf, 'long enough passphrase')
+    const original = enc.encode('database_id,cohort_id,cohort_subjects\nX,1,3\n')
+    const masked: PackInputFile = {
+      path: 'results/CohortGeneratorModule/cg_cohort_count.csv',
+      role: 'result',
+      originalName: 'cg_cohort_count.csv',
+      bytes: enc.encode('database_id,cohort_id,cohort_subjects\nX,1,-5\n'),
+      original,
+      modification: { kind: 'small-cell-masking', rule: 'r', counts: { maskedCells: 1 }, reason: 'x' },
+    }
+    const built = await buildStudyPack({ studyId: 'S', siteId: 'Site_A', cdmVersion: '5.4', minCellCount: 5, files: [masked], signers: [{ signer, meaning: 'sealed' }] })
+    // The retention receipt's salt reproduces the commitment in the manifest; the plain hash does not appear.
+    const r = built.retention.originals[0]
+    expect((await commit(original, r.salt)).commitment).toBe(built.manifest.files.find((f) => f.path === masked.path)!.originalCommitment)
+    expect(JSON.stringify(built.manifest)).not.toContain(r.originalSha256)
+
+    const loaded = await loadStudyPack(built.zipName, new Uint8Array(await built.zipBlob.arrayBuffer()))
+    expect(loaded.integrity.status).toBe('verified')
+    expect(loaded.signatureChecks).toMatchObject([{ valid: true, meaning: 'sealed' }])
+    const roster = { format: 'studypack-signer-roster/1' as const, studyId: 'S', signers: [{ kid: signer.kid, name: 'Op', organization: 'X', role: 'operator' as const, siteId: 'Site_A', enrolledAt: '2000-01-01T00:00:00Z', verifiedBy: 'C', verificationMethod: 'video' }] }
+    expect(withEnrollment(loaded.signatureChecks, roster, 'Site_A')[0].enrolled).toBe(true)
+
+    const reg = { ...config, studyId: 'S', assurance: 'regulatory' as const }
+    const cross = crossCheckSites([loaded])
+    const unsignedVerdict = siteVerdict({ ...loaded, signatureChecks: [] }, cross, 'S', [loaded], { config: reg, signatures: [] })
+    expect(unsignedVerdict.reasons).toContain('Not signed')
+    expect(unsignedVerdict.codes).toContain('INTEGRITY')
+
+    // Any change to a signed pack's manifest invalidates the signature.
+    const zip = await JSZip.loadAsync(await built.zipBlob.arrayBuffer())
+    const mp = Object.keys(zip.files).find((p) => p.endsWith('/manifest.json'))!
+    zip.file(mp, (await zip.file(mp)!.async('string')).replace('"Site_A"', '"Site_Z"'))
+    const forged = await loadStudyPack('f.zip', await zip.generateAsync({ type: 'uint8array' }))
+    expect(forged.signatureChecks[0].valid).toBe(false)
+    expect(siteVerdict(forged, crossCheckSites([forged]), 'S').reasons.some((x) => x.startsWith('Invalid signature'))).toBe(true)
+  })
+})

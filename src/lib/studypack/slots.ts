@@ -9,6 +9,7 @@ export type SlotId =
   | 'executeAnalyses'
   | 'renvLock'
   | 'executionSettings'
+  | 'executionLog'
 
 export interface SlotDef {
   id: SlotId
@@ -34,6 +35,7 @@ export const SLOTS: SlotDef[] = [
   { id: 'executeAnalyses', path: 'code/ExecuteAnalyses.R', role: 'code', label: 'ExecuteAnalyses.R', description: 'Strategus execution script (if it has the template marker, only the INPUTS block above it may be edited)', accept: ['.R', '.r'], required: true, audited: false, fromProtocol: true },
   { id: 'renvLock', path: 'code/renv.lock', role: 'code', label: 'renv.lock', description: 'Pinned R package dependencies', accept: ['.lock', '.json'], required: true, audited: false, fromProtocol: true },
   { id: 'executionSettings', path: 'code/executionSettings.json', role: 'code', label: 'executionSettings.json', description: 'Execution settings written by ExecuteAnalyses.R (records minCellCount)', accept: ['.json'], required: false, audited: false, fromProtocol: false },
+  { id: 'executionLog', path: 'logs/execution.log', role: 'evidence', label: 'Strategus log', description: 'Strategus / ParallelLogger execution log. Credentials, hosts and user names are redacted; the original stays at the site (required for regulatory studies)', accept: ['.log', '.txt'], required: false, audited: false, fromProtocol: false },
 ]
 
 export const SLOT_BY_ID: Record<SlotId, SlotDef> = Object.fromEntries(SLOTS.map((s) => [s.id, s])) as Record<SlotId, SlotDef>
@@ -46,6 +48,11 @@ export const GENERATED_PATHS = {
   manifest: 'manifest.json',
   roCrate: 'ro-crate-metadata.json',
   auditReport: 'audit_report.json',
+  /** Detached JWS over manifest.json. Not listed in the manifest it signs. */
+  manifestSignature: 'manifest.jws.json',
+  /** The protocol exactly as the site received it, and the coordinator's signature over it. */
+  protocol: 'protocol/study_config.json',
+  protocolSignature: 'protocol/study_config.jws.json',
 } as const
 
 /** Guess the slot for a dropped file by its name (used for bulk drop). */
@@ -59,6 +66,7 @@ export function guessSlot(fileName: string): SlotId | undefined {
   if (n.includes('mapping')) return 'mappingSpec'
   if (n.includes('vocab')) return 'vocabularyVersion'
   if (n.includes('dqd') || n.includes('quality')) return 'dqdResults'
+  if (n.endsWith('.log') || (n.endsWith('.txt') && n.includes('log'))) return 'executionLog'
   return undefined
 }
 

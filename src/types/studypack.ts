@@ -6,14 +6,28 @@ export type FileRole = 'etl' | 'evidence' | 'definition' | 'code' | 'result' | '
 
 export const PACK_VERSION = '1.0.0' as const
 
+/** `standard`: everything optional, warnings only. `regulatory`: docs/regulatory/requirements.md rules block. */
+export type AssuranceLevel = 'standard' | 'regulatory'
+
 export interface ManifestFileEntry {
   path: string
   sha256: string
   sizeBytes: number
   role: FileRole
+  /** Salted commitment to the file before it was masked/redacted (R5.3). The salt stays at the site. */
+  originalCommitment?: string
 }
 
-/** manifest.json — see requirements §6. */
+/** A time together with where it came from (R2). */
+export interface SourcedTime {
+  /** ISO-8601 UTC. */
+  utc: string
+  /** Local offset from UTC in minutes at the time of recording (e.g. +540 for JST). */
+  tzOffsetMinutes?: number
+  source: 'coordinator-signed' | 'device-clock' | 'derived'
+}
+
+/** manifest.json */
 export interface StudyPackManifest {
   packVersion: typeof PACK_VERSION
   studyId: string
@@ -22,6 +36,9 @@ export interface StudyPackManifest {
   generatedAt: string
   cdmVersion: string
   files: ManifestFileEntry[]
+  assurance?: AssuranceLevel
+  tool?: { name: string; version: string; buildId?: string }
+  sealedAt?: SourcedTime
 }
 
 export interface CohortRef {
@@ -61,4 +78,43 @@ export interface StudyConfig {
   protectedSections: Record<string, ProtectedSection>
   /** Optional additional column-name regexes (strings) that hold counts, for tables without a results data model. */
   countColumnPatterns?: string[]
+  // Regulatory controls (all optional; absent = standard assurance).
+  assurance?: AssuranceLevel
+  /** Pre-specified data-quality gate (R4.2). */
+  dataQuality?: DqdGatePolicy
+  /** Required CDM / vocabulary versions; exact match when given (R3.1). */
+  cdmRequirements?: { cdmVersion?: string; vocabularyVersion?: string }
+  /** Pre-specified reasons a site may be excluded (R6.1). */
+  adoptionPolicy?: { reasonCodes: ReasonCode[] }
+}
+
+export type GateSeverity = 'block' | 'warn' | 'info'
+
+export interface DqdRule {
+  id: string
+  severity: GateSeverity
+  match: { checkName?: string[]; category?: string[]; studyTablesOnly?: boolean }
+  rationale: string
+}
+
+export interface DqdGatePolicy {
+  policyVersion: string
+  /** DQD results must be present. */
+  requireDqd: boolean
+  /** Per-check results (CheckResults) must be present; an Overview alone cannot be scoped to study tables. */
+  requireCheckResults: boolean
+  /** Upper-case CDM tables used by the study (derived from the cohort definitions). */
+  studyTables: string[]
+  /** Severity when a check errored (did not run) on a study table. */
+  errorSeverity: GateSeverity
+  rules: DqdRule[]
+  /** Severity of failures no rule matches. */
+  defaultFailedSeverity: GateSeverity
+}
+
+export interface ReasonCode {
+  code: string
+  label: string
+  /** Free-text justification required in addition to the code. */
+  requiresText?: boolean
 }

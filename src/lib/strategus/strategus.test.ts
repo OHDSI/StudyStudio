@@ -54,7 +54,7 @@ describe('Strategus results', () => {
   it('flags uncensored exports and passes HADES-censored ones', async () => {
     const clean = summarizeResultsAudit(auditResultFiles(await readResultsZip(read('site/strategus_results_Site_A.zip')), { minCellCount: 5 }))
     expect(clean.passed).toBe(true)
-    expect(clean.files).toBe(9)
+    expect(clean.files).toBe(11)
     const dirtyFiles = await readResultsZip(read('site/with_violations/strategus_results_Site_A_with_violations.zip'))
     const dirtyAudits = auditResultFiles(dirtyFiles, { minCellCount: 5 })
     const dirty = summarizeResultsAudit(dirtyAudits)

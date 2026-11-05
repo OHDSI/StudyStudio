@@ -10,7 +10,9 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Field, Input, Textarea } from '@/components/ui/input'
+import { Field, Input, Select, Textarea } from '@/components/ui/input'
+import { SigningKeys } from '@/features/common/SigningKeys'
+import type { AssuranceLevel } from '@/types/studypack'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { DropZone, type DroppedFile } from '@/features/common/DropZone'
 import { Hash } from '@/features/common/Hash'
@@ -26,7 +28,8 @@ export function ProtocolIssuer() {
   const setIssued = useStudyStore((s) => s.setIssued)
   const setConfig = useStudyStore((s) => s.setConfig)
 
-  const [meta, setMeta] = React.useState({ studyId: '', studyTitle: '', description: '', principalInvestigator: '', sponsor: '', cdmVersion: '5.4', minCellCount: 5 })
+  const [meta, setMeta] = React.useState({ studyId: '', studyTitle: '', description: '', principalInvestigator: '', sponsor: '', cdmVersion: '5.4', minCellCount: 5, assurance: 'standard' as AssuranceLevel, vocabularyVersion: '' })
+  const coordinator = useStudyStore((s) => s.signers.find((x) => x.signer.signer.role === 'coordinator')?.signer)
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string>()
   const [preview, setPreview] = React.useState<string>(PROTOCOL_PATHS.executeAnalyses)
@@ -72,9 +75,9 @@ export function ProtocolIssuer() {
     setBusy(true)
     setError(undefined)
     try {
-      const p = await issueProtocol(repo, { ...meta, studyId: meta.studyId.trim(), studyTitle: meta.studyTitle.trim() })
+      const p = await issueProtocol(repo, { ...meta, studyId: meta.studyId.trim(), studyTitle: meta.studyTitle.trim(), signer: coordinator })
       setIssued(p)
-      await setConfig(p.config)
+      await setConfig(p.config, undefined, { config: p.config, configBytes: p.configBytes, files: {}, errors: [] })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -86,6 +89,7 @@ export function ProtocolIssuer() {
     ...(repo?.errors ?? []),
     ...(summary.error ? [summary.error] : []),
     ...(!meta.studyId.trim() ? ['Enter a Study ID'] : []),
+    ...(meta.assurance === 'regulatory' && !coordinator ? ['Regulatory protocols must be signed: unlock the coordinator key'] : []),
   ]
   const id = safeId(meta.studyId || 'study')
   const dec = new TextDecoder()
@@ -195,6 +199,22 @@ export function ProtocolIssuer() {
               <Field label="Min cell count"><Input type="number" min={1} value={meta.minCellCount} onChange={(e) => setMeta({ ...meta, minCellCount: num(e.target.value, 5) })} /></Field>
             </div>
             <Field label="Description" className="md:col-span-3"><Textarea value={meta.description} onChange={(e) => setMeta({ ...meta, description: e.target.value })} /></Field>
+            <Field label="Assurance level">
+              <Select value={meta.assurance} onChange={(e) => setMeta({ ...meta, assurance: e.target.value as AssuranceLevel })}>
+                <option value="standard">Standard (academic network study)</option>
+                <option value="regulatory">Regulatory (PMDA / FDA / EMA submission)</option>
+              </Select>
+            </Field>
+            <Field label="Required vocabulary version (optional)" className="md:col-span-2">
+              <Input value={meta.vocabularyVersion} onChange={(e) => setMeta({ ...meta, vocabularyVersion: e.target.value })} placeholder="e.g. v5.0 30-AUG-26 — sites on another vocabulary are flagged" />
+            </Field>
+            {meta.assurance === 'regulatory' && (
+              <Alert className="md:col-span-3">
+                <AlertDescription className="text-xs">
+                  Regulatory assurance pre-specifies, before any site runs: the data-quality gate (scoped to the CDM tables these cohorts use), the CDM version, the pre-specified site-exclusion reasons, and that every StudyPack must be signed by an enrolled signer and include the Strategus log. See docs/regulatory/requirements.md.
+                </AlertDescription>
+              </Alert>
+            )}
             {scriptMin !== undefined && scriptMin < meta.minCellCount && (
               <Alert variant="warning" className="md:col-span-3">
                 <AlertDescription>ExecuteAnalyses.R defaults to minCellCount {scriptMin}, below the protocol's {meta.minCellCount}. Sites may export small cells; OHDSI Study Studio will block them, but consider raising the default.</AlertDescription>
@@ -225,6 +245,7 @@ export function ProtocolIssuer() {
                 </AlertDescription>
               </Alert>
             )}
+            <SigningKeys roles={['coordinator']} description={`Signs study_config.json so sites can verify who issued the protocol and that it was not altered. ${meta.assurance === 'regulatory' ? 'Required for regulatory studies.' : 'Optional.'}`} />
             <Button disabled={blockers.length > 0 || !repo || busy} onClick={issue}>
               {busy ? <Loader2 className="animate-spin" /> : <Stamp />} Issue protocol
             </Button>
@@ -233,8 +254,13 @@ export function ProtocolIssuer() {
               <>
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" variant="success" onClick={async () => download(`${id}_protocol.zip`, await protocolZip(issued))}><Download /> Protocol ZIP for sites</Button>
-                  <Button size="sm" variant="outline" onClick={() => download('study_config.json', JSON.stringify(issued.config, null, 2) + '\n', 'application/json')}><Download /> study_config.json</Button>
+                  <Button size="sm" variant="outline" onClick={() => download('study_config.json', issued.configBytes, 'application/json')}><Download /> study_config.json</Button>
                 </div>
+                {issued.signature ? (
+                  <div className="text-xs text-success">Signed by {coordinator?.signer.name ?? 'the coordinator'} — the ZIP carries study_config.jws.json.</div>
+                ) : (
+                  <div className="text-xs text-muted-foreground">Not signed.</div>
+                )}
                 <div className="text-xs text-muted-foreground">Issued {new Date(issued.config.issuedAt).toLocaleString()} · this config is also used as the Multi-Site Aggregator reference</div>
                 <Table>
                   <TableBody>

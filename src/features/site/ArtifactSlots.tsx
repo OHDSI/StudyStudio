@@ -17,6 +17,7 @@ const GROUPS: { dir: string; title: string }[] = [
   { dir: 'evidence', title: 'evidence/ — quality evidence' },
   { dir: 'definitions', title: 'definitions/ — Strategus analysis specification (from protocol)' },
   { dir: 'code', title: 'code/ — execution script, dependencies and settings' },
+  { dir: 'logs', title: 'logs/ — execution log (redacted copy; the original stays at the site)' },
 ]
 
 function SlotStatus({ file, expected, sectionHash }: { file?: SlotFile; expected?: string; sectionHash?: string }) {
@@ -61,6 +62,11 @@ function SlotCard({ slot }: { slot: SlotDef }) {
             <Hash value={section ? file.protectedSha256 : file.sha256} />
             <div className="flex items-center gap-1">
               {file.remediated && <Badge variant="secondary" className="text-[10px]">Masked</Badge>}
+              {file.modification?.kind === 'log-redaction' && (
+                <Badge variant="secondary" className="text-[10px]" title={Object.entries(file.modification.counts).map(([k, n]) => `${k}: ${n}`).join(', ')}>
+                  Redacted {Object.values(file.modification.counts).reduce((a, b) => a + b, 0)}
+                </Badge>
+              )}
               <SlotStatus file={file} expected={expected} sectionHash={section?.sha256} />
               <Button size="icon" variant="ghost" onClick={() => remove(slot.id)} aria-label="Remove"><Trash2 /></Button>
             </div>

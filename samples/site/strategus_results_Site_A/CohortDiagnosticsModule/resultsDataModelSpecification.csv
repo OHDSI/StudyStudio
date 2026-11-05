@@ -1,0 +1,5 @@
+table_name,column_name,data_type,is_required,primary_key,min_cell_count,description
+cd_cohort_count,database_id,varchar,Yes,Yes,No,The database identifier
+cd_cohort_count,cohort_id,bigint,Yes,Yes,No,The cohort identifier
+cd_cohort_count,cohort_entries,bigint,Yes,No,Yes,The number of cohort entries
+cd_cohort_count,cohort_subjects,bigint,Yes,No,Yes,The number of unique subjects

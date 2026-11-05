@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, FileJson, ListChecks, Trash2, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, FileJson, ListChecks, PenLine, Trash2, XCircle } from 'lucide-react'
 import { useStudyStore } from '@/store/useStudyStore'
 import { readProtocolFile } from '@/lib/strategus/protocol'
 import { useNetworkAnalysis } from './useNetworkAnalysis'
@@ -7,12 +7,39 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Progress } from '@/components/ui/progress'
-import { Switch } from '@/components/ui/switch'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { DropZone } from '@/features/common/DropZone'
 import { Hash } from '@/features/common/Hash'
 import type { HashCheckStatus, LoadedSitePack } from '@/lib/network/aggregator'
+import { kidFingerprint, type SignatureCheck } from '@/lib/security/signer'
+import type { SiteRow } from '@/lib/export/regulatory'
+import { EvidenceView } from '@/features/common/EvidenceView'
+import { ActorCard, DecisionCell, DispositionLogCard, LockCard, RosterCard } from './DispositionPanel'
+
+function SignatureBadge({ checks }: { checks?: SignatureCheck[] }) {
+  if (!checks?.length) return <Badge variant="outline">Unsigned</Badge>
+  if (checks.some((c) => !c.valid)) return <Badge variant="destructive"><XCircle /> Invalid</Badge>
+  const enrolled = checks.filter((c) => c.enrolled).length
+  return (
+    <Badge variant={enrolled ? 'success' : 'warning'} title={checks.map((c) => `${c.signer?.name} (${c.meaning}) ${c.enrolled ? 'enrolled' : c.enrollmentIssue ?? ''}`).join('\n')}>
+      <PenLine /> {enrolled}/{checks.length} enrolled
+    </Badge>
+  )
+}
+
+function EvidenceBadge({ row }: { row: SiteRow }) {
+  const e = row.evidence
+  if (!e) return <span>—</span>
+  const blocks = e.dqdGate.counts.block + e.provenance.issues.filter((i) => i.severity === 'block').length + e.timeline.issues.filter((i) => i.severity === 'block').length
+  const warns = e.dqdGate.counts.warn + e.provenance.issues.filter((i) => i.severity === 'warn').length + e.timeline.issues.filter((i) => i.severity === 'warn').length
+  const regulatory = e.assurance === 'regulatory'
+  return (
+    <div className="flex flex-col gap-0.5">
+      {blocks + warns === 0 ? <Badge variant="success"><CheckCircle2 /> Clean</Badge> : <Badge variant={blocks && regulatory ? 'destructive' : 'warning'}>{blocks ? `${blocks} blocking · ` : ''}{warns} warning(s)</Badge>}
+      {row.site.dqd && <span className="text-[10px] text-muted-foreground">DQD {row.site.dqd.percentPassed.toFixed(1)}% passed</span>}
+    </div>
+  )
+}
 
 function HashStatus({ status, hash }: { status?: HashCheckStatus; hash?: string }) {
   if (status === 'match') return <Badge variant="success" title={hash}><CheckCircle2 /> Match</Badge>
@@ -33,8 +60,9 @@ export function Aggregator() {
   const addSitePacks = useStudyStore((s) => s.addSitePacks)
   const removeSite = useStudyStore((s) => s.removeSite)
   const clearSites = useStudyStore((s) => s.clearSites)
-  const setAdopt = useStudyStore((s) => s.setAdopt)
-  const { sites, cross, rows, paths } = useNetworkAnalysis()
+  const actor = useStudyStore((s) => s.actor)
+  const decide = useStudyStore((s) => s.decide)
+  const { sites, cross, rows, paths, locked, reasonCodes, regulatory } = useNetworkAnalysis()
   const [expanded, setExpanded] = React.useState<string>()
   const [msg, setMsg] = React.useState<string>()
   const [loading, setLoading] = React.useState(false)
@@ -43,7 +71,10 @@ export function Aggregator() {
     setLoading(true)
     try {
       const zips = files.filter((f) => /\.zip$/i.test(f.name))
-      const dupes = await addSitePacks(zips)
+      const dupes = await addSitePacks(zips).catch((e) => {
+        setMsg(e instanceof Error ? e.message : String(e))
+        return [] as string[]
+      })
       const skipped = files.length - zips.length
       setMsg([dupes.length ? `Skipped duplicates: ${dupes.join(', ')}` : '', skipped ? `Ignored ${skipped} non-ZIP file(s)` : ''].filter(Boolean).join(' / ') || undefined)
     } finally {
@@ -55,6 +86,10 @@ export function Aggregator() {
 
   return (
     <div className="flex flex-col gap-4">
+      <div className="grid gap-4 lg:grid-cols-2">
+        <ActorCard />
+        <RosterCard />
+      </div>
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader>
@@ -88,7 +123,11 @@ export function Aggregator() {
             <CardDescription className="text-xs">Drop multiple *.studypack.zip files. They are extracted in memory and every SHA-256 in manifest.json is recomputed to detect tampering.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-2">
-            <DropZone multiple accept=".zip" onFiles={onPacks} title={loading ? 'Verifying…' : 'Drop *.studypack.zip'} hint="Load several sites at once" />
+            {actor ? (
+              <DropZone multiple accept=".zip" onFiles={onPacks} title={loading ? 'Verifying…' : 'Drop *.studypack.zip'} hint="Load several sites at once — each receipt is recorded in the disposition audit trail" />
+            ) : (
+              <Alert variant="warning"><AlertDescription>Identify yourself above first: every receipt is recorded with who received it.</AlertDescription></Alert>
+            )}
             {msg && <div className="text-xs text-amber-700">{msg}</div>}
           </CardContent>
         </Card>
@@ -102,7 +141,17 @@ export function Aggregator() {
             <Badge variant="success">Adopted {adoptedCount}</Badge>
             <Badge variant="destructive">Excluded {sites.length - adoptedCount}</Badge>
             <div className="ml-auto flex gap-2">
-              <Button size="sm" variant="outline" onClick={() => rows.forEach((r) => setAdopt(r.site.key, undefined))}>Follow recommendations</Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={locked || !actor || rows.every((r) => r.decision)}
+                onClick={async () => {
+                  for (const r of rows.filter((x) => !x.decision))
+                    await decide(r.site.key, r.verdict.recommended, r.verdict.recommended, r.verdict.recommended === 'exclude' ? r.verdict.codes[0] : undefined).catch((e) => setMsg(e instanceof Error ? e.message : String(e)))
+                }}
+              >
+                Record recommendations for undecided sites
+              </Button>
               <Button size="sm" variant="ghost" onClick={clearSites}><Trash2 /> Clear all</Button>
             </div>
           </CardHeader>
@@ -124,16 +173,19 @@ export function Aggregator() {
                   <TableHead />
                   <TableHead>Site</TableHead>
                   <TableHead>manifest</TableHead>
-                  {paths.map((p) => <TableHead key={p} className="font-mono text-[10px]">{p.split('/').pop()}</TableHead>)}
-                  <TableHead>DQD pass rate</TableHead>
+                  <TableHead>Protocol</TableHead>
+                  <TableHead>Signature</TableHead>
+                  <TableHead>Quality &amp; provenance</TableHead>
                   <TableHead>Small-cell audit</TableHead>
                   <TableHead>Recommendation</TableHead>
-                  <TableHead>Include</TableHead>
+                  <TableHead>Decision</TableHead>
                   <TableHead />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map(({ site, verdict, adopted }) => (
+                {rows.map((row) => {
+                  const { site, verdict, adopted } = row
+                  return (
                   <React.Fragment key={site.key}>
                     <TableRow className={adopted ? 'text-xs' : 'bg-destructive/5 text-xs'}>
                       <TableCell>
@@ -146,17 +198,18 @@ export function Aggregator() {
                         <div className="text-[10px] text-muted-foreground">{site.fileName}</div>
                       </TableCell>
                       <TableCell><IntegrityBadge site={site} /></TableCell>
-                      {paths.map((p) => (
-                        <TableCell key={p}><HashStatus status={cross.perSite[site.key]?.[p]?.status} hash={cross.perSite[site.key]?.[p]?.hash} /></TableCell>
-                      ))}
-                      <TableCell className="min-w-24">
-                        {site.dqd ? (
-                          <div className="flex flex-col gap-1">
-                            <span>{site.dqd.percentPassed.toFixed(1)}% <span className="text-muted-foreground">({site.dqd.passed}/{site.dqd.total})</span></span>
-                            <Progress value={site.dqd.percentPassed} indicatorClassName={site.dqd.percentPassed >= 95 ? 'bg-success' : site.dqd.percentPassed >= 85 ? 'bg-warning' : 'bg-destructive'} />
-                          </div>
-                        ) : '—'}
+                      <TableCell>
+                        <div className="flex flex-col items-start gap-0.5">
+                          {paths.map((p) => (
+                            <span key={p} className="flex items-center gap-1">
+                              <HashStatus status={cross.perSite[site.key]?.[p]?.status} hash={cross.perSite[site.key]?.[p]?.hash} />
+                              <code className="text-[10px] text-muted-foreground">{p.split('/').pop()}</code>
+                            </span>
+                          ))}
+                        </div>
                       </TableCell>
+                      <TableCell><SignatureBadge checks={row.signatures} /></TableCell>
+                      <TableCell className="min-w-28"><EvidenceBadge row={row} /></TableCell>
                       <TableCell>
                         {!site.reAudit ? <Badge variant="outline">No results</Badge> : site.reAudit.passed ? <Badge variant="success" title={`${site.reAudit.files} result files`}>Passed ({site.reAudit.files})</Badge> : <Badge variant="destructive">Violations {site.reAudit.smallCellCount + site.reAudit.identifierCount}</Badge>}
                       </TableCell>
@@ -164,7 +217,7 @@ export function Aggregator() {
                         {verdict.recommended === 'adopt' ? <Badge variant="success">Adopt</Badge> : <Badge variant="destructive" title={verdict.reasons.join('\n')}>❌ Exclude</Badge>}
                       </TableCell>
                       <TableCell>
-                        <Switch checked={adopted} onCheckedChange={(v) => setAdopt(site.key, v)} aria-label="Include in analysis" />
+                        <DecisionCell row={row} reasonCodes={reasonCodes} locked={locked} canDecide={!!actor} />
                       </TableCell>
                       <TableCell>
                         <Button size="icon" variant="ghost" onClick={() => removeSite(site.key)} aria-label="Remove"><Trash2 /></Button>
@@ -172,24 +225,29 @@ export function Aggregator() {
                     </TableRow>
                     {expanded === site.key && (
                       <TableRow>
-                        <TableCell colSpan={8 + paths.length} className="bg-muted/30">
+                        <TableCell colSpan={10} className="bg-muted/30">
                           <SiteDetails site={site} reasons={verdict.reasons} />
+                          <SignatureList checks={row.signatures} />
+                          {row.evidence && <div className="mt-3"><EvidenceView evidence={row.evidence} /></div>}
                         </TableCell>
                       </TableRow>
                     )}
                   </React.Fragment>
-                ))}
+                  )
+                })}
               </TableBody>
             </Table>
             {rows.some((r) => r.adopted && r.verdict.recommended === 'exclude') && (
               <Alert variant="warning">
                 <AlertTriangle />
-                <AlertDescription>A site recommended for exclusion has been manually adopted. This will be recorded in the audit report.</AlertDescription>
+                <AlertDescription>A site recommended for exclusion has been adopted. The justification is recorded in the disposition audit trail and the audit report.</AlertDescription>
               </Alert>
             )}
           </CardContent>
         </Card>
       )}
+      {sites.length > 0 && <LockCard rows={rows} regulatory={regulatory} />}
+      <DispositionLogCard />
     </div>
   )
 }
@@ -236,6 +294,22 @@ function SiteDetails({ site, reasons }: { site: LoadedSitePack; reasons: string[
           })}
         </div>
       </div>
+    </div>
+  )
+}
+
+function SignatureList({ checks }: { checks?: SignatureCheck[] }) {
+  if (!checks?.length) return null
+  return (
+    <div className="mt-3 flex flex-col gap-1 text-xs">
+      <div className="font-medium">Signatures on manifest.json</div>
+      {checks.map((c, i) => (
+        <div key={i} className={c.valid && c.enrolled ? 'text-success' : c.valid ? 'text-amber-700' : 'text-destructive'}>
+          {c.valid ? '✅' : '❌'} {c.signer?.name ?? '?'} ({c.signer?.organization ?? '?'}, {c.signer?.role ?? '?'}) — {c.meaning ?? '?'} at {c.signedAt ?? '?'} · key {kidFingerprint(c.kid)}
+          {c.valid && !c.enrolled && <span> — {c.enrollmentIssue}</span>}
+          {c.error && <span> — {c.error}</span>}
+        </div>
+      ))}
     </div>
   )
 }

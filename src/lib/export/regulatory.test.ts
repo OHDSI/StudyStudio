@@ -33,6 +33,7 @@ describe('network demo end-to-end', () => {
     const out = await buildRegulatoryExport({ studyId: config.studyId, studyTitle: config.studyTitle, config, cross, rows })
     expect(XMLValidator.validate(out.defineXml)).toBe(true)
     expect(Object.keys(out.datasets).sort()).toEqual([
+      'datasets/cd_cohort_count.json',
       'datasets/cg_cohort_count.json',
       'datasets/cm_diagnostics_summary.json',
       'datasets/cm_result.json',
@@ -53,5 +54,44 @@ describe('network demo end-to-end', () => {
     expect(Object.keys(subset.datasets)).toEqual(['datasets/cm_result.json'])
     expect(subset.defineXml).toContain('ns/def/v2.0')
     expect(JSON.parse(subset.datasets['datasets/cm_result.json']).datasetJSONVersion).toBe('1.0.0')
+  })
+})
+
+describe('disposition audit trail in the submission', () => {
+  it('records decisions with reasons and ships the chained log with the package', async () => {
+    const { DispositionLog } = await import('@/lib/network/dispositionLog')
+    const config = JSON.parse(readFileSync(path.join(samples, 'protocol/study_config.json'), 'utf8')) as StudyConfig
+    const dir = path.join(samples, 'network')
+    const sites = await Promise.all(readdirSync(dir).map((f) => loadStudyPack(f, readFileSync(path.join(dir, f)))))
+    const cross = crossCheckSites(sites, config.expectedHashes, config.protectedSections, [...Object.keys(config.expectedHashes), ...Object.keys(config.protectedSections)])
+    const log = new DispositionLog()
+    const actor = { name: 'Coordinator', role: 'coordinator', organization: 'Net' }
+    const rows = []
+    for (const s of sites) {
+      const verdict = siteVerdict(s, cross, config.studyId, sites)
+      await log.append({ actor, action: 'received', siteId: s.siteId, packSha256: s.zipSha256 })
+      await log.append({ actor, action: verdict.recommended, siteId: s.siteId, packSha256: s.zipSha256, from: 'undecided', to: verdict.recommended, recommended: verdict.recommended, reasonCode: verdict.recommended === 'exclude' ? verdict.codes[0] : undefined })
+      rows.push({ site: s, verdict, decision: verdict.recommended, adopted: verdict.recommended === 'adopt' })
+    }
+    await log.append({ actor, action: 'lock', reasonText: 'attested' })
+    const excludedC = log.entries.find((e) => e.siteId === 'Site_C' && e.action === 'exclude')!
+    expect(excludedC.reasonCode).toBe('INTEGRITY')
+    expect(log.entries.find((e) => e.siteId === 'Site_D' && e.action === 'exclude')!.reasonCode).toBe('PROTOCOL_DEVIATION')
+
+    const head = log.headBytes(config.studyId)
+    const out = await buildRegulatoryExport({
+      studyId: config.studyId, studyTitle: config.studyTitle, config, cross, rows,
+      disposition: { entries: log.entries, jsonl: log.toJsonl(), headHash: log.headHash, head },
+    })
+    expect(out.markdown).toContain('## 4. Site disposition')
+    expect(out.markdown).toMatch(/Dispositions locked:\*\* yes — by Coordinator/)
+    expect(out.markdown).toContain('| Site_C |')
+    expect(out.markdown).toContain('## Limitations')
+    const zip = await JSZip.loadAsync(await out.zipBlob.arrayBuffer())
+    const names = Object.keys(zip.files)
+    const jsonl = await zip.file(names.find((n) => n.endsWith('disposition/disposition_log.jsonl'))!)!.async('string')
+    const restored = await DispositionLog.fromJsonl(jsonl, JSON.parse(await zip.file(names.find((n) => n.endsWith('disposition_head.json'))!)!.async('string')))
+    expect(restored.headHash).toBe(log.headHash)
+    expect(names.some((n) => n.endsWith('sites/Site_A/audit_report.json'))).toBe(true)
   })
 })

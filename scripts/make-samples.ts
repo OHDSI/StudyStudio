@@ -23,6 +23,8 @@ import { issueProtocol, locateStudyRepo, protocolZip } from '../src/lib/strategu
 import { auditResultFiles } from '../src/lib/strategus/results'
 import { auditWorkbook } from '../src/lib/audit/cellAuditor'
 import { buildStudyPack, type PackInputFile } from '../src/lib/studypack/builder'
+import { redactLog } from '../src/lib/audit/logAuditor'
+import { evaluateEvidence } from '../src/lib/studypack/evidence'
 import { SLOT_BY_ID, type SlotId } from '../src/lib/studypack/slots'
 
 const root = path.resolve(import.meta.dirname, '..', 'samples')
@@ -143,6 +145,19 @@ function strategusResults(siteId: string, scale: number, min: number): Record<st
   const targetOutcomes = 2
   const sccsOutcomeSubjects = 4
   return {
+    'CohortDiagnosticsModule/cd_cohort_count.csv': csv(
+      ['database_id', 'cohort_id', 'cohort_entries', 'cohort_subjects'],
+      [
+        [db, 1, c(18342 * scale), c(15210 * scale)],
+        [db, 2, c(25120 * scale), c(21877 * scale)],
+      ],
+    ),
+    'CohortDiagnosticsModule/resultsDataModelSpecification.csv': rdms([
+      ['cd_cohort_count', 'database_id', 'varchar', 'Yes', 'Yes', 'No', 'The database identifier'],
+      ['cd_cohort_count', 'cohort_id', 'bigint', 'Yes', 'Yes', 'No', 'The cohort identifier'],
+      ['cd_cohort_count', 'cohort_entries', 'bigint', 'Yes', 'No', 'Yes', 'The number of cohort entries'],
+      ['cd_cohort_count', 'cohort_subjects', 'bigint', 'Yes', 'No', 'Yes', 'The number of unique subjects'],
+    ]),
     'DatabaseMetaData/database_meta_data.csv': csv(
       ['database_id', 'cdm_source_name', 'cdm_source_abbreviation', 'cdm_holder', 'source_release_date', 'cdm_version', 'vocabulary_version', 'max_obs_period_end_date'],
       [[db, `${siteId} hospital EHR (demo)`, siteId, 'Demo holder', '2026-09-30', '5.4', 'v5.0 30-AUG-26', '2026-09-30']],
@@ -265,6 +280,66 @@ const executionSettings = (min: number) =>
     2,
   ) + '\n'
 
+/** OHDSI DQD output (synthetic): metadata matching the site's cdm_source, plus per-check results. */
+function dqdResults(siteId: string): string {
+  const check = (checkName: string, category: string, table: string, field: string | null, failed: 0 | 1, pct = 0) => ({
+    checkId: `${checkName}_${table}${field ? `_${field}` : ''}`.toLowerCase(),
+    checkName,
+    checkLevel: field ? 'FIELD' : 'TABLE',
+    category,
+    subcategory: category === 'Plausibility' ? 'Atemporal' : category === 'Conformance' ? 'Relational' : '',
+    context: 'Verification',
+    cdmTableName: table,
+    cdmFieldName: field,
+    numViolatedRows: failed ? Math.round(pct * 100000) : 0,
+    pctViolatedRows: pct,
+    thresholdValue: failed ? 0 : 5,
+    failed,
+    passed: failed ? 0 : 1,
+    isError: 0,
+    notApplicable: 0,
+  })
+  const checks = [
+    check('cdmTable', 'Conformance', 'PERSON', null, 0),
+    check('cdmTable', 'Conformance', 'DRUG_EXPOSURE', null, 0),
+    check('isRequired', 'Conformance', 'DRUG_EXPOSURE', 'DRUG_CONCEPT_ID', 0),
+    check('isForeignKey', 'Conformance', 'CONDITION_OCCURRENCE', 'CONDITION_CONCEPT_ID', 0),
+    check('plausibleDuringLife', 'Plausibility', 'OBSERVATION_PERIOD', 'OBSERVATION_PERIOD_END_DATE', 0),
+    // A known, tolerated failure on a table the study does not use.
+    check('measureValueCompleteness', 'Completeness', 'NOTE', 'NOTE_TEXT', 1, 0.31),
+  ]
+  return JSON.stringify(
+    {
+      startTimestamp: '2026-10-28 09:12:03',
+      endTimestamp: '2026-10-28 10:41:55',
+      executionTime: '89.9 mins',
+      Metadata: [{ CDM_SOURCE_NAME: `${siteId} hospital EHR (demo)`, CDM_VERSION: '5.4', DQD_VERSION: '2.6.1', VOCABULARY_VERSION: 'v5.0 30-AUG-26' }],
+      Overview: { countTotal: checks.length, countThresholdFailed: 1, countErrorFailed: 0, countOverallFailed: 1, countPassed: checks.length - 1, percentPassed: ((checks.length - 1) / checks.length) * 100 },
+      CheckResults: checks,
+    },
+    null,
+    2,
+  ) + '\n'
+}
+
+/** Strategus / ParallelLogger log (synthetic). Contains a connection line with credentials to show redaction. */
+function strategusLog(siteId: string): string {
+  const t = (h: string) => `2026-11-02 ${h}`
+  return [
+    `${t('01:00:00')}\t[Main thread]\tINFO\tStrategus\texecute\tStrategus 1.2.0 — executing analysis specification`,
+    `Connecting using PostgreSQL driver: server = "db01.${siteId.toLowerCase()}.local/cdm", user = "omop_admin", password = "demo-only"`,
+    `${t('01:00:02')}\t[Main thread]\tINFO\tStrategus\texecute\tminCellCount = ${MIN}`,
+    `${t('01:00:05')}\t[Main thread]\tINFO\tStrategus\texecute\tRunning CohortGeneratorModule`,
+    `${t('01:20:44')}\t[Main thread]\tINFO\tStrategus\texecute\tRunning CohortDiagnosticsModule`,
+    `${t('01:41:10')}\t[Main thread]\tINFO\tStrategus\texecute\tRunning CohortMethodModule`,
+    `${t('02:55:31')}\t[Main thread]\tWARN\tCohortMethod\tfitOutcomeModel\tHigh correlation between a covariate and treatment; covariate excluded`,
+    `${t('03:02:09')}\t[Main thread]\tINFO\tStrategus\texecute\tRunning SelfControlledCaseSeriesModule`,
+    `${t('03:40:57')}\t[Main thread]\tINFO\tStrategus\texecute\tResults written to /home/analyst/${STUDY.toLowerCase()}/results/${siteId}`,
+    `${t('03:41:02')}\t[Main thread]\tINFO\tStrategus\texecute\tFinished`,
+    '',
+  ].join('\n')
+}
+
 async function main() {
   for (const d of ['study-repo', 'protocol', 'network']) rmSync(path.join(root, d), { recursive: true, force: true })
 
@@ -322,7 +397,7 @@ async function main() {
     minCellCount: MIN,
     now,
   })
-  out('protocol/study_config.json', JSON.stringify(protocol.config, null, 2) + '\n')
+  out('protocol/study_config.json', protocol.configBytes)
   out(`protocol/${STUDY}_protocol.zip`, new Uint8Array(await (await protocolZip(protocol)).arrayBuffer()))
 
   // ---- Site Mode inputs -----------------------------------------------------
@@ -335,6 +410,8 @@ async function main() {
   }
   rmSync(path.join(root, 'site/strategus_results_Site_A_with_violations.zip'), { force: true }) // old location
   out('site/executionSettings.json', executionSettings(MIN))
+  out('site/dqd_results.json', dqdResults('Site_A'))
+  out('site/strategus-log.txt', strategusLog('Site_A'))
   await writeResults('site', 'strategus_results_Site_A', strategusResults('Site_A', 1, MIN))
   // Exported with minCellCount = 0 (no censoring) → small cells that OHDSI Study Studio must block. The matching
   // executionSettings.json records 0, so the "exported below the protocol's minCellCount" warning fires too.
@@ -364,14 +441,36 @@ async function main() {
       { ...slot('scanReport', scanMasked), remediated: true },
       slot('mappingSpec', siteFile('mapping_specification.json')),
       slot('vocabularyVersion', siteFile('vocabulary_version.json')),
-      slot('dqdResults', siteFile('dqd_results.json')),
+      slot('dqdResults', enc.encode(dqdResults(siteId))),
       slot('analysisSpecifications', protocol.files['definitions/analysisSpecifications.json']),
       slot('executeAnalyses', enc.encode(execute)),
       slot('renvLock', protocol.files['code/renv.lock']),
       slot('executionSettings', enc.encode(executionSettings(MIN))),
       ...results.map((r) => ({ path: `results/${r.path}`, role: 'result' as const, originalName: r.path, bytes: r.bytes, audit: audits.get(r.path) })),
     ]
-    const pack = await buildStudyPack({ studyId: STUDY, studyTitle: protocol.config.studyTitle, siteId, cdmVersion: '5.4', minCellCount: MIN, exportedMinCellCount: MIN, files, now })
+    // The ScanReport was masked at the site: pack only a salted commitment to the original.
+    files[0] = { ...files[0], original: scan, modification: { kind: 'small-cell-masking', rule: `Counts with 0 < n < ${MIN} replaced by -${MIN}`, counts: { maskedCells: 1, droppedIdentifierColumns: 0 }, reason: `Small-cell suppression required by the protocol (minCellCount ${MIN})` } }
+    const rawLog = enc.encode(strategusLog(siteId))
+    const red = redactLog(strategusLog(siteId))
+    files.push({
+      ...slot('executionLog', enc.encode(red.text), 'strategus-log.txt'),
+      original: rawLog,
+      modification: { kind: 'log-redaction', rule: 'Credentials, hosts, user names and home-directory names replaced by [REDACTED]', counts: red.summary, reason: 'Remove credentials and identifying infrastructure details before the log leaves the site' },
+    })
+    // Sealed after the run (the protocol was issued at `now`).
+    const sealed = new Date(now.getTime() + 2 * 24 * 3600 * 1000)
+    const pack = await buildStudyPack({
+      studyId: STUDY,
+      studyTitle: protocol.config.studyTitle,
+      siteId,
+      cdmVersion: '5.4',
+      minCellCount: MIN,
+      exportedMinCellCount: MIN,
+      files,
+      now: sealed,
+      protocolBytes: protocol.configBytes,
+      evidence: evaluateEvidence({ config: protocol.config, files: Object.fromEntries(files.map((f) => [f.path, f.bytes])), sealedAt: sealed.toISOString() }),
+    })
     return { name: pack.zipName, bytes: new Uint8Array(await pack.zipBlob.arrayBuffer()) }
   }
 

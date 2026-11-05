@@ -3,6 +3,7 @@ import type { AuditResult } from '@/lib/audit/cellAuditor'
 import { hashesEqual } from '@/lib/integrity/hasher'
 import type { StudyConfig } from '@/types/studypack'
 import { SLOTS, type SlotId } from './slots'
+import { judgeEvidence, type SiteEvidence } from './evidence'
 
 export interface SlotSnapshot {
   name: string
@@ -28,6 +29,12 @@ export interface ReadinessInput {
   results: Record<string, SlotSnapshot>
   /** minCellCount the site actually exported with (executionSettings.json or ExecuteAnalyses.R inputs). */
   exportedMinCellCount?: number
+  /** Data quality, provenance, log and time evidence (docs/regulatory/requirements.md R2–R5). */
+  evidence?: SiteEvidence
+  /** Signing keys unlocked for this pack. */
+  signers?: { role: string }[]
+  /** Coordinator signature checks over the received study_config.json (undefined = unsigned protocol). */
+  protocolSignature?: { valid: boolean }[]
 }
 
 export function evaluateReadiness(p: ReadinessInput): Readiness {
@@ -72,6 +79,18 @@ export function evaluateReadiness(p: ReadinessInput): Readiness {
   const min = p.config?.minCellCount
   if (min !== undefined && p.exportedMinCellCount !== undefined && p.exportedMinCellCount < min)
     warnings.push(`Results were exported with minCellCount ${p.exportedMinCellCount}, below the protocol's ${min}. Small cells must be masked before packaging.`)
+
+  if (p.evidence) {
+    const v = judgeEvidence(p.evidence)
+    blockers.push(...v.blockers)
+    warnings.push(...v.warnings)
+  }
+  const regulatory = p.config?.assurance === 'regulatory'
+  if (p.config) {
+    if (p.protocolSignature?.some((c) => !c.valid)) blockers.push('The coordinator signature on the protocol is invalid — reload the protocol you received')
+    else if (regulatory && !p.protocolSignature?.length) blockers.push('Regulatory protocols must carry the coordinator signature (load the protocol ZIP, not a bare study_config.json)')
+  }
+  if (!p.signers?.length) (regulatory ? blockers : warnings).push(regulatory ? 'Regulatory studies must be signed: unlock your signing key' : 'The StudyPack will not be signed (no signing key unlocked)')
 
   return { canPackage: blockers.length === 0, blockers, warnings, privacyViolations }
 }

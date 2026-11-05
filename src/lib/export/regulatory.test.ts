@@ -93,5 +93,17 @@ describe('disposition audit trail in the submission', () => {
     const restored = await DispositionLog.fromJsonl(jsonl, JSON.parse(await zip.file(names.find((n) => n.endsWith('disposition_head.json'))!)!.async('string')))
     expect(restored.headHash).toBe(log.headHash)
     expect(names.some((n) => n.endsWith('sites/Site_A/audit_report.json'))).toBe(true)
+
+    // Regulatory studies: the library itself refuses an export before the lock or with undecided sites.
+    const reg = { ...config, assurance: 'regulatory' as const }
+    const unlocked = new DispositionLog()
+    await unlocked.append({ actor, action: 'note', reasonText: 'not locked' })
+    const disp = (l: InstanceType<typeof DispositionLog>) => ({ entries: l.entries, jsonl: l.toJsonl(), headHash: l.headHash, head: l.headBytes(config.studyId) })
+    await expect(buildRegulatoryExport({ studyId: config.studyId, studyTitle: config.studyTitle, config: reg, cross, rows })).rejects.toThrow(/lock the site dispositions/)
+    await expect(buildRegulatoryExport({ studyId: config.studyId, studyTitle: config.studyTitle, config: reg, cross, rows, disposition: disp(unlocked) })).rejects.toThrow(/lock the site dispositions/)
+    await expect(
+      buildRegulatoryExport({ studyId: config.studyId, studyTitle: config.studyTitle, config: reg, cross, rows: rows.map((r, i) => (i === 0 ? { ...r, decision: undefined } : r)), disposition: disp(log) }),
+    ).rejects.toThrow(/no recorded decision/)
+    await expect(buildRegulatoryExport({ studyId: config.studyId, studyTitle: config.studyTitle, config: reg, cross, rows, disposition: disp(log) })).resolves.toBeDefined()
   })
 })

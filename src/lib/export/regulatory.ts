@@ -332,6 +332,14 @@ export async function buildRegulatoryExport(params: {
   /** Disposition audit trail to ship with the package (R6.4). */
   disposition?: { entries: readonly DispositionEntry[]; jsonl: string; headHash: string; head: Uint8Array; headSignature?: DetachedJws }
 }): Promise<RegulatoryExport> {
+  // Authoritative gate (the Export Hub also disables the button): in a regulatory study the dispositions
+  // must be decided for every site and locked before anything comparative is produced (R6.3).
+  if (params.config?.assurance === 'regulatory') {
+    const d = params.disposition
+    if (!d?.entries.some((e) => e.action === 'lock')) throw new Error('Regulatory study: lock the site dispositions before generating the submission package')
+    const undecided = params.rows.filter((r) => !r.decision).map((r) => r.site.siteId)
+    if (undecided.length) throw new Error(`Regulatory study: no recorded decision for ${undecided.join(', ')}`)
+  }
   const standards = { defineXml: params.defineXmlVersion ?? '2.1', datasetJson: params.datasetJsonVersion ?? '1.1' } as const
   const generatedAt = (params.now ?? new Date()).toISOString()
   const adopted = params.rows.filter((r) => r.adopted).map((r) => r.site)

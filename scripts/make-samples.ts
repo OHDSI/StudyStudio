@@ -443,7 +443,6 @@ async function main() {
   interface PackOptions {
     protocol?: IssuedProtocol
     signers?: { signer: UnlockedSigner; meaning: SignatureMeaning }[]
-    structuralFailure?: boolean
   }
   const makePack = async (siteId: string, scale: number, execute = inputsFor(siteId), opts: PackOptions = {}) => {
     const proto = opts.protocol ?? protocol
@@ -465,7 +464,7 @@ async function main() {
       { ...slot('scanReport', scanMasked), remediated: true },
       slot('mappingSpec', siteFile('mapping_specification.json')),
       slot('vocabularyVersion', siteFile('vocabulary_version.json')),
-      slot('dqdResults', enc.encode(dqdResults(siteId, { structuralFailure: opts.structuralFailure }))),
+      slot('dqdResults', enc.encode(dqdResults(siteId))),
       slot('analysisSpecifications', proto.files['definitions/analysisSpecifications.json']),
       slot('executeAnalyses', enc.encode(execute)),
       slot('renvLock', proto.files['code/renv.lock']),
@@ -568,7 +567,12 @@ async function main() {
     verifiedBy: 'Carol Coordinator',
     verificationMethod: 'Video call with government ID; key fingerprint read back by the signer',
   })
-  const roster: SignerRoster = { format: 'studypack-signer-roster/1', studyId: STUDY, signers: [enrolled(coord), enrolled(opA, 'Site_A'), enrolled(piA, 'Site_A'), enrolled(opB, 'Site_B'), enrolled(opD, 'Site_D')] }
+  // Site D's operator key is revoked after Site D sealed its pack but before the coordinator received it.
+  const roster: SignerRoster = {
+    format: 'studypack-signer-roster/1',
+    studyId: STUDY,
+    signers: [enrolled(coord), enrolled(opA, 'Site_A'), enrolled(piA, 'Site_A'), enrolled(opB, 'Site_B'), { ...enrolled(opD, 'Site_D'), revokedAt: '2026-11-04T00:00:00.000Z' }],
+  }
   const rb = rosterBytes(roster)
   out('regulatory/signer_roster.json', rb)
   out('regulatory/signer_roster.jws.json', JSON.stringify(await addSignature(undefined, rb, coord, 'roster-approved', new Date('2026-10-26T00:00:00Z')), null, 2) + '\n')
@@ -578,9 +582,11 @@ async function main() {
     await makePack('Site_A', 1, undefined, { protocol: regProtocol, signers: sealedBy(opA, piA) }),
     await makePack('Site_B', 0.7, undefined, { protocol: regProtocol, signers: sealedBy(opB) }),
     await makePack('Site_C', 1.3, undefined, { protocol: regProtocol, signers: sealedBy(opC) }),
-    await makePack('Site_D', 0.9, undefined, { protocol: regProtocol, signers: sealedBy(opD), structuralFailure: true }),
+    await makePack('Site_D', 0.9, undefined, { protocol: regProtocol, signers: sealedBy(opD) }),
   ]
   for (const p of regPacks) out(`regulatory/network/${p.name}`, p.bytes)
+  // Site Mode demo of the data-quality gate: with this DQD file a regulatory pack cannot be sealed.
+  out('regulatory/site/dqd_results_structural_failure.json', dqdResults('Site_A', { structuralFailure: true }))
 
   console.log(`samples written to ${root}`)
 }

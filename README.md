@@ -82,9 +82,13 @@ The same study issued with **regulatory** assurance. All demo keys use the passp
    | Site_A | ✅ adopt | signed by the enrolled operator and the site PI |
    | Site_B | ✅ adopt | signed by the enrolled operator |
    | Site_C | ❌ exclude | signed with a key that is not in the roster |
-   | Site_D | ❌ exclude | DQD: a required field fails on a table the study uses (`DATA_QUALITY`) |
+   | Site_D | ❌ exclude | signed with a key that was revoked before the pack was received (`INTEGRITY`) |
 
 3. Record the recommendations, lock, and export. In a regulatory study the export stays disabled until the dispositions are locked.
+
+To see the data-quality gate stop a site, use `regulatory/site/dqd_results_structural_failure.json` instead of `site/dqd_results.json` in step 1: a required field fails on a table the study uses, and the StudyPack cannot be sealed.
+
+These gates are enforced by the library (`sealRefusals`, `buildRegulatoryExport`), not only by disabled buttons, so a pack or submission that breaks them cannot be produced from any entry point.
 
 ## How it fits with OHDSI Strategus
 

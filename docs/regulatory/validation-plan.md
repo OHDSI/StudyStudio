@@ -87,7 +87,7 @@ Residual risk is assessed after the controls.
 
 | # | Function | Failure | S | P | D | Risk | Controls | Verified by | Residual |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | Small-cell audit | Count 0 < n < min leaves the site | 3 | 2 | 2 | 12 | RDMS-driven audit, download lock, coordinator re-audit | `cellAuditor.test.ts`, `strategus.test.ts` (Strategus results) | Low |
+| 1 | Small-cell audit | Count 0 < n < min leaves the site | 3 | 2 | 2 | 12 | RDMS-driven audit, library refuses to seal, coordinator re-audit | `cellAuditor.test.ts`, `strategus.test.ts` (Strategus results), `builder.test.ts` | Low |
 | 2 | Masking record | Original values recoverable from the pack | 3 | 2 | 3 | 18 | Salted commitments; salts only in the site receipt | `commitment.test.ts`, `aggregator.test.ts` (signs, verifies …) | Low |
 | 3 | Sealing | Change after sealing goes undetected | 3 | 2 | 1 | 6 | SHA-256 manifest of every file | `aggregator.test.ts` (detects tampering …) | Low |
 | 4 | Protocol conformance | Site runs different code or settings | 3 | 2 | 2 | 12 | Pinned hashes, protected section, sealed protocol copy | `strategus.test.ts` (protected section), `aggregator.test.ts` (cross-site) | Low |
@@ -114,11 +114,11 @@ Residual risk is assessed after the controls.
 | R2.1–R2.2 | `provenance.test.ts` › timeline (all) |
 | R2.3 | `regulatory.test.ts` › disposition audit trail in the submission |
 | R3.1–R3.4 | `provenance.test.ts` › cdm_source and software provenance (all) |
-| R4.1–R4.5 | `dqdAuditor.test.ts` (all); `readiness.test.ts` › *turns regulatory evidence findings into blockers*; `aggregator.test.ts` › regulatory demo set (Site_D) |
+| R4.1–R4.5 | `dqdAuditor.test.ts` (all); `readiness.test.ts` › *turns regulatory evidence findings into blockers*; `builder.test.ts` › *refuses evidence that blocks* |
 | R5.1 | `logAuditor.test.ts` › auditLog; `readiness.test.ts` › regulatory evidence |
 | R5.2–R5.4 | `logAuditor.test.ts` › redactLog; `commitment.test.ts` (all); `aggregator.test.ts` › *signs, verifies against the roster …* (retention receipt) |
 | R6.1–R6.2 | `dispositionLog.test.ts` › *requires identity, a pre-specified reason, and justification for overrides*, *chains entries* |
-| R6.3 | `dispositionLog.test.ts` › *refuses decisions after lock*; Export Hub lock gate ‹UI test› |
+| R6.3 | `dispositionLog.test.ts` › *refuses decisions after lock*; `regulatory.test.ts` › disposition audit trail (export refused before lock / with undecided sites) |
 | R6.4–R6.5 | `regulatory.test.ts` › disposition audit trail in the submission; `dispositionLog.test.ts` › *detects an edited, removed or truncated entry* |
 
 ## 7. Qualification
@@ -145,12 +145,13 @@ Acceptance: hash matches; browser is a supported version (‹list›).
 | OQ-UI-4 | Site: try to download without unlocking a key | Blocked: "Regulatory studies must be signed" |
 | OQ-UI-5 | Coordinator: load roster + signature | "Signed by … (protocol issuer key)" |
 | OQ-UI-6 | Coordinator: enroll or revoke a signer | Roster signature no longer applies until re-signed |
-| OQ-UI-7 | Coordinator: load the four regulatory demo packs | Site_A, Site_B adopt; Site_C exclude (not enrolled); Site_D exclude (DATA_QUALITY) |
+| OQ-UI-7 | Coordinator: load the four regulatory demo packs | Site_A, Site_B adopt; Site_C exclude (not enrolled); Site_D exclude (key revoked before receipt) |
+| OQ-UI-7b | Site: use `regulatory/site/dqd_results_structural_failure.json` | Packaging blocked by the data-quality gate |
 | OQ-UI-8 | Coordinator: generate the submission before locking | Blocked |
 | OQ-UI-9 | Lock with attestation, then export | Package contains `disposition/` log, head and head signature; report shows sections 4–6 |
 | OQ-UI-10 | Edit one line of an exported disposition log and re-import it | Rejected: chain broken |
 
-‹Gap: these scenarios are not yet automated in the repository. Until they are, run them manually and record screenshots.›
+These scenarios are run manually per release with screenshots as evidence. The conditions they exercise are also enforced and unit-tested inside the library (`builder.test.ts`, `regulatory.test.ts`), so the manual run verifies the UI wiring, not the gates themselves. ‹Decide before first regulatory use whether to automate the main paths.›
 
 ### 7.3 Performance qualification (PQ)
 A dry run of the study's real workflow before first use: ‹n› sites seal packs from their own CDM with the

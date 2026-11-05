@@ -12,7 +12,7 @@ import type { ProvenanceReport } from '@/lib/provenance/cdmSource'
 import type { Timeline } from '@/lib/provenance/timeline'
 import { deviceNow } from '@/lib/provenance/timeline'
 import { addSignature, type DetachedJws, type SignatureMeaning, type UnlockedSigner } from '@/lib/security/signer'
-import type { SiteEvidence } from './evidence'
+import { judgeEvidence, type SiteEvidence } from './evidence'
 import { GENERATED_PATHS } from './slots'
 import { PACK_VERSION, type AssuranceLevel, type FileRole, type GateSeverity, type ManifestFileEntry, type RoleMode, type SourcedTime, type StudyPackManifest } from '@/types/studypack'
 
@@ -290,7 +290,36 @@ export async function manifestEntries(files: { path: string; bytes: Uint8Array; 
   return out.sort((a, b) => a.path.localeCompare(b.path))
 }
 
+/** Thrown when a pack must not be sealed. The UI disables the button too; this is the authoritative check. */
+export class SealRefused extends Error {
+  constructor(readonly reasons: string[]) {
+    super(`StudyPack not sealed: ${reasons.join('; ')}`)
+    this.name = 'SealRefused'
+  }
+}
+
+/**
+ * Conditions that make a pack unsealable regardless of how it is requested (UI, script or test):
+ * small cells or identifiers left in audited files, and — in regulatory studies — a missing signature,
+ * missing protocol / coordinator signature, missing evidence, or evidence that blocks.
+ */
+export function sealRefusals(p: BuildPackParams): string[] {
+  const reasons: string[] = []
+  for (const f of p.files)
+    if (f.audit && !f.audit.passed) reasons.push(`${f.path}: ${f.audit.smallCellCount} small cell(s) / ${f.audit.identifierCount} identifier column(s) remain`)
+  if (p.assurance === 'regulatory') {
+    if (!p.signers?.length) reasons.push('regulatory studies must be signed')
+    if (!p.protocolBytes) reasons.push('regulatory studies must seal the protocol as received')
+    if (!p.protocolSignatureBytes) reasons.push('regulatory studies need the coordinator signature on the protocol')
+    if (!p.evidence) reasons.push('regulatory studies must include the data-quality and provenance evidence')
+    else reasons.push(...judgeEvidence(p.evidence).blockers)
+  }
+  return reasons
+}
+
 export async function buildStudyPack(p: BuildPackParams): Promise<BuiltPack> {
+  const refusals = sealRefusals(p)
+  if (refusals.length) throw new SealRefused(refusals)
   const now = p.now ?? new Date()
   const generatedAt = now.toISOString()
   const sealedAt = deviceNow(now)

@@ -161,7 +161,7 @@ describe('regulatory controls end to end', () => {
 })
 
 describe('regulatory demo set (samples/regulatory)', () => {
-  it('adopts the signed, enrolled, clean sites and excludes the others for pre-specified reasons', async () => {
+  it('adopts the signed, enrolled sites and excludes an unenrolled and a revoked key', async () => {
     const { readProtocolFile } = await import('@/lib/strategus/protocol')
     const { parseJws, verifyRoster, withEnrollment, parseRoster } = await import('@/lib/security/signer')
     const { evaluateEvidence } = await import('@/lib/studypack/evidence')
@@ -193,7 +193,8 @@ describe('regulatory demo set (samples/regulatory)', () => {
     expect(verdicts.Site_C.recommended).toBe('exclude')
     expect(verdicts.Site_C.reasons.join()).toMatch(/not in the signer roster/)
     expect(verdicts.Site_D.recommended).toBe('exclude')
-    expect(verdicts.Site_D.codes).toEqual(['DATA_QUALITY'])
+    expect(verdicts.Site_D.codes).toEqual(['INTEGRITY'])
+    expect(verdicts.Site_D.reasons.join()).toMatch(/revoked/)
     expect(sites.find((s) => s.siteId === 'Site_A')!.signatureChecks.map((c) => c.meaning)).toEqual(['sealed', 'approved-for-release'])
 
     // Without the issuer's roster signature, nobody counts as enrolled.

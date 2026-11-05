@@ -70,7 +70,7 @@ export function EvidenceView({ evidence: e }: { evidence: SiteEvidence }) {
         {p.issues.map((i) => <Issue key={i.code} severity={i.severity} regulatory={regulatory}>{i.message}</Issue>)}
       </Section>
 
-      <Section icon={FileText} title="Execution log" ok={!!e.log && e.log.counts.ERROR + e.log.counts.FATAL === 0}>
+      <Section icon={FileText} title="Execution log" ok={e.log ? e.log.counts.ERROR + e.log.counts.FATAL === 0 : !regulatory}>
         {e.log ? (
           <>
             <Row k="Entries" v={`${e.log.entries.toLocaleString()} timestamped lines (${e.log.firstTimestamp ?? '?'} → ${e.log.lastTimestamp ?? '?'})`} />
@@ -78,8 +78,10 @@ export function EvidenceView({ evidence: e }: { evidence: SiteEvidence }) {
             {e.log.minCellCounts.length > 0 && <Row k="minCellCount in log" v={e.log.minCellCounts.join(', ')} />}
             {e.log.errors.slice(0, 5).map((m) => <Issue key={m.line} severity="warn" regulatory={regulatory}>line {m.line}: {m.text}</Issue>)}
           </>
+        ) : regulatory ? (
+          <Issue severity="block" regulatory>No Strategus execution log loaded (logs/execution.log)</Issue>
         ) : (
-          <Issue severity="block" regulatory={regulatory}>No Strategus execution log loaded (logs/execution.log)</Issue>
+          <div className="text-muted-foreground">No log loaded — optional in a standard study.</div>
         )}
       </Section>
 

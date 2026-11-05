@@ -106,8 +106,10 @@ export function judgeEvidence(e: SiteEvidence): EvidenceVerdict {
     put(f.severity === 'block', `Data quality (${f.ruleId}): ${what}`)
   }
   for (const i of e.provenance.issues) put(i.severity === 'block', `Provenance: ${i.message}`)
-  if (!e.log) put(true, 'Strategus execution log is missing (logs/execution.log)')
-  else {
+  // The log is required evidence only in regulatory studies; in standard studies it is optional, so no warning.
+  if (!e.log) {
+    if (regulatory) blockers.push('Strategus execution log is missing (logs/execution.log)')
+  } else {
     const errs = e.log.counts.ERROR + e.log.counts.FATAL
     if (errs) warnings.push(`Strategus log contains ${errs} error line(s) — first at line ${e.log.errors[0]?.line}`)
   }

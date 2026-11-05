@@ -65,6 +65,9 @@ describe('evaluateReadiness', () => {
     expect(text).toMatch(/cdm_source/)
     expect(text).toMatch(/execution log is missing/)
     const std = evaluateEvidence({ config, files: {} })
-    expect(evaluateReadiness({ siteId: 'A', config, slots, signers, results: result('cohort_id,cohort_subjects\n1,9\n'), evidence: std }).canPackage).toBe(true)
+    const stdReadiness = evaluateReadiness({ siteId: 'A', config, slots, signers, results: result('cohort_id,cohort_subjects\n1,9\n'), evidence: std })
+    expect(stdReadiness.canPackage).toBe(true)
+    // The execution log is optional in standard studies: no warning when it is absent.
+    expect(stdReadiness.warnings.join('\n')).not.toMatch(/execution log/)
   })
 })

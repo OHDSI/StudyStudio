@@ -19,9 +19,11 @@ jobs:
     timeout-minutes: 120
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
-      EUNOMIA_DATA_FOLDER: ${{ runner.temp }}/eunomia-data
-      OUT: ${{ runner.temp }}/eunomia-run
     steps:
+      - name: Folders
+        run: |
+          echo "EUNOMIA_DATA_FOLDER=$RUNNER_TEMP/eunomia-data" >> "$GITHUB_ENV"
+          echo "OUT=$RUNNER_TEMP/eunomia-run" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
       - uses: r-lib/actions/setup-r@v2
         with:

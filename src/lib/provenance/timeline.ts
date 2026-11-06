@@ -11,7 +11,7 @@
 import type { SourcedTime } from '@/types/studypack'
 
 export interface TimelineEvent {
-  key: 'cdmRelease' | 'sourceRelease' | 'protocolIssued' | 'dqdStart' | 'dqdEnd' | 'logFirst' | 'logLast' | 'sealed' | 'received'
+  key: 'cdmRelease' | 'sourceRelease' | 'protocolIssued' | 'dqdStart' | 'dqdEnd' | 'logFirst' | 'logLast' | 'runStart' | 'runEnd' | 'sealed' | 'received'
   label: string
   /** ISO-8601; date-only values are kept as dates. */
   at: string
@@ -49,6 +49,8 @@ const ORDER: TimelineEvent['key'][][] = [
   ['sourceRelease', 'cdmRelease', 'dqdStart', 'dqdEnd'],
   ['cdmRelease', 'logFirst', 'logLast', 'sealed', 'received'],
   ['protocolIssued', 'logFirst'],
+  ['cdmRelease', 'runStart', 'runEnd', 'sealed', 'received'],
+  ['protocolIssued', 'runStart'],
   ['protocolIssued', 'sealed'],
   ['dqdEnd', 'sealed'],
 ]

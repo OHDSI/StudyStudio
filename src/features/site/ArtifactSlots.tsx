@@ -1,7 +1,7 @@
 import { AlertTriangle, CheckCircle2, FileCheck2, FolderOpen, Loader2, ShieldAlert, Trash2, XCircle } from 'lucide-react'
 import { useStudyStore, type SlotFile } from '@/store/useStudyStore'
 import { SITE_PRODUCED_SLOTS, SLOT_BY_ID, SLOTS, planBulkIngest, type SlotDef, type SlotId } from '@/lib/studypack/slots'
-import { readResultsZip, resultFilesFromList, moduleOf, RDMS_FILE } from '@/lib/strategus/results'
+import { findResultsSideFiles, readResultsZip, readZipEntries, resultFilesFromList, moduleOf, RDMS_FILE, RESULTS_SIDE_FILES } from '@/lib/strategus/results'
 import { hashesEqual } from '@/lib/integrity/hasher'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -83,13 +83,20 @@ function SlotCard({ slot }: { slot: SlotDef }) {
   )
 }
 
-/** Load a Strategus results archive (Strategus::zipResults) or a dropped/selected results folder. */
+/**
+ * Load a Strategus results archive (Strategus::zipResults) or a dropped/selected results folder. The run
+ * record and executionSettings.json written next to the module folders go into their own slots
+ * (executionSettings.json only when that slot is still empty).
+ */
 export async function loadResults(files: DroppedFile[], ingestResults: (source: string, f: { path: string; bytes: Uint8Array }[]) => Promise<void>) {
+  const { ingest, slots } = useStudyStore.getState()
   const zips = files.filter((f) => /\.zip$/i.test(f.name))
-  if (zips.length) {
-    const z = zips[0]
-    return ingestResults(z.name, await readResultsZip(z.bytes))
-  }
+  const sideNames = new Set<string>(Object.values(RESULTS_SIDE_FILES))
+  const entries = zips.length ? await readZipEntries(zips[0].bytes, (p) => sideNames.has(p.split('/').pop()!)) : files
+  const side = findResultsSideFiles(entries)
+  if (side.runRecord) await ingest('runRecord', RESULTS_SIDE_FILES.runRecord, side.runRecord.bytes)
+  if (side.executionSettings && !slots.executionSettings) await ingest('executionSettings', RESULTS_SIDE_FILES.executionSettings, side.executionSettings.bytes)
+  if (zips.length) return ingestResults(zips[0].name, await readResultsZip(zips[0].bytes))
   const csvs = files.filter((f) => /\.csv$/i.test(f.name))
   const root = csvs[0]?.name.includes('/') ? csvs[0].name.split('/')[0] : 'selected files'
   return ingestResults(root, resultFilesFromList(csvs))
@@ -109,7 +116,7 @@ function ResultsBundleCard() {
         <div>
           <div className="font-mono text-xs font-semibold">Strategus results</div>
           <div className="text-xs text-muted-foreground">
-            The <code>results/&lt;databaseName&gt;</code> folder written by <code>Strategus::execute()</code>, or the ZIP from <code>Strategus::zipResults()</code>. Every CSV is audited; columns flagged <code>min_cell_count</code> in each module's <code>{RDMS_FILE}</code> are checked exactly.
+            The <code>results/&lt;databaseName&gt;</code> folder written by <code>Strategus::execute()</code>, or the ZIP from <code>Strategus::zipResults()</code>. Every CSV is audited; columns flagged <code>min_cell_count</code> in each module's <code>{RDMS_FILE}</code> are checked exactly. <code>run_record.json</code> and <code>executionSettings.json</code> in the same folder are picked up too (a <code>zipResults()</code> ZIP has only the CSVs: drop them separately).
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">

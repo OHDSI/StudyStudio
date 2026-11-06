@@ -10,6 +10,7 @@ export type SlotId =
   | 'renvLock'
   | 'executionSettings'
   | 'executionLog'
+  | 'runRecord'
 
 export interface SlotDef {
   id: SlotId
@@ -35,6 +36,7 @@ export const SLOTS: SlotDef[] = [
   { id: 'executeAnalyses', path: 'code/ExecuteAnalyses.R', role: 'code', label: 'ExecuteAnalyses.R', description: 'Strategus execution script (if it has the template marker, only the INPUTS block above it may be edited)', accept: ['.R', '.r'], required: true, audited: false, fromProtocol: true },
   { id: 'renvLock', path: 'code/renv.lock', role: 'code', label: 'renv.lock', description: 'Pinned R package dependencies', accept: ['.lock', '.json'], required: true, audited: false, fromProtocol: true },
   { id: 'executionSettings', path: 'code/executionSettings.json', role: 'code', label: 'executionSettings.json', description: 'Execution settings written by ExecuteAnalyses.R (records minCellCount)', accept: ['.json'], required: false, audited: false, fromProtocol: false },
+  { id: 'runRecord', path: 'evidence/run_record.json', role: 'evidence', label: 'run_record.json', description: 'Run record written by recordStrategusRun() in ExecuteAnalyses.R: hashes of the inputs, results and loaded packages. Picked up from the results folder or ZIP (required for regulatory studies)', accept: ['.json'], required: false, audited: false, fromProtocol: false },
   { id: 'executionLog', path: 'logs/execution.log', role: 'evidence', label: 'Strategus log', description: 'Strategus / ParallelLogger execution log. Credentials, hosts and user names are redacted; the original stays at the site (required for regulatory studies)', accept: ['.log', '.txt'], required: false, audited: false, fromProtocol: false },
 ]
 
@@ -62,6 +64,7 @@ export function guessSlot(fileName: string): SlotId | undefined {
   if (n === 'executeanalyses.r' || n === 'codetorun.r') return 'executeAnalyses'
   if (n === 'renv.lock') return 'renvLock'
   if (n === 'executionsettings.json') return 'executionSettings'
+  if (n === 'run_record.json') return 'runRecord'
   if (n.includes('analysisspecification')) return 'analysisSpecifications'
   if (n.includes('mapping')) return 'mappingSpec'
   if (n.includes('vocab')) return 'vocabularyVersion'

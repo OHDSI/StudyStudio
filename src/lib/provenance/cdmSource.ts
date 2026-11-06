@@ -71,14 +71,14 @@ export function parseDatabaseMetaData(text: string): CdmSourceFacts | undefined 
   }
 }
 
-const HADES = /^(Strategus|CohortGenerator|CohortMethod|SelfControlledCaseSeries|PatientLevelPrediction|Characterization|CohortIncidence|CohortDiagnostics|EvidenceSynthesis|FeatureExtraction|DatabaseConnector|SqlRender|Cyclops|ParallelLogger|ResultModelManager|DataQualityDashboard|Andromeda|EmpiricalCalibration)$/
+export const HADES_PACKAGE = /^(Strategus|CohortGenerator|CohortMethod|SelfControlledCaseSeries|PatientLevelPrediction|Characterization|CohortIncidence|CohortDiagnostics|EvidenceSynthesis|FeatureExtraction|DatabaseConnector|SqlRender|Cyclops|ParallelLogger|ResultModelManager|DataQualityDashboard|Andromeda|EmpiricalCalibration)$/
 
 export function softwareVersions(renvLockText?: string): SoftwareVersions {
   if (!renvLockText) return { packages: {} }
   try {
     const j = JSON.parse(renvLockText) as { R?: { Version?: string }; Packages?: Record<string, { Package?: string; Version?: string }> }
     const packages: Record<string, string> = {}
-    for (const [name, p] of Object.entries(j.Packages ?? {})) if (HADES.test(name) && p.Version) packages[name] = p.Version
+    for (const [name, p] of Object.entries(j.Packages ?? {})) if (HADES_PACKAGE.test(name) && p.Version) packages[name] = p.Version
     return { r: j.R?.Version, packages }
   } catch {
     return { packages: {} }

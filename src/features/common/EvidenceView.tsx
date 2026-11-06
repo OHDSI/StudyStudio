@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, Clock, Database, FileText, Gauge, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Clock, Database, FileText, Fingerprint, Gauge, XCircle } from 'lucide-react'
 import { describeCheck } from '@/lib/audit/dqdAuditor'
 import type { SiteEvidence } from '@/lib/studypack/evidence'
 import { Badge } from '@/components/ui/badge'
@@ -36,7 +36,40 @@ const Row = ({ k, v }: { k: string; v?: React.ReactNode }) => (
   <div className="flex gap-2"><span className="w-36 shrink-0 text-muted-foreground">{k}</span><span className="min-w-0 break-words">{v ?? '—'}</span></div>
 )
 
-/** Data quality, provenance, execution log and time evidence for one site (requirements R2–R5). */
+const INPUT_LABEL = { analysisSpecifications: 'Analysis spec', executionScript: 'Script (protected section)', renvLock: 'renv.lock' } as const
+const INPUT_STATUS = { match: 'matches', mismatch: 'differs', 'not-recorded': 'not recorded', 'not-packed': 'not in pack' } as const
+
+function RunRecordSection({ e, regulatory }: { e: SiteEvidence; regulatory: boolean }) {
+  const r = e.runRecord
+  if (!r) return null
+  return (
+    <Section icon={Fingerprint} title="Run record" ok={r.present && r.issues.length === 0}>
+      {!r.present ? (
+        regulatory ? (
+          r.issues.map((i) => <Issue key={i.code} severity={i.severity} regulatory>{i.message}</Issue>)
+        ) : (
+          <div className="text-muted-foreground">No run record — optional in a standard study. Wrap <code>Strategus::execute()</code> in <code>recordStrategusRun()</code> to write one.</div>
+        )
+      ) : (
+        <>
+          {r.last && (
+            <>
+              <Row k="Last run" v={`${r.last.startedAt ?? '?'} → ${r.last.finishedAt ?? '?'} · ${r.last.status ?? '?'}${r.runs > 1 ? ` (${r.runs} runs recorded)` : ''}`} />
+              <Row k="R / Strategus" v={`R ${r.last.r ?? '?'} · Strategus ${r.last.strategus ?? '?'}`} />
+            </>
+          )}
+          {r.inputs.length > 0 && <Row k="Inputs" v={r.inputs.map((c) => `${c.wholeFile ? 'Script (whole file)' : INPUT_LABEL[c.key]} ${INPUT_STATUS[c.status]}`).join(' · ')} />}
+          <Row k="Results" v={`${r.results.matched}/${r.results.recorded} as the run wrote them${r.results.withheld ? ` · ${r.results.withheld} masked (hash withheld)` : ''}`} />
+          {r.environment.checked > 0 && <Row k="Packages vs renv.lock" v={`${r.environment.checked - r.environment.mismatches.length}/${r.environment.checked} match`} />}
+          {r.issues.map((i) => <Issue key={i.code} severity={i.severity} regulatory={regulatory}>{i.message}</Issue>)}
+        </>
+      )}
+      <div className="text-muted-foreground">Written by R on the site's machine: it shows what that run read and wrote, not that it could not have been produced otherwise.</div>
+    </Section>
+  )
+}
+
+/** Data quality, provenance, execution log, run record and time evidence for one site (requirements R2–R5). */
 export function EvidenceView({ evidence: e }: { evidence: SiteEvidence }) {
   const regulatory = e.assurance === 'regulatory'
   const g = e.dqdGate
@@ -84,6 +117,8 @@ export function EvidenceView({ evidence: e }: { evidence: SiteEvidence }) {
           <div className="text-muted-foreground">No log loaded — optional in a standard study.</div>
         )}
       </Section>
+
+      <RunRecordSection e={e} regulatory={regulatory} />
 
       <Section icon={Clock} title="Time evidence" ok={e.timeline.issues.length === 0}>
         {e.timeline.events.map((t) => (

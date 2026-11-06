@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { ClipboardCheck } from 'lucide-react'
-import { siteFiles, useStudyStore } from '@/store/useStudyStore'
+import { siteFiles, siteHashes, useStudyStore } from '@/store/useStudyStore'
 import { evaluateEvidence } from '@/lib/studypack/evidence'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -11,7 +11,7 @@ export function EvidencePanel() {
   const config = useStudyStore((s) => s.config)
   const slots = useStudyStore((s) => s.slots)
   const results = useStudyStore((s) => s.results)
-  const evidence = React.useMemo(() => evaluateEvidence({ config, files: siteFiles({ slots, results }) }), [config, slots, results])
+  const evidence = React.useMemo(() => evaluateEvidence({ config, files: siteFiles({ slots, results }), hashes: siteHashes({ slots, results }) }), [config, slots, results])
   if (!config || !results) return null
   return (
     <Card>

@@ -47,6 +47,15 @@ function lastDecision(entries: readonly DispositionEntry[] | undefined, packSha2
   return [...(entries ?? [])].reverse().find((e) => (e.action === 'adopt' || e.action === 'exclude') && e.packSha256 === packSha256)
 }
 
+/** One-line summary of the run-record comparison for the audit report. */
+function runRecordCell(e?: SiteEvidence): string {
+  const r = e?.runRecord
+  if (!r) return '—'
+  if (!r.present) return 'none'
+  const inputs = `${r.inputs.filter((c) => c.status === 'match').length}/${r.inputs.length} inputs match`
+  return `${r.results.matched}/${r.results.recorded} results as written${r.results.withheld ? `, ${r.results.withheld} masked (checked at the site)` : ''}; ${inputs}`
+}
+
 function signatureLine(c?: SignatureCheck[]): string {
   if (!c?.length) return 'unsigned'
   return c.map((x) => `${x.valid ? (x.enrolled ? '✅' : '⚠️') : '❌'} ${x.signer?.name ?? '?'} (${x.signer?.role ?? '?'}, ${x.meaning ?? '?'}, ${x.signedAt ?? '?'}, key ${kidFingerprint(x.kid)}${x.valid && !x.enrolled ? `; ${x.enrollmentIssue}` : ''})`).join('; ')
@@ -74,6 +83,7 @@ const LIMITATIONS = [
   'Masked results and redacted logs are represented by salted commitments; the originals and their salts are retained at each site.',
   'Data-quality evaluation checks the CDM’s internal consistency (OHDSI DQD); source-to-CDM reconciliation is documented by each data holder.',
   'Exported datasets contain aggregate Strategus results, not patient-level SDTM/ADaM data.',
+  'Run records are written by R on each site’s machine. They show that the sealed results are the ones the recorded run wrote from the protocol’s inputs; they cannot rule out a record produced some other way. Masked results are compared with the record at the site only.',
 ]
 
 const standardsLine = (i: ReportInput) =>
@@ -162,13 +172,13 @@ export function buildMarkdownReport(i: ReportInput): string {
   L.push('')
 
   L.push('## 5. Signatures, data quality and provenance', '')
-  L.push('| Site | Signatures | DQD gate (block/warn) | CDM / vocabulary | Log errors | Provenance & time issues |', '|---|---|---|---|---|---|')
+  L.push('| Site | Signatures | DQD gate (block/warn) | CDM / vocabulary | Log errors | Run record | Provenance, run & time issues |', '|---|---|---|---|---|---|---|')
   for (const r of i.rows) {
     const e = r.evidence
     const cs = e?.provenance.cdmSource
-    const issues = e ? [...e.provenance.issues.map((x) => x.message), ...e.timeline.issues.map((x) => x.message)] : []
+    const issues = e ? [...e.provenance.issues.map((x) => x.message), ...(e.runRecord?.issues ?? []).map((x) => `Run record: ${x.message}`), ...e.timeline.issues.map((x) => x.message)] : []
     L.push(
-      `| ${mdCell(r.site.siteId)} | ${mdCell(signatureLine(r.signatures))} | ${e ? `${e.dqdGate.counts.block}/${e.dqdGate.counts.warn} (${e.dqdGate.checksEvaluated} checks, policy ${e.dqdPolicy.policyVersion})` : '—'} | ${cs ? mdCell(`${cs.cdmSourceName ?? '?'} · CDM ${cs.cdmVersion ?? '?'} · ${cs.vocabularyVersion ?? '?'}`) : '—'} | ${e?.log ? e.log.counts.ERROR + e.log.counts.FATAL : 'no log'} | ${mdCell(issues.join('; ') || '—')} |`,
+      `| ${mdCell(r.site.siteId)} | ${mdCell(signatureLine(r.signatures))} | ${e ? `${e.dqdGate.counts.block}/${e.dqdGate.counts.warn} (${e.dqdGate.checksEvaluated} checks, policy ${e.dqdPolicy.policyVersion})` : '—'} | ${cs ? mdCell(`${cs.cdmSourceName ?? '?'} · CDM ${cs.cdmVersion ?? '?'} · ${cs.vocabularyVersion ?? '?'}`) : '—'} | ${e?.log ? e.log.counts.ERROR + e.log.counts.FATAL : 'no log'} | ${mdCell(runRecordCell(e))} | ${mdCell(issues.join('; ') || '—')} |`,
     )
   }
   L.push('')
@@ -244,8 +254,8 @@ function htmlDisposition(i: ReportInput): string {
     .map((r) => {
       const e = r.evidence
       const cs = e?.provenance.cdmSource
-      const issues = e ? [...e.provenance.issues.map((x) => x.message), ...e.timeline.issues.map((x) => x.message)] : []
-      return `<tr><td>${xmlEscape(r.site.siteId)}</td><td>${xmlEscape(signatureLine(r.signatures))}</td><td>${e ? `${e.dqdGate.counts.block}/${e.dqdGate.counts.warn}` : '—'}</td><td>${cs ? xmlEscape(`${cs.cdmSourceName ?? '?'} · CDM ${cs.cdmVersion ?? '?'} · ${cs.vocabularyVersion ?? '?'}`) : '—'}</td><td>${e?.log ? e.log.counts.ERROR + e.log.counts.FATAL : 'no log'}</td><td>${xmlEscape(issues.join('; ') || '—')}</td></tr>`
+      const issues = e ? [...e.provenance.issues.map((x) => x.message), ...(e.runRecord?.issues ?? []).map((x) => `Run record: ${x.message}`), ...e.timeline.issues.map((x) => x.message)] : []
+      return `<tr><td>${xmlEscape(r.site.siteId)}</td><td>${xmlEscape(signatureLine(r.signatures))}</td><td>${e ? `${e.dqdGate.counts.block}/${e.dqdGate.counts.warn}` : '—'}</td><td>${cs ? xmlEscape(`${cs.cdmSourceName ?? '?'} · CDM ${cs.cdmVersion ?? '?'} · ${cs.vocabularyVersion ?? '?'}`) : '—'}</td><td>${e?.log ? e.log.counts.ERROR + e.log.counts.FATAL : 'no log'}</td><td>${xmlEscape(runRecordCell(e))}</td><td>${xmlEscape(issues.join('; ') || '—')}</td></tr>`
     })
     .join('\n')
   const trail = (i.disposition ?? [])
@@ -255,7 +265,7 @@ function htmlDisposition(i: ReportInput): string {
 <p>Assurance: ${i.config?.assurance ?? 'standard'} · Dispositions locked: ${lock ? `yes — ${xmlEscape(lock.actor.name)} at ${lock.at}` : 'no'}</p>
 <table><tr><th>Site</th><th>Pack</th><th>Recommended</th><th>Decision</th><th>Code</th><th>Justification / reasons</th><th>Decided by</th><th>When (UTC)</th></tr>${disp}</table>
 <h2>5. Signatures, data quality and provenance</h2>
-<table><tr><th>Site</th><th>Signatures</th><th>DQD block/warn</th><th>CDM / vocabulary</th><th>Log errors</th><th>Issues</th></tr>${ev}</table>
+<table><tr><th>Site</th><th>Signatures</th><th>DQD block/warn</th><th>CDM / vocabulary</th><th>Log errors</th><th>Run record</th><th>Issues</th></tr>${ev}</table>
 ${trail ? `<h2>6. Disposition audit trail</h2><p>Head <code>${i.dispositionHead ?? '—'}</code></p><table><tr><th>#</th><th>When (UTC)</th><th>Who</th><th>Action</th><th>Site</th><th>Change</th><th>Reason</th></tr>${trail}</table>` : ''}
 <h2>Limitations</h2><ul>${LIMITATIONS.map((l) => `<li>${xmlEscape(l)}</li>`).join('')}</ul>`
 }

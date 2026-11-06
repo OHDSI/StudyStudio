@@ -1,4 +1,4 @@
-2026-11-02 01:00:00	[Main thread]	INFO	Strategus	execute	Strategus 1.2.0 — executing analysis specification
+2026-11-02 01:00:00	[Main thread]	INFO	Strategus	execute	Strategus 1.6.0 — executing analysis specification
 Connecting using PostgreSQL driver: server = "db01.site_a.local/cdm", user = "omop_admin", password = "demo-only"
 2026-11-02 01:00:02	[Main thread]	INFO	Strategus	execute	minCellCount = 5
 2026-11-02 01:00:05	[Main thread]	INFO	Strategus	execute	Running CohortGeneratorModule

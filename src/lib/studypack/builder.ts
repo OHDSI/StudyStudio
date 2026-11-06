@@ -14,6 +14,7 @@ import { deviceNow } from '@/lib/provenance/timeline'
 import { addSignature, type DetachedJws, type SignatureMeaning, type UnlockedSigner } from '@/lib/security/signer'
 import { judgeEvidence, type SiteEvidence } from './evidence'
 import { GENERATED_PATHS } from './slots'
+import { redactRunRecord, RUN_RECORD_PACK_PATH, type RunRecordReport } from '@/lib/strategus/runRecord'
 import { PACK_VERSION, type AssuranceLevel, type FileRole, type GateSeverity, type ManifestFileEntry, type RoleMode, type SourcedTime, type StudyPackManifest } from '@/types/studypack'
 
 export const APP_NAME = 'OHDSI Study Studio'
@@ -21,7 +22,7 @@ export const APP_VERSION = '0.1.0'
 
 /** Why and how a file differs from what the site produced (R5.2). */
 export interface FileModification {
-  kind: 'small-cell-masking' | 'log-redaction'
+  kind: 'small-cell-masking' | 'log-redaction' | 'run-record-redaction'
   rule: string
   /** e.g. { maskedCells, droppedIdentifierColumns } or redactions per kind. */
   counts: Record<string, number>
@@ -103,6 +104,7 @@ export interface SiteAuditReportSections {
     minCellCounts: number[]
   }
   timeline?: Timeline
+  runRecord?: Omit<RunRecordReport, 'inputs'> & { inputs: { key: string; path: string; status: string }[] }
   signers?: { kid: string; name: string; organization: string; role: string; meaning: SignatureMeaning }[]
 }
 
@@ -236,6 +238,7 @@ async function evidenceSections(e: SiteEvidence): Promise<SiteAuditReportSection
       minCellCounts: e.log.minCellCounts,
     },
     timeline: e.timeline,
+    runRecord: e.runRecord && { ...e.runRecord, inputs: e.runRecord.inputs.map(({ key, path, status }) => ({ key, path, status })) },
   }
 }
 
@@ -317,7 +320,36 @@ export function sealRefusals(p: BuildPackParams): string[] {
   return reasons
 }
 
-export async function buildStudyPack(p: BuildPackParams): Promise<BuiltPack> {
+/**
+ * The run record lists a plain SHA-256 of every results file as the run wrote it. For a file that was
+ * masked afterwards, that hash would let anyone recover the masked values, so it is withheld in the
+ * sealed copy; the original record stays at the site under a salted commitment (R5.3). Applied inside
+ * buildStudyPack so no caller can skip it.
+ */
+export function withRedactedRunRecord(files: PackInputFile[]): PackInputFile[] {
+  const rec = files.find((f) => f.path === RUN_RECORD_PACK_PATH)
+  if (!rec) return files
+  const source = rec.original ?? rec.bytes
+  const masked = files.filter((f) => f.modification && f.path.startsWith('results/')).map((f) => f.path)
+  const red = redactRunRecord(source, masked)
+  const replaced: PackInputFile = red
+    ? {
+        ...rec,
+        bytes: red.bytes,
+        original: source,
+        modification: {
+          kind: 'run-record-redaction',
+          rule: 'SHA-256 and size of masked result files withheld',
+          counts: { withheldHashes: red.withheld },
+          reason: 'A plain hash of an unmasked results file would let anyone recover the masked values',
+        },
+      }
+    : { ...rec, bytes: source, original: undefined, modification: undefined }
+  return files.map((f) => (f === rec ? replaced : f))
+}
+
+export async function buildStudyPack(params: BuildPackParams): Promise<BuiltPack> {
+  const p: BuildPackParams = { ...params, files: withRedactedRunRecord(params.files) }
   const refusals = sealRefusals(p)
   if (refusals.length) throw new SealRefused(refusals)
   const now = p.now ?? new Date()

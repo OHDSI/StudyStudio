@@ -109,8 +109,10 @@ describe('regulatory controls end to end', () => {
     const { evaluateEvidence, judgeEvidence } = await import('@/lib/studypack/evidence')
     const s = await network()
     const a = s.Site_A
-    const e = evaluateEvidence({ config, files: a.files, sealedAt: a.manifest?.sealedAt?.utc, receivedAt: '2026-11-05T00:00:00Z' })
-    expect(judgeEvidence(e)).toEqual({ blockers: [], warnings: [] })
+    const e = evaluateEvidence({ config, files: a.files, sealedAt: a.manifest?.sealedAt?.utc, receivedAt: '2026-11-05T00:00:00Z', hashes: { file: a.fileHashes, section: a.sectionHashes } })
+    expect(e.runRecord).toMatchObject({ present: true, issues: [] })
+    expect(e.runRecord!.results.matched).toBe(e.runRecord!.results.recorded)
+    expect(judgeEvidence(e)).toEqual({ blockers: [], blocking: [], warnings: [] })
     expect(e.dqdGate.counts).toEqual({ block: 0, warn: 0, info: 1 })
     expect(a.sealedProtocol?.issuedAt).toBe(config.issuedAt)
     const log = a.manifest!.files.find((f) => f.path === 'logs/execution.log')!
@@ -183,7 +185,7 @@ describe('regulatory demo set (samples/regulatory)', () => {
     const cross = crossCheckSites(sites, cfg.expectedHashes, cfg.protectedSections, [...Object.keys(cfg.expectedHashes), ...Object.keys(cfg.protectedSections)])
     const verdicts = Object.fromEntries(
       sites.map((s) => {
-        const evidence = evaluateEvidence({ config: cfg, files: s.files, sealedAt: s.manifest?.sealedAt?.utc, receivedAt: s.receivedAt })
+        const evidence = evaluateEvidence({ config: cfg, files: s.files, sealedAt: s.manifest?.sealedAt?.utc, receivedAt: s.receivedAt, hashes: { file: s.fileHashes, section: s.sectionHashes } })
         const signatures = withEnrollment(s.signatureChecks, roster, s.siteId, s.receivedAt)
         return [s.siteId, siteVerdict(s, cross, cfg.studyId, sites, { config: cfg, evidence, signatures })]
       }),
@@ -200,5 +202,18 @@ describe('regulatory demo set (samples/regulatory)', () => {
     // Without the issuer's roster signature, nobody counts as enrolled.
     const unverified = withEnrollment(sites[0].signatureChecks, roster, sites[0].siteId, undefined, 'The signer roster is not signed')
     expect(unverified.every((c) => !c.enrolled)).toBe(true)
+
+    // A run record showing another specification is a protocol deviation; changed results are an integrity failure.
+    const a = sites.find((s) => s.siteId === 'Site_A')!
+    const rec = JSON.parse(new TextDecoder().decode(a.files['evidence/run_record.json']))
+    const last = rec.runs.at(-1)
+    last.inputs.analysisSpecifications.sha256 = '0'.repeat(64)
+    last.results.find((f: { path: string; sha256?: string }) => f.sha256).sha256 = '1'.repeat(64)
+    const files = { ...a.files, 'evidence/run_record.json': enc.encode(JSON.stringify(rec)) }
+    const evidence = evaluateEvidence({ config: cfg, files, hashes: { file: a.fileHashes, section: a.sectionHashes } })
+    const v = siteVerdict(a, cross, cfg.studyId, sites, { config: cfg, evidence, signatures: withEnrollment(a.signatureChecks, roster, a.siteId, a.receivedAt) })
+    expect(v.codes.sort()).toEqual(['INTEGRITY', 'PROTOCOL_DEVIATION'])
+    expect(v.reasons.join('\n')).toMatch(/Run record: The run used a different analysisSpecifications\.json/)
+    expect(v.reasons.join('\n')).toMatch(/Run record: 1 file\(s\) differ from what the run wrote/)
   })
 })

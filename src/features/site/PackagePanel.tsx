@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { AlertTriangle, Archive, CheckCircle2, Download, Loader2, Lock, PackageCheck, PenLine } from 'lucide-react'
-import { exportedMinCellCount, siteFiles, useStudyStore, type SlotFile } from '@/store/useStudyStore'
+import { exportedMinCellCount, siteFiles, siteHashes, useStudyStore, type SlotFile } from '@/store/useStudyStore'
 import { evaluateReadiness } from '@/lib/studypack/readiness'
 import { evaluateEvidence } from '@/lib/studypack/evidence'
 import { buildStudyPack, packFileName, retentionFileName, type BuiltPack, type ProtocolCheck } from '@/lib/studypack/builder'
@@ -20,7 +20,7 @@ import { download, formatBytes } from '@/lib/utils'
 export function PackagePanel() {
   const { siteId, config, slots, results, signers, protocol } = useStudyStore()
   const exportedMin = React.useMemo(() => exportedMinCellCount(slots), [slots])
-  const evidence = React.useMemo(() => evaluateEvidence({ config, files: siteFiles({ slots, results }) }), [config, slots, results])
+  const evidence = React.useMemo(() => evaluateEvidence({ config, files: siteFiles({ slots, results }), hashes: siteHashes({ slots, results }) }), [config, slots, results])
   const readiness = React.useMemo(
     () =>
       evaluateReadiness({
@@ -65,7 +65,7 @@ export function PackagePanel() {
         assurance: config.assurance ?? 'standard',
         protocolBytes: protocol?.bytes,
         protocolSignatureBytes: protocol?.signatureBytes,
-        evidence: evaluateEvidence({ config, files: siteFiles({ slots, results }), sealedAt: now.toISOString() }),
+        evidence: evaluateEvidence({ config, files: siteFiles({ slots, results }), hashes: siteHashes({ slots, results }), sealedAt: now.toISOString() }),
         signers,
         studyId: config.studyId,
         studyTitle: config.studyTitle,

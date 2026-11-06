@@ -1,0 +1,121 @@
+{
+  "format": "studypack-run-record/1",
+  "runs": [
+    {
+      "startedAt": "2026-11-02T01:00:00+09:00",
+      "startedAtFileSystem": "2026-11-02T01:00:00+09:00",
+      "finishedAt": "2026-11-02T03:41:05+09:00",
+      "status": "completed",
+      "errorClass": null,
+      "r": "4.4.1",
+      "platform": "x86_64-pc-linux-gnu",
+      "packages": {
+        "base": "4.4.1",
+        "CohortGenerator": "1.0.0",
+        "CohortMethod": "6.0.0",
+        "compiler": "4.4.1",
+        "DatabaseConnector": "7.0.0",
+        "datasets": "4.4.1",
+        "graphics": "4.4.1",
+        "grDevices": "4.4.1",
+        "jsonlite": "2.0.0",
+        "methods": "4.4.1",
+        "ParallelLogger": "3.4.0",
+        "SelfControlledCaseSeries": "6.0.0",
+        "stats": "4.4.1",
+        "Strategus": "1.6.0",
+        "tools": "4.4.1",
+        "utils": "4.4.1"
+      },
+      "inputs": {
+        "analysisSpecifications": {
+          "file": "analysisSpecifications.json",
+          "sha256": "f6be4c72a18b982f9e703268bc330ed55ca1e8ebfe7a1e7f51af9a6a3920de1f"
+        },
+        "executionScript": {
+          "file": "ExecuteAnalyses.R",
+          "sha256": "f9434aa2ccdfe99b00748236cdcef2267a40f0f60313d35eb83ae69c75744775",
+          "protectedSha256": "946c05851f69115852dfc77f3f0ad5a20e4aaf4c67257f1fd18dd49e1b31323c"
+        },
+        "renvLock": {
+          "file": "renv.lock",
+          "sha256": "697aec8d1c6cbad5bdaaf3ec15e775d4e06f4db797cb9af5aaf14e256d833b9e"
+        }
+      },
+      "results": [
+        {
+          "path": "CohortDiagnosticsModule/cd_cohort_count.csv",
+          "sha256": "b231a803289673c7edceaf793f880b03cce7b8f262c70280d2f52d01292483a2",
+          "sizeBytes": 103,
+          "modifiedAt": "2026-11-02T03:40:57+09:00"
+        },
+        {
+          "path": "CohortDiagnosticsModule/resultsDataModelSpecification.csv",
+          "sha256": "8e5371baf38e3a8eb1c84d754ca1c4826e1b460776d70f2049abaedbcfee9fc7",
+          "sizeBytes": 379,
+          "modifiedAt": "2026-11-02T03:40:57+09:00"
+        },
+        {
+          "path": "CohortGeneratorModule/cg_cohort_count.csv",
+          "sha256": "16096e40c4a91081a33e163cb39c6483856bc635361f8a70bccfd1ccea00e9d5",
+          "sizeBytes": 127,
+          "modifiedAt": "2026-11-02T03:40:57+09:00"
+        },
+        {
+          "path": "CohortGeneratorModule/resultsDataModelSpecification.csv",
+          "sha256": "55bc5960d9be9cac0121fedebd4eefa01fddab8bc3ec7e6bc465bc1334723944",
+          "sizeBytes": 426,
+          "modifiedAt": "2026-11-02T03:40:57+09:00"
+        },
+        {
+          "path": "CohortMethodModule/cm_diagnostics_summary.csv",
+          "sha256": "fedce886e721a73a7dec73174b33e608deb6112b060cfa37131bf42e0f82ea57",
+          "sizeBytes": 287,
+          "modifiedAt": "2026-11-02T03:40:57+09:00"
+        },
+        {
+          "path": "CohortMethodModule/cm_result.csv",
+          "sha256": "3b705f29ebdfb3416c4336b755db36eecf44c573be0690dab225a479da781990",
+          "sizeBytes": 379,
+          "modifiedAt": "2026-11-02T03:40:57+09:00"
+        },
+        {
+          "path": "CohortMethodModule/resultsDataModelSpecification.csv",
+          "sha256": "5ddd8e1ee470ea4a317806fccf8fd3e38613cc662521996cd1f2ff9269c8a239",
+          "sizeBytes": 3302,
+          "modifiedAt": "2026-11-02T03:40:57+09:00"
+        },
+        {
+          "path": "DatabaseMetaData/database_meta_data.csv",
+          "sha256": "212acacfe2936fb52ca9ade5443f9cfebcee0600ddf28095304e376eb48f4586",
+          "sizeBytes": 236,
+          "modifiedAt": "2026-11-02T03:40:57+09:00"
+        },
+        {
+          "path": "DatabaseMetaData/resultsDataModelSpecification.csv",
+          "sha256": "b00646324aade1ac46db13d5149b82ce2d73fb4f625d4c74b3a2196878697b8c",
+          "sizeBytes": 765,
+          "modifiedAt": "2026-11-02T03:40:57+09:00"
+        },
+        {
+          "path": "SelfControlledCaseSeriesModule/resultsDataModelSpecification.csv",
+          "sha256": "730defb48f12be46d3f49080f12f3c95ea0865d6f2c3ef7422c3c6399b4844df",
+          "sizeBytes": 1753,
+          "modifiedAt": "2026-11-02T03:40:57+09:00"
+        },
+        {
+          "path": "SelfControlledCaseSeriesModule/sccs_result.csv",
+          "sha256": "7ea4f7693a20fd1021c7d49e082736ac3d75aea31ed157c5905461dbeabca142",
+          "sizeBytes": 313,
+          "modifiedAt": "2026-11-02T03:40:57+09:00"
+        },
+        {
+          "path": "executionSettings.json",
+          "sha256": "6dee3c93c48793b6a972ca57b6ca3bc69a4e215e025dcc3fc020bf618e74b121",
+          "sizeBytes": 396,
+          "modifiedAt": "2026-11-02T03:40:57+09:00"
+        }
+      ]
+    }
+  ]
+}

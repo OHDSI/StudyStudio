@@ -25,6 +25,9 @@ import { auditWorkbook } from '../src/lib/audit/cellAuditor'
 import { buildStudyPack, type PackInputFile } from '../src/lib/studypack/builder'
 import { redactLog } from '../src/lib/audit/logAuditor'
 import { evaluateEvidence } from '../src/lib/studypack/evidence'
+import { runRecordHashes, RUN_RECORD_FORMAT } from '../src/lib/strategus/runRecord'
+import { protectedSectionHash } from '../src/lib/strategus/executeScript'
+import { sha256Hex } from '../src/lib/integrity/hasher'
 import {
   addSignature,
   createKeyFile,
@@ -344,7 +347,7 @@ function dqdResults(siteId: string, opts: { structuralFailure?: boolean } = {}):
 function strategusLog(siteId: string): string {
   const t = (h: string) => `2026-11-02 ${h}`
   return [
-    `${t('01:00:00')}\t[Main thread]\tINFO\tStrategus\texecute\tStrategus 1.2.0 — executing analysis specification`,
+    `${t('01:00:00')}\t[Main thread]\tINFO\tStrategus\texecute\tStrategus 1.6.0 — executing analysis specification`,
     `Connecting using PostgreSQL driver: server = "db01.${siteId.toLowerCase()}.local/cdm", user = "omop_admin", password = "demo-only"`,
     `${t('01:00:02')}\t[Main thread]\tINFO\tStrategus\texecute\tminCellCount = ${MIN}`,
     `${t('01:00:05')}\t[Main thread]\tINFO\tStrategus\texecute\tRunning CohortGeneratorModule`,
@@ -356,6 +359,41 @@ function strategusLog(siteId: string): string {
     `${t('03:41:02')}\t[Main thread]\tINFO\tStrategus\texecute\tFinished`,
     '',
   ].join('\n')
+}
+
+/**
+ * run_record.json as recordStrategusRun() (r/recordStrategusRun.R) writes it after the run: hashes of the
+ * inputs, every file in the results folder and the packages loaded (here: the renv.lock versions).
+ */
+async function runRecord(results: Record<string, string | Uint8Array>, inputs: { spec: string; execute: string; renv: string }): Promise<string> {
+  const lock = JSON.parse(inputs.renv) as { R: { Version: string }; Packages: Record<string, { Version: string }> }
+  const base = Object.fromEntries(['base', 'compiler', 'datasets', 'graphics', 'grDevices', 'methods', 'stats', 'tools', 'utils'].map((p) => [p, lock.R.Version]))
+  const packages = Object.fromEntries(Object.entries({ ...base, jsonlite: '2.0.0', ...Object.fromEntries(Object.entries(lock.Packages).map(([k, v]) => [k, v.Version])) }).sort(([a], [b]) => a.localeCompare(b)))
+  const files = await Promise.all(
+    Object.keys(results)
+      .sort()
+      .map(async (p) => {
+        const b = typeof results[p] === 'string' ? enc.encode(results[p] as string) : (results[p] as Uint8Array)
+        return { path: p, sha256: await sha256Hex(b), sizeBytes: b.byteLength, modifiedAt: '2026-11-02T03:40:57+09:00' }
+      }),
+  )
+  const run = {
+    startedAt: '2026-11-02T01:00:00+09:00',
+    startedAtFileSystem: '2026-11-02T01:00:00+09:00',
+    finishedAt: '2026-11-02T03:41:05+09:00',
+    status: 'completed',
+    errorClass: null,
+    r: lock.R.Version,
+    platform: 'x86_64-pc-linux-gnu',
+    packages,
+    inputs: {
+      analysisSpecifications: { file: 'analysisSpecifications.json', sha256: await sha256Hex(inputs.spec) },
+      executionScript: { file: 'ExecuteAnalyses.R', sha256: await sha256Hex(inputs.execute), protectedSha256: (await protectedSectionHash(inputs.execute)) ?? null },
+      renvLock: { file: 'renv.lock', sha256: await sha256Hex(inputs.renv) },
+    },
+    results: files,
+  }
+  return JSON.stringify({ format: RUN_RECORD_FORMAT, runs: [run] }, null, 2) + '\n'
 }
 
 async function main() {
@@ -430,11 +468,16 @@ async function main() {
   out('site/executionSettings.json', executionSettings(MIN))
   out('site/dqd_results.json', dqdResults('Site_A'))
   out('site/strategus-log.txt', strategusLog('Site_A'))
-  await writeResults('site', 'strategus_results_Site_A', strategusResults('Site_A', 1, MIN))
+  // What ExecuteAnalyses.R leaves in results/<databaseName>: module folders, executionSettings.json, run_record.json.
+  const resultsFolder = async (files: Record<string, string>, min: number, execute = executeText) => {
+    const withSettings = { ...files, 'executionSettings.json': executionSettings(min) }
+    return { ...withSettings, 'run_record.json': await runRecord(withSettings, { spec: specText, execute, renv: renvText }) }
+  }
+  await writeResults('site', 'strategus_results_Site_A', await resultsFolder(strategusResults('Site_A', 1, MIN), MIN))
   // Exported with minCellCount = 0 (no censoring) → small cells that OHDSI Study Studio must block. The matching
   // executionSettings.json records 0, so the "exported below the protocol's minCellCount" warning fires too.
   out('site/with_violations/executionSettings.json', executionSettings(0))
-  await writeResults('site/with_violations', 'strategus_results_Site_A_with_violations', strategusResults('Site_A', 1, 0))
+  await writeResults('site/with_violations', 'strategus_results_Site_A_with_violations', await resultsFolder(strategusResults('Site_A', 1, 0), 0))
 
   // ---- Network demo packs -----------------------------------------------------
   const siteFile = (p: string) => new Uint8Array(readFileSync(path.join(root, 'site', p)))
@@ -473,6 +516,9 @@ async function main() {
     ]
     // The ScanReport was masked at the site: pack only a salted commitment to the original.
     files[0] = { ...files[0], original: scan, modification: { kind: 'small-cell-masking', rule: `Counts with 0 < n < ${MIN} replaced by -${MIN}`, counts: { maskedCells: 1, droppedIdentifierColumns: 0 }, reason: `Small-cell suppression required by the protocol (minCellCount ${MIN})` } }
+    // run_record.json of this site's run (its own script, so its INPUTS block is part of the record).
+    const resultMap = Object.fromEntries(results.map((r) => [r.path, r.bytes]))
+    files.push(slot('runRecord', enc.encode(await runRecord({ ...resultMap, 'executionSettings.json': executionSettings(MIN) }, { spec: specText, execute, renv: renvText }))))
     const rawLog = enc.encode(strategusLog(siteId))
     const red = redactLog(strategusLog(siteId))
     files.push({
@@ -495,7 +541,12 @@ async function main() {
       protocolBytes: proto.configBytes,
       protocolSignatureBytes: proto.signature ? enc.encode(JSON.stringify(proto.signature, null, 2) + '\n') : undefined,
       signers: opts.signers,
-      evidence: evaluateEvidence({ config: proto.config, files: Object.fromEntries(files.map((f) => [f.path, f.bytes])), sealedAt: sealed.toISOString() }),
+      evidence: evaluateEvidence({
+        config: proto.config,
+        files: Object.fromEntries(files.map((f) => [f.path, f.bytes])),
+        hashes: await runRecordHashes(Object.fromEntries(files.map((f) => [f.path, f.bytes])), Object.fromEntries(files.filter((f) => f.original).map((f) => [f.path, f.original!]))),
+        sealedAt: sealed.toISOString(),
+      }),
     })
     return { name: pack.zipName, bytes: new Uint8Array(await pack.zipBlob.arrayBuffer()) }
   }

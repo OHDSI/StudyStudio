@@ -94,6 +94,31 @@ export async function readResultsZip(data: ArrayBuffer | Uint8Array): Promise<Re
   return out.sort((a, b) => a.path.localeCompare(b.path))
 }
 
+/** Files at the top of a results folder that belong in their own StudyPack slots. */
+export const RESULTS_SIDE_FILES = { runRecord: 'run_record.json', executionSettings: 'executionSettings.json' } as const
+
+/**
+ * The run record and executionSettings.json that ExecuteAnalyses.R writes next to the module folders.
+ * When several match (e.g. a parent folder was chosen), the one closest to the top wins.
+ */
+export function findResultsSideFiles(files: { name: string; bytes: Uint8Array }[]): Partial<Record<keyof typeof RESULTS_SIDE_FILES, { name: string; bytes: Uint8Array }>> {
+  const out: Partial<Record<keyof typeof RESULTS_SIDE_FILES, { name: string; bytes: Uint8Array }>> = {}
+  for (const [key, base] of Object.entries(RESULTS_SIDE_FILES) as [keyof typeof RESULTS_SIDE_FILES, string][]) {
+    const hit = files
+      .filter((f) => f.name.split('/').pop() === base && !f.name.split('/').some((seg) => seg === '__MACOSX'))
+      .sort((x, y) => x.name.split('/').length - y.name.split('/').length)[0]
+    if (hit) out[key] = hit
+  }
+  return out
+}
+
+/** Non-directory entries of a ZIP, by path; only entries accepted by `want` are decompressed. */
+export async function readZipEntries(data: ArrayBuffer | Uint8Array, want: (path: string) => boolean = () => true): Promise<{ name: string; bytes: Uint8Array }[]> {
+  const zip = await JSZip.loadAsync(data)
+  const entries = Object.entries(zip.files).filter(([p, e]) => !e.dir && !p.includes('..') && want(p))
+  return Promise.all(entries.map(async ([name, e]) => ({ name, bytes: await e.async('uint8array') })))
+}
+
 /** Files chosen with a directory picker (File.webkitRelativePath) or dropped individually. */
 export function resultFilesFromList(files: { name: string; bytes: Uint8Array }[]): ResultFile[] {
   const map = normalizeResultPaths(files.map((f) => f.name))

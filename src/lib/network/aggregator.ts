@@ -303,7 +303,7 @@ export function siteVerdict(site: LoadedSitePack, cross: CrossSiteResult, expect
   if (cfg?.assurance === 'regulatory') {
     if (!sigs.some((s) => s.valid && s.enrolled)) add('INTEGRITY', sigs.some((s) => s.valid) ? `No signature by an enrolled signer (${sigs.map((s) => s.enrollmentIssue).filter(Boolean).join('; ')})` : 'Not signed')
     if (ctx.evidence) {
-      for (const b of judgeEvidence(ctx.evidence).blockers) add(b.startsWith('Data quality') ? 'DATA_QUALITY' : b.startsWith('Provenance') && /requires|version/.test(b) ? 'CDM_REQUIREMENT' : 'PROTOCOL_DEVIATION', b)
+      for (const b of judgeEvidence(ctx.evidence).blocking) add(b.reason, b.message)
     }
   }
   return { recommended: reasons.length ? 'exclude' : 'adopt', reasons, codes: [...codes] }

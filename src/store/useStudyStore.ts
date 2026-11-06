@@ -15,6 +15,7 @@ import { loadStudyPack, type LoadedSitePack } from '@/lib/network/aggregator'
 import { DEFAULT_REASON_CODES, DispositionLog, type Actor } from '@/lib/network/dispositionLog'
 import { addSignature, rosterBytes, verifyRoster, type DetachedJws, type RosterStatus, type SignatureCheck, type SignatureMeaning, type SignerRoster, type UnlockedSigner } from '@/lib/security/signer'
 import type { RoleMode, StudyConfig } from '@/types/studypack'
+import type { RunRecordHashes } from '@/lib/strategus/runRecord'
 
 export interface SlotFile {
   name: string
@@ -29,6 +30,8 @@ export interface SlotFile {
   error?: string
   /** The file before masking/redaction. Stays in memory; only a salted commitment is packed. */
   original?: Uint8Array
+  /** SHA-256 of `original` (compared with the run record at the site). */
+  originalSha256?: string
   modification?: FileModification
 }
 
@@ -129,7 +132,8 @@ function validate(slotId: SlotId, bytes: Uint8Array): string | undefined {
 }
 
 async function toSlotFile(name: string, bytes: Uint8Array, extra: Partial<SlotFile> = {}): Promise<SlotFile> {
-  return { name, bytes, sha256: await sha256Hex(bytes), size: bytes.byteLength, remediated: false, fromProtocol: false, ...extra }
+  const originalSha256 = extra.original ? extra.originalSha256 ?? (await sha256Hex(extra.original)) : undefined
+  return { name, bytes, sha256: await sha256Hex(bytes), size: bytes.byteLength, remediated: false, fromProtocol: false, ...extra, originalSha256 }
 }
 
 const maskingRecord = (audit: AuditResult | undefined, min: number, style: MaskStyle): FileModification => ({
@@ -161,6 +165,23 @@ export function siteFiles(s: Pick<StudyState, 'slots' | 'results'>): Record<stri
   for (const [id, f] of Object.entries(s.slots) as [SlotId, SlotFile][]) out[SLOT_BY_ID[id].path] = f.bytes
   for (const [p, f] of Object.entries(s.results?.files ?? {})) out[`results/${p}`] = f.bytes
   return out
+}
+
+/** Hashes of everything loaded at the site, of masked originals and of the protected section (run-record check). */
+export function siteHashes(s: Pick<StudyState, 'slots' | 'results'>): RunRecordHashes {
+  const file: Record<string, string> = {}
+  const original: Record<string, string> = {}
+  const section: Record<string, string> = {}
+  const add = (path: string, f: SlotFile) => {
+    file[path] = f.sha256
+    if (f.originalSha256) original[path] = f.originalSha256
+  }
+  for (const [id, f] of Object.entries(s.slots) as [SlotId, SlotFile][]) {
+    add(SLOT_BY_ID[id].path, f)
+    if (f.protectedSha256) section[SLOT_BY_ID[id].path] = f.protectedSha256
+  }
+  for (const [p, f] of Object.entries(s.results?.files ?? {})) add(`results/${p}`, f)
+  return { file, original, section }
 }
 
 export const useStudyStore = create<StudyState>((set, get) => {
@@ -278,7 +299,7 @@ export const useStudyStore = create<StudyState>((set, get) => {
           out[f.path] = await toSlotFile(f.path.split('/').pop()!, f.bytes, {
             audit,
             remediated: keep,
-            ...(keep ? { original: old.original, modification: old.modification } : {}),
+            ...(keep ? { original: old.original, originalSha256: old.originalSha256, modification: old.modification } : {}),
           })
         }
         set({ results: { source, files: out } })
@@ -306,11 +327,11 @@ export const useStudyStore = create<StudyState>((set, get) => {
       const min = base.minCellCount ?? 5
       const list = Object.entries(r.files).map(([path, f]) => ({ path, bytes: f.bytes }))
       const rdms = collectRdms(list)
-      const changed = new Map<string, Pick<SlotFile, 'original' | 'modification'>>()
+      const changed = new Map<string, Pick<SlotFile, 'original' | 'originalSha256' | 'modification'>>()
       const fixed = list.map((f) => {
         const old = r.files[f.path]
         if (!old.audit || old.audit.passed) return f
-        changed.set(f.path, { original: old.original ?? old.bytes, modification: maskingRecord(old.audit, min, style) })
+        changed.set(f.path, { original: old.original ?? old.bytes, originalSha256: old.originalSha256 ?? old.sha256, modification: maskingRecord(old.audit, min, style) })
         return { path: f.path, bytes: enc.encode(remediateCsvText(dec.decode(f.bytes), auditOptionsFor(f.path, rdms, base), style)) }
       })
       await get().ingestResults(r.source, fixed)
@@ -319,7 +340,7 @@ export const useStudyStore = create<StudyState>((set, get) => {
         const files = { ...s.results.files }
         for (const [p, c] of changed) if (files[p]) files[p] = { ...files[p], remediated: true, ...c }
         for (const [p, old] of Object.entries(r.files))
-          if (old.remediated && files[p] && !changed.has(p)) files[p] = { ...files[p], remediated: true, original: old.original, modification: old.modification }
+          if (old.remediated && files[p] && !changed.has(p)) files[p] = { ...files[p], remediated: true, original: old.original, originalSha256: old.originalSha256, modification: old.modification }
         return { results: { ...s.results, files } }
       })
     },

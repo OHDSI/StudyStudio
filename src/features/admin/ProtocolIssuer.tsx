@@ -213,7 +213,7 @@ export function ProtocolIssuer() {
             {meta.assurance === 'regulatory' && (
               <Alert className="md:col-span-3">
                 <AlertDescription className="text-xs">
-                  Regulatory assurance pre-specifies, before any site runs: the data-quality gate (scoped to the CDM tables these cohorts use), the CDM version, the pre-specified site-exclusion reasons, and that every StudyPack must be signed by an enrolled signer and include the Strategus log. See docs/regulatory/requirements.md.
+                  Regulatory assurance pre-specifies, before any site runs: the data-quality gate (scoped to the CDM tables these cohorts use), the CDM version, the pre-specified site-exclusion reasons, and that every StudyPack must be signed by an enrolled signer and include the Strategus log and the run record. See docs/regulatory/requirements.md.
                 </AlertDescription>
               </Alert>
             )}

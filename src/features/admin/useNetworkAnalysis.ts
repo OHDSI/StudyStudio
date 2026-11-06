@@ -30,6 +30,8 @@ export function useNetworkAnalysis() {
         files: site.files,
         sealedAt: site.manifest?.sealedAt?.utc ?? site.manifest?.generatedAt,
         receivedAt: site.receivedAt,
+        hashes: { file: site.fileHashes, section: site.sectionHashes },
+        declaredModified: (site.manifest?.files ?? []).filter((f) => f.originalCommitment).map((f) => f.path),
       })
       const signatures = withEnrollment(site.signatureChecks, roster, site.siteId, site.receivedAt, rosterIssue)
       const verdict = siteVerdict(site, cross, config?.studyId, sites, { config, evidence, signatures })

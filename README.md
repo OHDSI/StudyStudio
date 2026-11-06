@@ -48,9 +48,9 @@ Everything under `samples/` is synthetic. Switch roles with **Site Mode / Admin 
 3. **Step 2:** drop the files in `samples/site/`. They are assigned to slots by file name. For the Strategus results, use either:
    - `strategus_results_Site_A.zip` (the drop zone), or
    - the `strategus_results_Site_A/` folder (**Choose results folder…**).
-   `strategus-log.txt` goes into the log slot; credentials, hosts and user names in it are redacted before packing.
+   `strategus-log.txt` goes into the log slot; credentials, hosts and user names in it are redacted by pattern before packing (check the redacted log before sending it).
 4. Review **Data quality & provenance evidence** (DQD gate, CDM / vocabulary versions, execution log, time order).
-5. **Step 3:** **Download StudyPack**. If anything was masked or redacted, a `*.retention.json` receipt is saved too: keep it at the site and do not send it.
+5. **Step 3:** **Download StudyPack**. If anything was masked or redacted, a `*.retention.json` receipt is also available (**Save retention receipt**; saved automatically in regulatory studies): keep it at the site and do not send it.
 
 To see the safety lock, use `samples/site/with_violations/` instead of the matching files in `samples/site/`: the results ZIP or folder, plus its `executionSettings.json`. Then:
 - The audit finds small cells and blocks the download.
@@ -183,6 +183,8 @@ npm run build      # single-file dist/index.html
 npm run samples    # regenerate samples/ (scripts/make-samples.ts)
 ```
 
+Every push to `main` runs the tests, builds `dist/` and deploys it to GitHub Pages (`.github/workflows/pages.yml`).
+
 ### Demo data reference (`samples/`)
 
 | Path | Contents |
@@ -194,6 +196,7 @@ npm run samples    # regenerate samples/ (scripts/make-samples.ts)
 | `network/` | Four StudyPacks: Site_A and Site_B clean, Site_C tampered, Site_D with edited protected code |
 | `regulatory/` | Regulatory-assurance set: signed protocol, demo keys (`keys/`, passphrase `demo-passphrase-not-secret`), signed signer roster, four signed packs |
 | `templates/` | Source files used by `npm run samples` |
+| `atlas_cohorts.json` | ATLAS cohort definitions the sample analysis specification is generated from (`npm run samples`) |
 
 The sample `renv.lock` and result values are illustrative. They are not a tested HADES release set.
 

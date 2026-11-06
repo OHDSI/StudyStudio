@@ -1,5 +1,7 @@
 # OHDSI Study Studio
 
+> **Under development.**
+
 A browser-only workspace for running OHDSI network studies. It sits between the study coordinator and participating hospitals. Use it to:
 
 1. **Distribute** a Strategus study with its code and settings pinned by SHA-256.
@@ -210,3 +212,6 @@ src/features/{site,admin}/       screens
 - **CDISC validation:** Define-XML and Dataset-JSON outputs validate against the official CDISC schemas (Define-XML v2.1/v2.0 XSD, Dataset-JSON v1.1/v1.0 JSON Schema). They have **not** been run through Pinnacle 21. OMOP / Strategus tables are not SDTM/ADaM, so expect conformance-rule warnings.
 - **Define-XML v2.0:** non-standard datasets cannot be flagged, so its XSD does not check Origin Type terminology.
 - **Large results:** big Strategus outputs (e.g. covariate balance) are parsed on the main thread. Use the Export Hub table selection to keep submissions focused.
+
+## License
+Apache License 2.0. See [LICENSE](LICENSE).

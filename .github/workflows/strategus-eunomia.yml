@@ -1,0 +1,61 @@
+name: Strategus on Eunomia
+
+# Runs a real Strategus study (CohortGeneratorModule + CohortMethodModule on Eunomia GiBleed) through
+# recordStrategusRun(), twice (full run, then skipCompletedTasks), and checks the run record with the
+# TypeScript implementation. Started by hand, e.g. after a new Strategus release.
+on:
+  workflow_dispatch:
+    inputs:
+      strategus-ref:
+        description: Strategus git ref (tag or branch)
+        default: v1.6.0
+
+permissions:
+  contents: read
+
+jobs:
+  eunomia:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+      EUNOMIA_DATA_FOLDER: ${{ runner.temp }}/eunomia-data
+      OUT: ${{ runner.temp }}/eunomia-run
+    steps:
+      - uses: actions/checkout@v7
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: release
+          use-public-rspm: true
+      - name: Configure Java for rJava (SqlRender)
+        run: sudo R CMD javareconf
+      - name: Install HADES packages
+        run: |
+          Rscript -e 'install.packages(c("remotes", "jsonlite", "RSQLite", "Eunomia", "CohortGenerator", "CohortMethod", "Cyclops", "FeatureExtraction", "DatabaseConnector", "SqlRender", "ParallelLogger", "ResultModelManager", "R6", "checkmate", "cli", "digest", "dplyr", "purrr", "rlang"))'
+          Rscript -e 'remotes::install_github("OHDSI/Strategus", ref = "${{ inputs.strategus-ref }}", upgrade = "never", dependencies = FALSE)'
+          Rscript -e 'for (p in c("Strategus", "CohortMethod", "Eunomia")) cat(p, as.character(packageVersion(p)), "\n")'
+      - name: Run the study twice with recordStrategusRun()
+        run: |
+          mkdir -p "$EUNOMIA_DATA_FOLDER"
+          Rscript r/tests/eunomia/run-eunomia.R "$OUT"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Check the run record with the TypeScript implementation
+        run: npx vitest run src/lib/strategus/runRecord.eunomia.test.ts
+        env:
+          STUDYSTUDIO_EUNOMIA: ${{ env.OUT }}
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: eunomia-run
+          path: |
+            ${{ env.OUT }}/diagnostics.json
+            ${{ env.OUT }}/results/run_record.json
+            ${{ env.OUT }}/results/executionSettings.json
+            ${{ env.OUT }}/results/strategus-log.txt
+            ${{ env.OUT }}/study/ExecuteAnalyses.R
+            ${{ env.OUT }}/study/renv.lock
+          if-no-files-found: warn

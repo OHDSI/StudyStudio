@@ -47,6 +47,12 @@ describe.skipIf(!out)('run record of a real Strategus run on Eunomia', () => {
     expect(r.issues).toEqual([])
   })
 
+  it('records each module: run in the first run, skipped as completed in the re-run', () => {
+    const [first, second] = diagnostics().modules as { module: string; status: string; skippedAsCompleted: boolean }[][]
+    expect(first.map((m) => [m.module, m.status])).toEqual([['CohortGeneratorModule', 'SUCCESS'], ['CohortMethodModule', 'SUCCESS']])
+    expect(second.every((m) => m.status === 'SKIPPED' && m.skippedAsCompleted)).toBe(true)
+  })
+
   it('loads the module packages in the recorded session', () => {
     expect(diagnostics().loadedHades).toEqual(expect.arrayContaining(['Strategus', 'CohortGenerator', 'CohortMethod', 'Cyclops', 'FeatureExtraction', 'DatabaseConnector']))
   })

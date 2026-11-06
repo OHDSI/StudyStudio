@@ -37,7 +37,7 @@ script <- c(
   "resultsFolder <- file.path(studyFolder, \"..\", \"results\")",
   "workFolder <- file.path(studyFolder, \"..\", \"work\")",
   "skipCompletedTasks <- identical(Sys.getenv(\"SKIP_COMPLETED\"), \"TRUE\")",
-  "connectionDetails <- Eunomia::getEunomiaConnectionDetails(databaseFile = file.path(studyFolder, \"..\", \"eunomia.sqlite\"))",
+  "connectionDetails <- Eunomia::getEunomiaConnectionDetails(databaseFile = tempfile(fileext = \".sqlite\"))",
   "##=========== END OF INPUTS ==========",
   "",
   "##################################",
@@ -75,6 +75,9 @@ run <- function(skip) {
   status <- system2("Rscript", file.path(study, "ExecuteAnalyses.R"), env = c(paste0("STUDY_FOLDER=", study), paste0("SKIP_COMPLETED=", if (skip) "TRUE" else "FALSE")))
   message(sprintf("Run (skipCompletedTasks = %s) exited with %s after %.1f min", skip, status, as.numeric(difftime(Sys.time(), started, units = "mins"))))
   if (status != 0) stop("ExecuteAnalyses.R failed")
+  record <- jsonlite::fromJSON(file.path(out, "results", "run_record.json"), simplifyVector = FALSE)
+  last <- record$runs[[length(record$runs)]]
+  if (!identical(last$status, "completed")) stop("Recorded run did not complete: ", jsonlite::toJSON(last$modules, auto_unbox = TRUE))
 }
 run(skip = FALSE)
 Sys.sleep(3) # so a re-run that rewrote a file is distinguishable from one that skipped it
@@ -88,6 +91,7 @@ last <- record$runs[[length(record$runs)]]
 diagnostics <- list(
   strategus = as.character(utils::packageVersion("Strategus")),
   runs = length(record$runs),
+  modules = lapply(record$runs, function(r) r$modules),
   loadedHades = names(last$packages)[names(last$packages) %in% hades],
   zipEntries = utils::unzip(file.path(out, "results.zip"), list = TRUE)$Name,
   csvRewrittenByRerun = sum(vapply(last$results, function(f) grepl("\\.csv$", f$path) && f$modifiedAt >= last$startedAtFileSystem, TRUE)),

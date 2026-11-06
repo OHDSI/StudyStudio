@@ -56,6 +56,7 @@ function RunRecordSection({ e, regulatory }: { e: SiteEvidence; regulatory: bool
             <>
               <Row k="Last run" v={`${r.last.startedAt ?? '?'} → ${r.last.finishedAt ?? '?'} · ${r.last.status ?? '?'}${r.runs > 1 ? ` (${r.runs} runs recorded)` : ''}`} />
               <Row k="R / Strategus" v={`R ${r.last.r ?? '?'} · Strategus ${r.last.strategus ?? '?'}`} />
+              {!!r.last.modules?.length && <Row k="Modules" v={r.last.modules.map((m) => `${m.module.replace(/Module$/, '')} ${m.skippedAsCompleted ? 'done earlier' : m.status.toLowerCase()}`).join(' · ')} />}
             </>
           )}
           {r.inputs.length > 0 && <Row k="Inputs" v={r.inputs.map((c) => `${c.wholeFile ? 'Script (whole file)' : INPUT_LABEL[c.key]} ${INPUT_STATUS[c.status]}`).join(' · ')} />}

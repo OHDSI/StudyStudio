@@ -141,6 +141,16 @@ describe('run record', () => {
     files[RUN_RECORD_PACK_PATH] = enc.encode(JSON.stringify(rec))
     expect((await check(files)).issues.map((i) => i.code)).toContain('run-failed')
 
+    // Strategus 1.x returns module statuses: a failed module (even if the run was recorded as completed) blocks.
+    const mod = clean()
+    const m = JSON.parse(dec.decode(mod[RUN_RECORD_PACK_PATH]))
+    m.runs[0].modules = [{ module: 'CohortGeneratorModule', status: 'SKIPPED', skippedAsCompleted: true }, { module: 'CohortMethodModule', status: 'FAILED', skippedAsCompleted: false }]
+    mod[RUN_RECORD_PACK_PATH] = enc.encode(JSON.stringify(m))
+    expect((await check(mod)).issues.map((i) => i.message)).toEqual(['The last recorded run did not complete (completed: CohortMethodModule failed)'])
+    m.runs[0].modules[1].status = 'SUCCESS'
+    mod[RUN_RECORD_PACK_PATH] = enc.encode(JSON.stringify(m))
+    expect((await check(mod)).issues).toEqual([])
+
     const none = clean()
     delete none[RUN_RECORD_PACK_PATH]
     expect((await check(none)).issues.map((i) => [i.code, i.severity])).toEqual([['missing', 'block']])
@@ -257,7 +267,7 @@ describe('run record files', () => {
 
   it('the sample ExecuteAnalyses.R carries r/recordStrategusRun.R verbatim below the protected marker', () => {
     const fn = readFileSync(path.join(root, 'r/recordStrategusRun.R'), 'utf8')
-    const script = readFileSync(path.join(samples, 'templates/ExecuteAnalyses.R'), 'utf8')
+    const script = readFileSync(path.join(samples, 'study-repo/ExecuteAnalyses.R'), 'utf8')
     const marker = script.indexOf('DO NOT MODIFY BELOW THIS POINT')
     expect(marker).toBeGreaterThan(0)
     expect(script.indexOf(fn)).toBeGreaterThan(marker)

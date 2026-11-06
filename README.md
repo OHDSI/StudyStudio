@@ -154,7 +154,7 @@ OHDSI Study Studio compares the last run in the record with the files being seal
 - **Inputs:** the specification, `renv.lock` and protected section (or whole script, without the marker) the run used must be the protocol's.
 - **Results:** every packed result CSV and `executionSettings.json` must be one the run wrote, unchanged. A file left in the folder by an earlier run (modified before the last run started, on the results folder's own clock, so a network share with a different clock is fine) must have been recorded with the same content by an earlier completed run, as when only some modules are re-run. Masked files are compared through their originals at the site.
 - **Environment:** HADES packages loaded in the run must match `renv.lock`; other packages and the R version are warnings.
-- **Status and time:** the last run must have completed and must have loaded Strategus (a wrapper around anything else is not a study run), and its times join the time-order check.
+- **Status and time:** the last run must have completed — `Strategus::execute()` does not stop when a module fails, so each module's status is recorded (without its error message) and a failed or blocked module fails the run — and must have loaded Strategus (a wrapper around anything else is not a study run), and its times join the time-order check.
 
 In a regulatory study a missing record, or any of the above, blocks the pack; in a standard study they are warnings and the record is optional.
 

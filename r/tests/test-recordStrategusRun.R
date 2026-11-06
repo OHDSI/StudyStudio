@@ -86,6 +86,31 @@ err <- withCallingHandlers(
 )
 check(identical(err, "module failed") && warned, "write failure warns, run error kept")
 
+# Strategus 1.x returns module statuses instead of stopping: a failed or blocked module fails the run.
+strategusLike <- function(...) list(...)
+recordStrategusRun(
+  strategusLike(
+    list(moduleName = "CohortGeneratorModule", status = "SKIPPED", errorMessage = "Matching completed execution record found", executionTime = "SKIPPED"),
+    list(moduleName = "CohortMethodModule", status = "SUCCESS", errorMessage = NULL, executionTime = "1 mins")
+  ),
+  resultsFolder = results, analysisSpecificationsFile = spec, executionScriptFile = script, renvLockFile = lock
+)
+moduleWarning <- NULL
+withCallingHandlers(recordStrategusRun(
+  strategusLike(
+    list(moduleName = "CohortGeneratorModule", status = "FAILED", errorMessage = "no package called 'CirceR' on db01", executionTime = "0 secs"),
+    list(moduleName = "CohortMethodModule", status = "SKIPPED", errorMessage = "Cohort generation failed", executionTime = "SKIPPED")
+  ),
+  resultsFolder = results, analysisSpecificationsFile = spec, executionScriptFile = script, renvLockFile = lock
+), warning = function(w) { moduleWarning <<- conditionMessage(w); invokeRestart("muffleWarning") })
+check(grepl("CohortGeneratorModule FAILED", moduleWarning), "warns when modules did not complete")
+rec <- jsonlite::fromJSON(file.path(results, "run_record.json"), simplifyVector = FALSE)
+ok <- rec$runs[[length(rec$runs) - 1]]
+bad <- rec$runs[[length(rec$runs)]]
+check(identical(ok$status, "completed") && isTRUE(ok$modules[[1]]$skippedAsCompleted), "modules skipped as completed keep the run completed")
+check(identical(bad$status, "failed") && identical(bad$errorClass, "StrategusModuleFailure") && identical(bad$modules[[2]]$status, "SKIPPED"), "a failed module fails the run")
+check(!grepl("db01", paste(readLines(file.path(results, "run_record.json")), collapse = "\n")), "module error messages not written")
+
 # An unreadable record is moved aside and a new one is started.
 writeLines("{ not json", file.path(results, "run_record.json"))
 suppressWarnings(recordStrategusRun(NULL, resultsFolder = results, analysisSpecificationsFile = spec, executionScriptFile = script, renvLockFile = lock))

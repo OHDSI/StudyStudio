@@ -52,6 +52,8 @@ export interface RunRecordRun {
   finishedAt?: string
   status?: 'completed' | 'failed'
   errorClass?: string | null
+  /** Per-module outcome returned by Strategus::execute() (no error messages). */
+  modules?: { module: string; status: 'SUCCESS' | 'FAILED' | 'SKIPPED'; skippedAsCompleted?: boolean }[] | null
   r?: string
   platform?: string
   packages?: Record<string, string>
@@ -144,7 +146,7 @@ export interface RunRecordReport {
   present: boolean
   error?: string
   runs: number
-  last?: Pick<RunRecordRun, 'startedAt' | 'finishedAt' | 'status' | 'errorClass' | 'r' | 'platform'> & { strategus?: string }
+  last?: Pick<RunRecordRun, 'startedAt' | 'finishedAt' | 'status' | 'errorClass' | 'r' | 'platform' | 'modules'> & { strategus?: string }
   inputs: InputCheck[]
   results: {
     /** Files of the last run that are packed (CSV results and executionSettings.json). */
@@ -249,9 +251,11 @@ export function checkRunRecord(input: RunRecordCheckInput): RunRecordReport {
   const report: RunRecordReport = {
     ...empty,
     runs: record.runs.length,
-    last: { startedAt: run.startedAt, finishedAt: run.finishedAt, status: run.status, errorClass: run.errorClass, r: run.r, platform: run.platform, strategus: run.packages?.Strategus },
+    last: { startedAt: run.startedAt, finishedAt: run.finishedAt, status: run.status, errorClass: run.errorClass, modules: run.modules, r: run.r, platform: run.platform, strategus: run.packages?.Strategus },
   }
-  if (run.status !== 'completed') issues.push({ severity: sev(true), code: 'run-failed', message: `The last recorded run did not complete (${run.status ?? 'no status'}${run.errorClass ? `, ${run.errorClass}` : ''})` })
+  const notDone = (run.modules ?? []).filter((m) => m.status === 'FAILED' || (m.status === 'SKIPPED' && !m.skippedAsCompleted)).map((m) => `${m.module} ${m.status.toLowerCase()}`)
+  if (run.status !== 'completed' || notDone.length)
+    issues.push({ severity: sev(true), code: 'run-failed', message: `The last recorded run did not complete (${run.status ?? 'no status'}${run.errorClass ? `, ${run.errorClass}` : ''}${notDone.length ? `: ${notDone.join(', ')}` : ''})` })
   // Strategus::execute() loads the Strategus namespace; a "run" without it did not execute the study.
   if (!run.packages?.Strategus) issues.push({ severity: sev(true), code: 'no-strategus', message: 'Strategus was not loaded in the last recorded run, so it did not call Strategus::execute()' })
 

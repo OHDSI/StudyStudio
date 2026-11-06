@@ -33,7 +33,7 @@ jobs:
         run: sudo R CMD javareconf
       - name: Install HADES packages
         run: |
-          Rscript -e 'install.packages(c("remotes", "jsonlite", "RSQLite", "Eunomia", "CohortGenerator", "CohortMethod", "Cyclops", "FeatureExtraction", "DatabaseConnector", "SqlRender", "ParallelLogger", "ResultModelManager", "R6", "checkmate", "cli", "digest", "dplyr", "purrr", "rlang"))'
+          Rscript -e 'install.packages(c("remotes", "jsonlite", "RSQLite", "Eunomia", "CirceR", "CohortGenerator", "CohortMethod", "Cyclops", "FeatureExtraction", "DatabaseConnector", "SqlRender", "ParallelLogger", "ResultModelManager", "R6", "checkmate", "cli", "digest", "dplyr", "purrr", "rlang"))'
           Rscript -e 'remotes::install_github("OHDSI/Strategus", ref = "${{ inputs.strategus-ref }}", upgrade = "never", dependencies = FALSE)'
           Rscript -e 'for (p in c("Strategus", "CohortMethod", "Eunomia")) cat(p, as.character(packageVersion(p)), "\n")'
       - name: Run the study twice with recordStrategusRun()

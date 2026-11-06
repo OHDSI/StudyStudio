@@ -428,7 +428,12 @@ async function main() {
 
   // ---- Study repository (coordinator) -------------------------------------
   const specText = analysisSpecification()
-  const executeText = readFileSync(path.join(root, 'templates/ExecuteAnalyses.R'), 'utf8')
+  // The run-record function is included from r/recordStrategusRun.R, so the sample always carries the current one.
+  const executeText = readFileSync(path.join(root, 'templates/ExecuteAnalyses.R'), 'utf8').replace(
+    '# @include r/recordStrategusRun.R\n',
+    readFileSync(path.join(root, '../r/recordStrategusRun.R'), 'utf8'),
+  )
+  if (executeText.includes('@include')) throw new Error('templates/ExecuteAnalyses.R: unresolved @include')
   const renvText = readFileSync(path.join(root, 'templates/renv.lock'), 'utf8')
   const configYml = readFileSync(path.join(root, 'templates/config.yml'), 'utf8')
   const repoFiles: Record<string, string> = {

@@ -103,7 +103,7 @@ recordStrategusRun <- function(code,
       iso(file.mtime(probe))
     }, error = function(e) NA_character_)
   }
-  writeRecord <- function(startedAt, finishedAt, status, errorClass) {
+  writeRecord <- function(startedAt, finishedAt, status, errorClass, modules) {
     if (!dir.exists(resultsFolder)) dir.create(resultsFolder, recursive = TRUE)
     recordFile <- file.path(resultsFolder, "run_record.json")
     paths <- sort(list.files(resultsFolder, recursive = TRUE, all.files = FALSE))
@@ -121,6 +121,7 @@ recordStrategusRun <- function(code,
       finishedAt = finishedAt,
       status = status,
       errorClass = errorClass,
+      modules = modules,
       r = paste(R.version$major, R.version$minor, sep = "."),
       platform = R.version$platform,
       packages = as.list(stats::setNames(vapply(pkgs, function(p) as.character(utils::packageVersion(p)), ""), pkgs)),
@@ -162,8 +163,26 @@ recordStrategusRun <- function(code,
   })
   finishedAt <- now()
 
+  # Strategus::execute() (1.x) does not stop when a module fails: it returns one status per module.
+  # Keep each module's outcome (not its error message) and treat a failed or blocked module as a failed run.
+  modules <- NULL
+  if (is.list(value) && length(value) > 0 && all(vapply(value, function(m) is.list(m) && !is.null(m$moduleName) && !is.null(m$status), TRUE))) {
+    modules <- lapply(value, function(m) list(
+      module = m$moduleName,
+      status = m$status,
+      skippedAsCompleted = identical(m$status, "SKIPPED") && identical(m$errorMessage, "Matching completed execution record found")
+    ))
+    bad <- vapply(modules, function(m) identical(m$status, "FAILED") || (identical(m$status, "SKIPPED") && !m$skippedAsCompleted), TRUE)
+    if (any(bad) && status == "completed") {
+      status <- "failed"
+      errorClass <- "StrategusModuleFailure"
+      warning("recordStrategusRun: module(s) did not complete, so the run is recorded as failed: ",
+              paste(vapply(modules[bad], function(m) paste(m$module, m$status), ""), collapse = ", "), call. = FALSE)
+    }
+  }
+
   # A problem writing the record is reported as a warning so it never hides the run's own error.
-  tryCatch(writeRecord(startedAt, finishedAt, status, errorClass), error = function(e) {
+  tryCatch(writeRecord(startedAt, finishedAt, status, errorClass, modules), error = function(e) {
     warning("recordStrategusRun: run_record.json not written (a regulatory StudyPack cannot be sealed without it): ",
             conditionMessage(e), call. = FALSE)
   })

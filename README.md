@@ -9,7 +9,7 @@ A browser-only workspace for running OHDSI network studies. It sits between the 
 3. **Package** the results into a file whose contents are listed by SHA-256 (a *StudyPack*), optionally signed. A signed pack reveals any later change; an unsigned one only reveals changes made without also rewriting its manifest.
 4. **Verify** all the packs centrally, record which sites are adopted and why, and export the results as CDISC Define-XML / Dataset-JSON.
 
-A protocol can be issued with **regulatory assurance**, which adds electronic signatures, a pre-specified data-quality gate, CDM / vocabulary traceability, execution logs and a site-disposition audit trail (see [Regulatory controls](#regulatory-controls)).
+A protocol can be issued with **regulatory assurance**, which adds electronic signatures, a pre-specified data-quality gate, CDM / vocabulary traceability, execution logs, a run record and a site-disposition audit trail (see [Regulatory controls](#regulatory-controls)).
 
 There is no server and nothing is sent over the network. `npm run build` produces a single `dist/index.html` that you can copy into a closed hospital network and open from `file://`.
 
@@ -48,8 +48,8 @@ Everything under `samples/` is synthetic. Switch roles with **Site Mode / Admin 
 3. **Step 2:** drop the files in `samples/site/`. They are assigned to slots by file name. For the Strategus results, use either:
    - `strategus_results_Site_A.zip` (the drop zone), or
    - the `strategus_results_Site_A/` folder (**Choose results folder…**).
-   `strategus-log.txt` goes into the log slot; credentials, hosts and user names in it are redacted by pattern before packing (check the redacted log before sending it).
-4. Review **Data quality & provenance evidence** (DQD gate, CDM / vocabulary versions, execution log, time order).
+   `run_record.json` and `executionSettings.json` inside the results folder (or a ZIP of it) are picked up too. `Strategus::zipResults()` keeps only the CSVs, so with its ZIP, drop those two files separately. `strategus-log.txt` goes into the log slot; credentials, hosts and user names in it are redacted by pattern before packing (check the redacted log before sending it).
+4. Review **Data quality & provenance evidence** (DQD gate, CDM / vocabulary versions, execution log, run record, time order).
 5. **Step 3:** **Download StudyPack**. If anything was masked or redacted, a `*.retention.json` receipt is also available (**Save retention receipt**; saved automatically in regulatory studies): keep it at the site and do not send it.
 
 To see the safety lock, use `samples/site/with_violations/` instead of the matching files in `samples/site/`: the results ZIP or folder, plus its `executionSettings.json`. Then:
@@ -102,11 +102,11 @@ OHDSI Study Studio does **not** write or run analysis code. Analyses are designe
 |---|---|---|
 | Study designer | R | Builds the analysis specification JSON (cohorts, negative controls, CohortMethod / SCCS / … modules) |
 | Coordinator | 🌐 Protocol Issuer | Pins the spec, execution script and `renv.lock`, and issues the protocol |
-| Site | R | `renv::restore()`, fills in the INPUTS block, runs `Strategus::execute()` |
+| Site | R | `renv::restore()`, fills in the INPUTS block, runs `Strategus::execute()` (wrapped in `recordStrategusRun()`, which writes `run_record.json`) |
 | Site | 🏥 Site Mode | Adds DQD / ETL artifacts and the results. Audits, masks and seals them into `[siteId]_[studyId].studypack.zip` |
 | Coordinator | 🌐 Aggregator / Export Hub | Verifies the packs, adopts or excludes sites, exports the audit report and CDISC files |
 
-The [StrategusStudyRepoTemplate](https://github.com/ohdsi-studies/StrategusStudyRepoTemplate) layout is recognised but not required. A StudyPack is an offline alternative to SFTP upload for sites that cannot reach the internet.
+The [StrategusStudyRepoTemplate](https://github.com/ohdsi-studies/StrategusStudyRepoTemplate) layout is recognised but not required. R analyses that do not run through `Strategus::execute()` (for example a script that calls CohortMethod directly) are not supported: results are read as Strategus module folders. A StudyPack is an offline alternative to SFTP upload for sites that cannot reach the internet.
 
 ## What gets checked
 
@@ -120,7 +120,7 @@ The [StrategusStudyRepoTemplate](https://github.com/ohdsi-studies/StrategusStudy
 
 Every file in a pack is also listed with its SHA-256 in `manifest.json`, so a change after sealing is detected unless the manifest is rewritten too. A signature over `manifest.json` closes that gap.
 
-These checks show which files were sealed into the pack. They do not show that the site actually ran that code: that rests on the site's own procedures.
+These checks show which files were sealed into the pack. The [run record](#run-record) ties them to the R run that wrote the results, but it is written on the site's machine: it does not prove that the site ran that code, which still rests on the site's own procedures.
 
 ### Small cells in Strategus results
 - **Input:** results are read as `<Module>/<table>.csv`, from the folder written by `Strategus::execute()` or the ZIP from `Strategus::zipResults()`.
@@ -135,6 +135,31 @@ Evaluated at the site, sealed into `audit_report.json`, and evaluated again by t
 - **Execution log:** the Strategus / ParallelLogger log is redacted, then checked for errors, warnings, run times and `minCellCount`.
 - **Time:** CDM release, DQD run, Strategus run, seal and receipt must be in a possible order.
 
+### Run record
+[`r/recordStrategusRun.R`](r/recordStrategusRun.R) is an R function that wraps `Strategus::execute()`. It is pasted below the protected marker of `ExecuteAnalyses.R`, so the protocol pins it like the rest of that section, and sites run the script as before. In a script without the marker it can go anywhere above the call, and the whole script is compared instead; the script path is taken from `source()` or `Rscript`, else `ExecuteAnalyses.R` in the working directory; pass `executionScriptFile` otherwise:
+
+```r
+recordStrategusRun(
+  Strategus::execute(analysisSpecifications, executionSettings, connectionDetails),
+  resultsFolder = resultsFolder,
+  analysisSpecificationsFile = file.path(config$projectRootFolder, "inst", config$studySpecificationFileName),
+  executionScriptFile = file.path(config$projectRootFolder, "ExecuteAnalyses.R"),
+  renvLockFile = file.path(config$projectRootFolder, "renv.lock")
+)
+```
+
+It hashes the analysis specification, `renv.lock` and the protected part of the script before the run starts. Right after the run, in the same R session, it appends to `<resultsFolder>/run_record.json`: those hashes, start and end time, whether the run completed (only the error class is kept, because error messages can contain hosts or user names), the R and package versions loaded, and the SHA-256 and modification time of every file in the results folder. If the record cannot be written, R gives a warning and the run's own error, if any, is still raised; an existing record that cannot be read is moved aside (`run_record.invalid-<time>.json`) and a new one is started. The script is hashed from disk, so run it as a whole (`source()` or `Rscript`). Pass the Strategus results folder as `resultsFolder` so the record travels with the results folder (`Strategus::zipResults()` keeps only CSVs, so send `run_record.json` beside its ZIP); if a parent folder is passed, the paths still line up, but `run_record.json` must then be dropped into its slot separately. It needs `jsonlite` and SHA-256 from R ≥ 4.5, `digest` or `openssl`.
+
+OHDSI Study Studio compares the last run in the record with the files being sealed:
+- **Inputs:** the specification, `renv.lock` and protected section (or whole script, without the marker) the run used must be the protocol's.
+- **Results:** every packed result CSV and `executionSettings.json` must be one the run wrote, unchanged. A file left in the folder by an earlier run (modified before the last run started, on the results folder's own clock, so a network share with a different clock is fine) must have been recorded with the same content by an earlier completed run, as when only some modules are re-run. Masked files are compared through their originals at the site.
+- **Environment:** HADES packages loaded in the run must match `renv.lock`; other packages and the R version are warnings.
+- **Status and time:** the last run must have completed and must have loaded Strategus (a wrapper around anything else is not a study run), and its times join the time-order check.
+
+In a regulatory study a missing record, or any of the above, blocks the pack; in a standard study they are warnings and the record is optional.
+
+A plain hash of a results file that was later masked would let anyone recover the masked values, so the sealed copy withholds those hashes (`"withheld": "masked-at-site"`). The original record stays at the site under a salted commitment, like other masked files. The coordinator therefore cannot compare masked files with the record itself; it sees the site's comparison in `audit_report.json`.
+
 ## Regulatory controls
 
 Designed with reference to ICH M14, ICH E6(R3), the FDA RWD and Part 11 Q&A guidances, the EMA computerised-systems guideline and the MHLW/PMDA database-study notices. [`docs/regulatory/requirements.md`](docs/regulatory/requirements.md) maps each requirement to its source and its implementation, and lists the known limitations; the validation plan maps the requirements to the tests that exercise them. [`docs/regulatory/validation-plan.md`](docs/regulatory/validation-plan.md) is a template for validating the tool for a study: risk assessment, data flow, traceability, IQ/OQ/PQ and the SOPs it relies on.
@@ -145,6 +170,7 @@ Designed with reference to ICH M14, ICH E6(R3), the FDA RWD and Part 11 Q&A guid
 | **Electronic signatures** | ECDSA P-256 keys generated in the browser and kept as passphrase-protected key files. Detached JWS (ES256) over `manifest.json` and `study_config.json`, showing name, role, time, time zone and meaning. Verifiable with standard JOSE libraries that support detached payloads |
 | **Signer roster** | The coordinator enrolls each site's public key after verifying identity out of band, then signs the roster with the key that issued the protocol. Only enrolled, unrevoked keys in a roster signed that way count; revocation is judged against the coordinator's receipt time |
 | **Originals of modified files** | Masked results and redacted logs carry a salted commitment to the original (a plain hash would let anyone brute-force the masked values). The salts stay at the site in a retention receipt |
+| **Run record** | `recordStrategusRun()` records what the R run read and wrote; the pack must match it (see [Run record](#run-record)). Required in regulatory studies. It is written on the site's machine, so it detects changes between run and seal and runs that did not use the protocol's inputs, not deliberate fabrication |
 | **Disposition audit trail** | Every receipt, adoption, exclusion, lock and export is a hash-chained entry with who / when / old → new / why; edits, removals and truncation are detectable as long as the exported head is kept outside the tool. Exclusions need a pre-specified reason code. In regulatory studies the dispositions must be locked, with the coordinator's attestation that comparative results were not viewed (the tool records it but cannot verify it), before the submission package is generated |
 
 Offline there is no trusted clock, no two-factor login and no single place to keep a log; the requirements document says how each gap is mitigated and what belongs in the study's SOPs.
@@ -155,10 +181,11 @@ Offline there is no trusted clock, no two-factor login and no single place to ke
 ├── manifest.json                 # SHA-256 of every file (+ salted commitments to masked/redacted originals)
 ├── manifest.jws.json             # signatures over manifest.json (when signed)
 ├── ro-crate-metadata.json        # RO-Crate 1.1
-├── audit_report.json             # site self-audit: small cells / identifiers, protocol checks, DQD gate, provenance, log, time, modifications
+├── audit_report.json             # site self-audit: small cells / identifiers, protocol checks, DQD gate, provenance, log, run record, time, modifications
 ├── protocol/study_config.json    # the protocol exactly as received (+ study_config.jws.json)
 ├── etl/                          # ScanReport_sanitized.xlsx, mapping_specification.json, vocabulary_version.json
 ├── evidence/dqd_results.json
+├── evidence/run_record.json      # run record from recordStrategusRun() (hashes of masked files withheld)
 ├── definitions/analysisSpecifications.json
 ├── code/ExecuteAnalyses.R, renv.lock, executionSettings.json
 ├── logs/execution.log            # redacted Strategus log
@@ -181,9 +208,12 @@ npm test           # vitest
 npm run typecheck
 npm run build      # single-file dist/index.html
 npm run samples    # regenerate samples/ (scripts/make-samples.ts)
+Rscript r/tests/test-recordStrategusRun.R   # the R run-record function (needs jsonlite, R >= 4.5)
+Rscript r/tests/cross-check.R /tmp/rr && STUDYSTUDIO_R_RECORD=/tmp/rr npx vitest run src/lib/strategus/runRecord.r.test.ts
+                                            # a record written by R, checked by the TypeScript code
 ```
 
-Every push to `main` runs the tests, builds `dist/` and deploys it to GitHub Pages (`.github/workflows/pages.yml`).
+Every push to `main` runs the tests, builds `dist/` and deploys it to GitHub Pages (`.github/workflows/pages.yml`). Pushes and pull requests also run the R tests and the R-to-TypeScript check (`.github/workflows/r-run-record.yml`). `.github/workflows/strategus-eunomia.yml`, started by hand, runs a real Strategus study on Eunomia through `recordStrategusRun()` (a full run and a `skipCompletedTasks` re-run) and checks the record the same way.
 
 ### Demo data reference (`samples/`)
 
@@ -191,7 +221,7 @@ Every push to `main` runs the tests, builds `dist/` and deploys it to GitHub Pag
 |---|---|
 | `study-repo/`, `study-repo.zip` | Strategus study repository (template layout) for Protocol Issuer |
 | `protocol/` | Issued protocol: `study_config.json`, `ACEI_ANGIO_2026_protocol.zip` |
-| `site/` | Clean Site Mode inputs, including DQD results and a Strategus log. Results come as both a ZIP and an expanded folder |
+| `site/` | Clean Site Mode inputs, including DQD results and a Strategus log. Results come as both a ZIP and an expanded folder, each with `executionSettings.json` and `run_record.json` |
 | `site/with_violations/` | Uncensored results (ZIP and folder) plus `executionSettings.json` with `minCellCount: 0` |
 | `network/` | Four StudyPacks: Site_A and Site_B clean, Site_C tampered, Site_D with edited protected code |
 | `regulatory/` | Regulatory-assurance set: signed protocol, demo keys (`keys/`, passphrase `demo-passphrase-not-secret`), signed signer roster, four signed packs |
@@ -202,7 +232,8 @@ The sample `renv.lock` and result values are illustrative. They are not a tested
 
 ### Code layout
 ```
-src/lib/strategus/               analysis spec, protected section of the execution script, results + RDMS audit, protocol issuance
+r/recordStrategusRun.R           R function that writes run_record.json after Strategus::execute()
+src/lib/strategus/               analysis spec, protected section of the execution script, results + RDMS audit, run record, protocol issuance
 src/lib/audit/                   small-cell / identifier audit + masking, DQD gate, execution-log audit + redaction
 src/lib/integrity/               SHA-256 (Web Crypto), salted commitments
 src/lib/security/                zero-network guard, key files + JWS signatures + signer roster

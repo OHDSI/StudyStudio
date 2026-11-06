@@ -17,6 +17,8 @@ There is no server and nothing is sent over the network. `npm run build` produce
 
 ## Quick start
 
+A build of `main` is hosted at <https://ohdsi.github.io/StudyStudio/>. It runs entirely in the browser like the local build; the demo files are in [`samples/`](samples/).
+
 ```bash
 npm install
 npm run dev        # open the printed URL

@@ -300,7 +300,7 @@ export function DispositionLogCard() {
       <CardHeader className="flex-row flex-wrap items-center gap-2 pb-2">
         <div className="mr-auto flex flex-col gap-1">
           <CardTitle className="text-sm"><History className="size-4" /> Disposition audit trail ({log.size})</CardTitle>
-          <CardDescription className="text-xs">Append-only; each entry carries the SHA-256 of the previous one. Head <code>{log.headHash.slice(0, 16)}…</code></CardDescription>
+          <CardDescription className="text-xs">Hash-chained: each entry carries the SHA-256 of the previous one, so edits are detectable against a retained head. Head <code>{log.headHash.slice(0, 16)}…</code></CardDescription>
         </div>
         <Button size="sm" variant="outline" disabled={!log.size} onClick={() => download(`${id}_disposition_log.jsonl`, log.toJsonl(), 'application/x-ndjson')}><ScrollText /> Save log</Button>
       </CardHeader>

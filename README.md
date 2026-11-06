@@ -6,8 +6,8 @@ A browser-only workspace for running OHDSI network studies. It sits between the 
 
 1. **Distribute** a Strategus study with its code and settings pinned by SHA-256.
 2. **Check** each site's results for small cells before anything leaves the hospital.
-3. **Package** the results into a tamper-evident file (a *StudyPack*), optionally signed.
-4. **Verify** all the packs centrally, record which sites are adopted and why, and export CDISC Define-XML / Dataset-JSON for regulators.
+3. **Package** the results into a file whose contents are listed by SHA-256 (a *StudyPack*), optionally signed. A signed pack reveals any later change; an unsigned one only reveals changes made without also rewriting its manifest.
+4. **Verify** all the packs centrally, record which sites are adopted and why, and export the results as CDISC Define-XML / Dataset-JSON.
 
 A protocol can be issued with **regulatory assurance**, which adds electronic signatures, a pre-specified data-quality gate, CDM / vocabulary traceability, execution logs and a site-disposition audit trail (see [Regulatory controls](#regulatory-controls)).
 
@@ -90,7 +90,7 @@ The same study issued with **regulatory** assurance. All demo keys use the passp
 
 To see the data-quality gate stop a site, use `regulatory/site/dqd_results_structural_failure.json` instead of `site/dqd_results.json` in step 1: a required field fails on a table the study uses, and the StudyPack cannot be sealed.
 
-These gates are enforced by the library (`sealRefusals`, `buildRegulatoryExport`), not only by disabled buttons, so a pack or submission that breaks them cannot be produced from any entry point.
+These gates are enforced by the library (`sealRefusals`, `buildRegulatoryExport`), not only by disabled buttons, so no code path in this tool produces a pack or submission that breaks them. A ZIP assembled by hand is caught by the coordinator's verification, not by these gates.
 
 ## How it fits with OHDSI Strategus
 
@@ -116,7 +116,9 @@ The [StrategusStudyRepoTemplate](https://github.com/ohdsi-studies/StrategusStudy
 | `code/renv.lock` | SHA-256 of the whole file |
 | `code/ExecuteAnalyses.R` | SHA-256 of the code **below** `DO NOT MODIFY BELOW THIS POINT`, so sites can still edit their INPUTS. Without the marker, the whole file is pinned. Any `.R` script that calls `Strategus::execute()` is accepted |
 
-Every file in a pack is also listed with its SHA-256 in `manifest.json`, so any change after sealing is detected.
+Every file in a pack is also listed with its SHA-256 in `manifest.json`, so a change after sealing is detected unless the manifest is rewritten too. A signature over `manifest.json` closes that gap.
+
+These checks show which files were sealed into the pack. They do not show that the site actually ran that code: that rests on the site's own procedures.
 
 ### Small cells in Strategus results
 - **Input:** results are read as `<Module>/<table>.csv`, from the folder written by `Strategus::execute()` or the ZIP from `Strategus::zipResults()`.
@@ -133,15 +135,15 @@ Evaluated at the site, sealed into `audit_report.json`, and evaluated again by t
 
 ## Regulatory controls
 
-Designed against ICH M14, ICH E6(R3), the FDA RWD and Part 11 Q&A guidances, the EMA computerised-systems guideline and the MHLW/PMDA database-study notices. [`docs/regulatory/requirements.md`](docs/regulatory/requirements.md) maps each requirement to its source, its implementation and its test, and lists the known limitations. [`docs/regulatory/validation-plan.md`](docs/regulatory/validation-plan.md) is a template for validating the tool for a study: risk assessment, data flow, traceability, IQ/OQ/PQ and the SOPs it relies on.
+Designed with reference to ICH M14, ICH E6(R3), the FDA RWD and Part 11 Q&A guidances, the EMA computerised-systems guideline and the MHLW/PMDA database-study notices. [`docs/regulatory/requirements.md`](docs/regulatory/requirements.md) maps each requirement to its source and its implementation, and lists the known limitations; the validation plan maps the requirements to the tests that exercise them. [`docs/regulatory/validation-plan.md`](docs/regulatory/validation-plan.md) is a template for validating the tool for a study: risk assessment, data flow, traceability, IQ/OQ/PQ and the SOPs it relies on.
 
 | Control | What it does |
 |---|---|
 | **Assurance level** | `study_config.assurance`: `standard` (everything below is a warning) or `regulatory` (the rules block, and the data-quality gate, CDM requirements and exclusion reasons are pre-specified in the protocol) |
-| **Electronic signatures** | ECDSA P-256 keys generated in the browser and kept as passphrase-protected key files. Detached JWS (ES256) over `manifest.json` and `study_config.json`, showing name, role, time, time zone and meaning. Verifiable with any JOSE library |
+| **Electronic signatures** | ECDSA P-256 keys generated in the browser and kept as passphrase-protected key files. Detached JWS (ES256) over `manifest.json` and `study_config.json`, showing name, role, time, time zone and meaning. Verifiable with standard JOSE libraries that support detached payloads |
 | **Signer roster** | The coordinator enrolls each site's public key after verifying identity out of band, then signs the roster with the key that issued the protocol. Only enrolled, unrevoked keys in a roster signed that way count; revocation is judged against the coordinator's receipt time |
 | **Originals of modified files** | Masked results and redacted logs carry a salted commitment to the original (a plain hash would let anyone brute-force the masked values). The salts stay at the site in a retention receipt |
-| **Disposition audit trail** | Every receipt, adoption, exclusion, lock and export is an append-only, hash-chained entry with who / when / old → new / why. Exclusions need a pre-specified reason code. In regulatory studies the dispositions must be locked, with an attestation that comparative results were not viewed, before the submission package is generated |
+| **Disposition audit trail** | Every receipt, adoption, exclusion, lock and export is a hash-chained entry with who / when / old → new / why; edits, removals and truncation are detectable as long as the exported head is kept outside the tool. Exclusions need a pre-specified reason code. In regulatory studies the dispositions must be locked, with the coordinator's attestation that comparative results were not viewed (the tool records it but cannot verify it), before the submission package is generated |
 
 Offline there is no trusted clock, no two-factor login and no single place to keep a log; the requirements document says how each gap is mitigated and what belongs in the study's SOPs.
 
@@ -151,7 +153,7 @@ Offline there is no trusted clock, no two-factor login and no single place to ke
 ├── manifest.json                 # SHA-256 of every file (+ salted commitments to masked/redacted originals)
 ├── manifest.jws.json             # signatures over manifest.json (when signed)
 ├── ro-crate-metadata.json        # RO-Crate 1.1
-├── audit_report.json             # site self-audit: zero-PHI, protocol checks, DQD gate, provenance, log, time, modifications
+├── audit_report.json             # site self-audit: small cells / identifiers, protocol checks, DQD gate, provenance, log, time, modifications
 ├── protocol/study_config.json    # the protocol exactly as received (+ study_config.jws.json)
 ├── etl/                          # ScanReport_sanitized.xlsx, mapping_specification.json, vocabulary_version.json
 ├── evidence/dqd_results.json
@@ -209,7 +211,7 @@ src/features/{site,admin}/       screens
 ```
 
 ## Limitations
-- **CDISC validation:** Define-XML and Dataset-JSON outputs validate against the official CDISC schemas (Define-XML v2.1/v2.0 XSD, Dataset-JSON v1.1/v1.0 JSON Schema). They have **not** been run through Pinnacle 21. OMOP / Strategus tables are not SDTM/ADaM, so expect conformance-rule warnings.
+- **CDISC validation:** the tests check that the Define-XML output is well-formed XML and that both outputs have the expected structure. This repository does **not** validate them against the official CDISC schemas (Define-XML XSD, Dataset-JSON JSON Schema), and they have **not** been run through Pinnacle 21. OMOP / Strategus tables are not SDTM/ADaM, so expect conformance-rule warnings.
 - **Define-XML v2.0:** non-standard datasets cannot be flagged, so its XSD does not check Origin Type terminology.
 - **Large results:** big Strategus outputs (e.g. covariate balance) are parsed on the main thread. Use the Export Hub table selection to keep submissions focused.
 

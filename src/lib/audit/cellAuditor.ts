@@ -1,5 +1,5 @@
 /**
- * Zero-PHI & small-cell auditor.
+ * Small-cell & direct-identifier auditor.
  *
  * Scans tabular artifacts (CSV via PapaParse, Excel via SheetJS) for
  *   1. small cells: count values with 0 < n < minCellCount (default 1..4)

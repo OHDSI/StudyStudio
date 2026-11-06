@@ -6,7 +6,7 @@
  *   two signature components (21 CFR 11.200).
  * - Signatures: detached JWS (RFC 7515, General JSON Serialization, ES256) over the exact bytes of the
  *   signed file (manifest.json, study_config.json, a disposition-log head). Nothing is re-serialised, so
- *   any JOSE library or openssl can verify them without this tool.
+ *   standard JOSE libraries that support detached payloads can verify them without this tool.
  * - Key IDs are RFC 7638 JWK thumbprints. Trust comes from the signer roster, not from the signature.
  */
 import { b64url, b64urlDecode } from './base64url'

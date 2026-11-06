@@ -20,7 +20,7 @@ export interface SlotDef {
   description: string
   accept: string[]
   required: boolean
-  /** Whether the file is subject to the zero-PHI / small-cell audit. */
+  /** Whether the file is subject to the small-cell / identifier audit. */
   audited: boolean
   /** Distributed by the coordinator in the protocol ZIP (never produced at the site). */
   fromProtocol: boolean

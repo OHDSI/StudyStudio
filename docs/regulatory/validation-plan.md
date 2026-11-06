@@ -19,7 +19,7 @@ data in clinical trials* (§4.10, Annex 2) and ICH E6(R3) §4.3.4.
 
 ## 1. Purpose and scope
 
-This plan establishes that OHDSI Study Studio, as configured for ‹study›, is fit for its intended use and
+This plan is intended to establish that OHDSI Study Studio, as configured for ‹study›, is fit for its intended use and
 that the records it produces are accurate, attributable, complete and protected against undetected change.
 
 **In scope:** protocol issuance and signing; site-side audit, masking, evidence evaluation, signing and
@@ -89,8 +89,8 @@ Residual risk is assessed after the controls.
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | Small-cell audit | Count 0 < n < min leaves the site | 3 | 2 | 2 | 12 | RDMS-driven audit, library refuses to seal, coordinator re-audit | `cellAuditor.test.ts`, `strategus.test.ts` (Strategus results), `builder.test.ts` | Low |
 | 2 | Masking record | Original values recoverable from the pack | 3 | 2 | 3 | 18 | Salted commitments; salts only in the site receipt | `commitment.test.ts`, `aggregator.test.ts` (signs, verifies …) | Low |
-| 3 | Sealing | Change after sealing goes undetected | 3 | 2 | 1 | 6 | SHA-256 manifest of every file | `aggregator.test.ts` (detects tampering …) | Low |
-| 4 | Protocol conformance | Site runs different code or settings | 3 | 2 | 2 | 12 | Pinned hashes, protected section, sealed protocol copy | `strategus.test.ts` (protected section), `aggregator.test.ts` (cross-site) | Low |
+| 3 | Sealing | Change after sealing goes undetected | 3 | 2 | 1 | 6 | SHA-256 manifest of every file; manifest signature (required in regulatory mode) | `aggregator.test.ts` (detects tampering …) | Low when signed — an unsigned manifest can be rewritten together with the file |
+| 4 | Protocol conformance | Site runs different code or settings | 3 | 2 | 2 | 12 | Pinned hashes, protected section, sealed protocol copy | `strategus.test.ts` (protected section), `aggregator.test.ts` (cross-site) | **Medium** — hashes show which files were packed, not which code was run (site SOP / attestation) |
 | 5 | Signatures | Forged or misattributed signature | 3 | 1 | 2 | 6 | ES256 JWS over manifest bytes; kid ↔ key check; roster enrollment | `signer.test.ts` | Low |
 | 6 | Signer roster | Roster altered to enroll an attacker's key | 3 | 2 | 2 | 12 | Roster signed by the protocol issuer key with meaning `roster-approved`; changes invalidate it | `signer.test.ts` (roster trust), `aggregator.test.ts` (regulatory demo set) | Low |
 | 7 | Key compromise | Revoked key used with a back-dated clock | 3 | 1 | 2 | 6 | Revocation judged by coordinator receipt time | `signer.test.ts` (revocation …) | Medium — depends on prompt revocation (SOP) |

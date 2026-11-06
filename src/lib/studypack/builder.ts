@@ -34,7 +34,7 @@ export interface PackInputFile {
   role: FileRole
   originalName: string
   bytes: Uint8Array
-  /** Audit result when the file is subject to the zero-PHI / small-cell audit. */
+  /** Audit result when the file is subject to the small-cell / identifier audit. */
   audit?: AuditResult
   remediated?: boolean
   /** The file before masking/redaction. Never packed: only a salted commitment to it is (R5.3). */

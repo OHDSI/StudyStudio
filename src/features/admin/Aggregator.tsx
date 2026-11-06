@@ -120,7 +120,7 @@ export function Aggregator() {
         <Card className="md:col-span-2">
           <CardHeader>
             <CardTitle className="text-sm"><ListChecks className="size-4" /> Bulk load site StudyPacks</CardTitle>
-            <CardDescription className="text-xs">Drop multiple *.studypack.zip files. They are extracted in memory and every SHA-256 in manifest.json is recomputed to detect tampering.</CardDescription>
+            <CardDescription className="text-xs">Drop multiple *.studypack.zip files. They are extracted in memory and every SHA-256 in manifest.json is recomputed to detect files changed after sealing.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-2">
             {actor || !regulatory ? (

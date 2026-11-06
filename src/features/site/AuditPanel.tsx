@@ -43,7 +43,7 @@ export function AuditPanel() {
       <CardHeader>
         <CardTitle>
           {failing.length ? <ShieldAlert className="size-5 text-destructive" /> : <ShieldCheck className="size-5 text-success" />}
-          Zero-PHI &amp; Small-Cell Audit
+          Small-Cell &amp; Identifier Audit
         </CardTitle>
         <CardDescription>
           Rule: flag count values with 0 &lt; n &lt; {min} (1–{min - 1}) / flag direct-identifier columns such as person_id or date of birth. Already-censored values (-{min}, &lt;{min}, NA) pass.

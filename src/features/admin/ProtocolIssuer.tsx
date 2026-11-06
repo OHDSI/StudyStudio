@@ -134,7 +134,7 @@ export function ProtocolIssuer() {
           <Card>
             <CardHeader>
               <CardTitle><BookOpen className="size-5" /> 2. Analysis specification</CardTitle>
-              <CardDescription>Read-only summary of what every site will run. Edit the design in R and re-drop to change it.</CardDescription>
+              <CardDescription>Read-only summary of the specification every site is asked to run. Edit the design in R and re-drop to change it.</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4 text-sm">
               <div className="flex flex-wrap items-center gap-1.5">
@@ -204,7 +204,7 @@ export function ProtocolIssuer() {
             <Field label="Assurance level">
               <Select value={meta.assurance} onChange={(e) => setMeta({ ...meta, assurance: e.target.value as AssuranceLevel })}>
                 <option value="standard">Standard (academic network study)</option>
-                <option value="regulatory">Regulatory (PMDA / FDA / EMA submission)</option>
+                <option value="regulatory">Regulatory (stricter controls, for submission use)</option>
               </Select>
             </Field>
             <Field label="Required vocabulary version (optional)" className="md:col-span-2">
@@ -219,7 +219,7 @@ export function ProtocolIssuer() {
             )}
             {scriptMin !== undefined && scriptMin < meta.minCellCount && (
               <Alert variant="warning" className="md:col-span-3">
-                <AlertDescription>ExecuteAnalyses.R defaults to minCellCount {scriptMin}, below the protocol's {meta.minCellCount}. Sites may export small cells; OHDSI Study Studio will block them, but consider raising the default.</AlertDescription>
+                <AlertDescription>ExecuteAnalyses.R defaults to minCellCount {scriptMin}, below the protocol's {meta.minCellCount}. Sites may export small cells; OHDSI Study Studio will block packaging until they are masked, but consider raising the default.</AlertDescription>
               </Alert>
             )}
           </CardContent>

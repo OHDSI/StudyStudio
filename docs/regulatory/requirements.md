@@ -1,8 +1,9 @@
 # Regulatory requirements traceability
 
-This document maps regulatory expectations to OHDSI Study Studio features. It is the basis for the
-tool's own validation evidence: every requirement ID below names the module that implements it and the
-test that demonstrates it.
+This document maps regulatory expectations to OHDSI Study Studio features. Every requirement ID below
+names the module that implements it; [validation-plan.md](validation-plan.md) §6 names the tests that
+exercise it. It is an input to the validation of the tool for a given study, not a substitute for it.
+Meeting these requirements is our reading of the sources; no regulator has reviewed the tool.
 
 **Status of the sources.** None of these documents is written for OHDSI-style distributed network
 studies, and most of them are non-binding guidance ("should"). ICH E6(R3) and the EMA computerised
@@ -11,7 +12,7 @@ because ICH M14 and the FDA RWD guidance point to the same principles without gi
 Whether a hospital running Strategus counts as a "DB事業者" under the Japanese notices is our
 interpretation and should be confirmed in a PMDA consultation.
 
-## Sources (read in full, November 2026)
+## Sources (consulted November 2026)
 
 | Key | Document | Version |
 |---|---|---|
@@ -87,8 +88,8 @@ interpretation and should be confirmed in a PMDA consultation.
 | ID | Requirement | Source | Implementation |
 |---|---|---|---|
 | R6.1 | Exclusion criteria are pre-defined; the rationale for each exclusion is documented | E6 §3.16.2(d); M14 §4.2 | `study_config.adoptionPolicy.reasonCodes`; exclusions and overrides require a pre-specified code (and free text for overrides / `OTHER`) |
-| R6.2 | Audit trail: who (user, role, organisation), when, what (old → new), why; protected from change | FDA-P11 Q12; EMA-CS §6.2.1; E6 §4.2.2 | `network/dispositionLog.ts`: append-only JSONL, each entry carries the SHA-256 of the previous line; the head is signed |
-| R6.3 | Decisions are made without comparing outcomes between groups | M14 §4.2 | Disposition must be **locked** (with an attestation) and every site decided before the submission package is generated in `regulatory` mode; enforced inside `buildRegulatoryExport` |
+| R6.2 | Audit trail: who (user, role, organisation), when, what (old → new), why; protected from change | FDA-P11 Q12; EMA-CS §6.2.1; E6 §4.2.2 | `network/dispositionLog.ts`: append-only JSONL, each entry carries the SHA-256 of the previous line; the head is signed when a coordinator key is unlocked at export |
+| R6.3 | Decisions are made without comparing outcomes between groups | M14 §4.2 | Disposition must be **locked** (with an attestation) and every site decided before the submission package is generated in `regulatory` mode; enforced inside `buildRegulatoryExport`. The tool records the attestation; it cannot verify that results were not viewed |
 | R6.4 | The audit trail is exportable, human-readable and kept with the data | EMA-CS §6.2.1, §6.10; FDA-P11 Q12 | Log exported in the submission package and rendered in the audit report; can be re-imported and verified to continue a session |
 | R6.5 | Exports are themselves logged | EMA-CS §6.2.1 | `export` entries in the disposition log |
 
@@ -97,7 +98,7 @@ interpretation and should be confirmed in a PMDA consultation.
 Every condition that stops a pack from being sealed or a submission from being generated is checked inside the
 library, not only in the UI: `sealRefusals()` / `buildStudyPack()` (small cells, and in regulatory studies the
 signature, sealed protocol, coordinator signature and blocking evidence) and `buildRegulatoryExport()`
-(lock and recorded decisions). Unit tests cover these refusals, so UI changes cannot bypass them.
+(lock and recorded decisions). Unit tests cover these refusals, so a change that removed one would fail the test suite.
 
 ## Known limitations (state them in the study's data management plan)
 

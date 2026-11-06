@@ -191,7 +191,7 @@ export function ArtifactSlots() {
             </div>
           ))}
           <div>
-            <div className="mb-2 font-mono text-xs font-semibold text-muted-foreground">results/ — Strategus results (zero-PHI)</div>
+            <div className="mb-2 font-mono text-xs font-semibold text-muted-foreground">results/ — Strategus results (small-cell audited)</div>
             <ResultsBundleCard />
           </div>
         </CardContent>

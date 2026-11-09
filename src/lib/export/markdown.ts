@@ -104,3 +104,27 @@ export function parseMarkdown(md: string): Block[] {
   }
   return blocks
 }
+
+const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+const inlineHtml = (parts: Inline[]) =>
+  parts.map((p) => (p.kind === 'strong' ? `<strong>${esc(p.text)}</strong>` : p.kind === 'em' ? `<em>${esc(p.text)}</em>` : p.kind === 'code' ? `<code>${esc(p.text)}</code>` : esc(p.text))).join('')
+
+/** HTML body for Markdown in the subset parseMarkdown supports (for printable documents). */
+export function markdownToHtml(md: string): string {
+  return parseMarkdown(md)
+    .map((b) => {
+      switch (b.kind) {
+        case 'heading':
+          return `<h${b.level}>${inlineHtml(b.content)}</h${b.level}>`
+        case 'rule':
+          return '<hr>'
+        case 'paragraph':
+          return `<p>${inlineHtml(b.content)}</p>`
+        case 'list':
+          return `<ul>${b.items.map((it) => `<li>${inlineHtml(it.content)}${it.children.length ? `<ul>${it.children.map((c) => `<li>${inlineHtml(c)}</li>`).join('')}</ul>` : ''}</li>`).join('')}</ul>`
+        case 'table':
+          return `<table><tr>${b.header.map((h) => `<th>${inlineHtml(h)}</th>`).join('')}</tr>${b.rows.map((r) => `<tr>${r.map((c) => `<td>${inlineHtml(c)}</td>`).join('')}</tr>`).join('')}</table>`
+      }
+    })
+    .join('\n')
+}

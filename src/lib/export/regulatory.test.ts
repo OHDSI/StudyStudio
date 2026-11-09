@@ -69,6 +69,20 @@ describe('network demo end-to-end', () => {
     expect(out.markdown).toContain('## Define-XML conformance')
     expect(out.markdown).toContain('**DD0139** (FDA Warning / PMDA Warning)')
 
+    // Draft reviewer's guide: filled from the study, with the sponsor's parts marked; not sealed in the package.
+    const g = out.reviewersGuide.markdown
+    for (const h of ['## 1. Introduction', '### 1.2 Study Data Standards and Dictionary Inventory', '### 5.2 Analysis Datasets', '### 6.2 Issues Summary', '### 7.2 Analysis Datasets Programs'])
+      expect(g).toContain(h)
+    expect(g).toContain('| CMRESULT | cm_result (CohortMethodModule) | ADAM OTHER |')
+    expect(g).toContain('| 1781 | New users of ACE inhibitors (Target) | target (CM), exposure (SCCS) |')
+    expect(g).toContain('| DD0139 |')
+    expect(g).toContain('| Strategus | 1.6.0 |')
+    expect(g).toContain(`\`${config.expectedHashes['definitions/analysisSpecifications.json']}\``)
+    expect(g).toContain('- Site_C: Tampering detected (hash mismatch)')
+    expect(g).toContain('**[TO BE COMPLETED: study design')
+    expect(out.reviewersGuide.html).toContain('<strong class="todo">[TO BE COMPLETED: study design')
+    expect(out.manifest.files.map((f) => f.path).some((p) => /review|adrg/i.test(p))).toBe(false)
+
     // The agency rates issues and is recorded; it does not change define.xml or the datasets.
     const now = new Date('2026-01-02T03:04:05Z')
     const [fda, pmda] = await Promise.all((['FDA', 'PMDA'] as const).map((agency) => buildRegulatoryExport({ studyId: config.studyId, studyTitle: config.studyTitle, config, cross, rows, agency, now })))
@@ -145,6 +159,9 @@ describe('disposition audit trail in the submission', () => {
     expect(out.markdown).toMatch(/Dispositions locked:\*\* yes — by Coordinator/)
     expect(out.markdown).toContain('| Site_C |')
     expect(out.markdown).toContain('## Limitations')
+    // The reviewer's guide gives the recorded reason and the lock.
+    expect(out.reviewersGuide.markdown).toContain('- Site_C: INTEGRITY')
+    expect(out.reviewersGuide.markdown).toMatch(/the dispositions were locked by Coordinator on /)
     const zip = await JSZip.loadAsync(await out.zipBlob.arrayBuffer())
     const names = Object.keys(zip.files)
     const jsonl = await zip.file(names.find((n) => n.endsWith('disposition/disposition_log.jsonl'))!)!.async('string')

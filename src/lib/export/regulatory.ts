@@ -14,7 +14,8 @@ import { bundledStylesheet, type DefineStylesheet } from '@/lib/cdisc/stylesheet
 import { combineSiteCsvs, serializeDatasetJson, type CombinedTable, type DatasetJsonVersion } from '@/lib/cdisc/datasetJson'
 import { parseMappingSpec, parseScanReport, type MappingSpec, type SourceTable } from '@/lib/cdisc/sources'
 import { APP_VERSION, manifestEntries, safeId } from '@/lib/studypack/builder'
-import { parseAnalysisSpecification } from '@/lib/strategus/spec'
+import { parseAnalysisSpecification, type AnalysisSpecSummary } from '@/lib/strategus/spec'
+import { buildReviewersGuideHtml, buildReviewersGuideMarkdown, parseRenvLock } from './reviewersGuide'
 import { moduleOf, parseRdms, RDMS_FILE, tableNameOf, type Rdms } from '@/lib/strategus/results'
 import { PROTOCOL_PATHS } from '@/lib/strategus/protocol'
 import { RESULTS_DIR } from '@/lib/studypack/slots'
@@ -428,6 +429,8 @@ export interface RegulatoryExport {
   manifest: StudyPackManifest
   standards: Standards
   conformance: Conformance
+  /** Draft Analysis Data Reviewer's Guide (not sealed in the package: it is meant to be completed). */
+  reviewersGuide: { markdown: string; html: string }
 }
 
 export async function buildRegulatoryExport(params: {
@@ -480,9 +483,11 @@ export async function buildRegulatoryExport(params: {
   const refHash = params.cross.references[specPath]?.hash
   const refSite = adopted.find((s) => s.fileHashes[specPath] === refHash) ?? adopted.find((s) => s.files[specPath])
   let cohorts: { cohortId: number; cohortName: string; roles: string[]; expression?: Record<string, unknown> }[] = []
+  let spec: AnalysisSpecSummary | undefined
   if (refSite?.files[specPath]) {
     try {
-      cohorts = parseAnalysisSpecification(dec.decode(refSite.files[specPath])).cohorts
+      spec = parseAnalysisSpecification(dec.decode(refSite.files[specPath]))
+      cohorts = spec.cohorts
     } catch {
       /* spec unreadable: fall back to the protocol's cohort list */
     }
@@ -600,5 +605,23 @@ export async function buildRegulatoryExport(params: {
   for (const c of content) root.file(c.path, c.bytes)
   root.file('manifest.json', JSON.stringify(manifest, null, 2) + '\n')
   const zipBlob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' })
-  return { zipBlob, zipName: `${safeId(params.studyId)}_regulatory_submission.zip`, defineXml, datasets, tables, markdown, html, manifest, standards, conformance }
+  const renvPath = PROTOCOL_PATHS.renvLock
+  const renvSite = adopted.find((s) => s.fileHashes[renvPath] === params.cross.references[renvPath]?.hash) ?? adopted.find((s) => s.files[renvPath])
+  const guide = buildReviewersGuideMarkdown({
+    studyId: params.studyId,
+    studyTitle: params.studyTitle,
+    config: params.config,
+    generatedAt,
+    standards,
+    conformance,
+    datasets: tables.map((t) => ({ table: t, ...files.get(t.name)! })),
+    rows: params.rows,
+    cross: params.cross,
+    spec,
+    renv: renvSite?.files[renvPath] ? parseRenvLock(dec.decode(renvSite.files[renvPath])) : undefined,
+    etl,
+    disposition: d?.entries,
+  })
+  const reviewersGuide = { markdown: guide, html: buildReviewersGuideHtml(guide, params.studyId) }
+  return { zipBlob, zipName: `${safeId(params.studyId)}_regulatory_submission.zip`, defineXml, datasets, tables, markdown, html, manifest, standards, conformance, reviewersGuide }
 }

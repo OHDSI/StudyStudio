@@ -240,6 +240,10 @@ export function ExportHub() {
               <div className="flex flex-wrap items-center gap-2">
                 <Button size="sm" variant="success" onClick={() => download(out.zipName, out.zipBlob)}><Download /> {out.zipName} ({formatBytes(out.zipBlob.size)})</Button>
                 <Button size="sm" variant="outline" onClick={() => download('define.xml', out.defineXml, 'application/xml')}><Download /> define.xml (v{out.standards.defineXml})</Button>
+                <span className="ml-2 text-xs text-muted-foreground">Reviewer's guide (draft, not in the ZIP):</span>
+                <Button size="sm" variant="outline" onClick={() => download(`${id}_adrg_draft.md`, out.reviewersGuide.markdown, 'text/markdown')}><FileText /> Markdown</Button>
+                <Button size="sm" variant="outline" onClick={() => download(`${id}_adrg_draft.html`, out.reviewersGuide.html, 'text/html')}><Download /> HTML</Button>
+                <Button size="sm" variant="outline" onClick={() => printHtml(out.reviewersGuide.html)}><Printer /> PDF (print)</Button>
               </div>
               <Conformance out={out} agency={agency} />
               <Tabs defaultValue="define">
@@ -247,7 +251,14 @@ export function ExportHub() {
                   <TabsTrigger value="define">define.xml</TabsTrigger>
                   <TabsTrigger value="datasets">Dataset-JSON v{out.standards.datasetJson} ({Object.keys(out.datasets).length})</TabsTrigger>
                   <TabsTrigger value="manifest">manifest</TabsTrigger>
+                  <TabsTrigger value="guide">Reviewer's guide (draft)</TabsTrigger>
                 </TabsList>
+                <TabsContent value="guide">
+                  <p className="mb-2 text-xs text-muted-foreground">
+                    Analysis Data Reviewer's Guide filled from the study, structured after the PHUSE ADRG template. Complete the parts marked “TO BE COMPLETED”, review every statement, and add the issues of your validator run.
+                  </p>
+                  <MarkdownPreview markdown={out.reviewersGuide.markdown} className="max-h-[560px] overflow-auto rounded-md border p-4" />
+                </TabsContent>
                 <TabsContent value="define">
                   <pre className="max-h-[560px] overflow-auto rounded-md bg-slate-950 p-3 text-[11px] text-slate-100">{out.defineXml}</pre>
                 </TabsContent>

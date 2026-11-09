@@ -72,7 +72,7 @@ To see the safety lock, use `samples/site/with_violations/` instead of the match
 4. **Record recommendations for undecided sites** (or adopt / exclude each site with a pre-specified reason), tick the attestation and **Lock** the dispositions. Every step is in the **Disposition audit trail**.
 5. **Export Hub**:
    - **Audit report:** live **Preview**, **Markdown source**, Markdown download, or **PDF (print)**.
-   - **Submission package:** choose the Define-XML / Dataset-JSON versions and the result tables, then generate the ZIP. It includes the disposition log and each site's manifest, signature and audit report.
+   - **Submission package:** choose the Define-XML / Dataset-JSON versions and the result tables, then generate the ZIP. It includes the disposition log and each site's manifest, signature and audit report. If the CDISC stylesheet has been placed in `src/lib/cdisc/stylesheets/` before building (see the README there), it is included too, and `define.xml` refers to it.
 
 ---
 

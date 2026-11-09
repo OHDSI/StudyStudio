@@ -44,6 +44,8 @@ export interface DefineInput {
   scanTables?: SourceTable[]
   mapping?: MappingSpec
   auditReportHref?: string
+  /** Relative href of an XSLT stylesheet archived next to define.xml (adds an xml-stylesheet instruction). */
+  stylesheetHref?: string
   now?: Date
 }
 
@@ -259,6 +261,7 @@ export function buildDefineXml(input: DefineInput): string {
   const L: string[] = []
   const auditLeaf = input.auditReportHref ? { id: 'LF.AUDIT_REPORT', href: input.auditReportHref } : undefined
   L.push('<?xml version="1.0" encoding="UTF-8"?>')
+  if (input.stylesheetHref) L.push(`<?xml-stylesheet type="text/xsl" href="${xmlEscape(input.stylesheetHref)}"?>`)
   L.push(
     `<ODM xmlns="http://www.cdisc.org/ns/odm/v1.3" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:def="http://www.cdisc.org/ns/def/v${v20 ? '2.0' : '2.1'}"` +
       ` ODMVersion="1.3.2" FileType="Snapshot" FileOID="DEFINE.${oid(input.studyId)}" CreationDateTime="${now}"` +

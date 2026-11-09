@@ -8,6 +8,7 @@ import type { SiteEvidence } from '@/lib/studypack/evidence'
 import { kidFingerprint, type DetachedJws, type SignatureCheck } from '@/lib/security/signer'
 import type { DispositionEntry } from '@/lib/network/dispositionLog'
 import { buildDefineXml, xmlEscape, type DefineXmlVersion } from '@/lib/cdisc/defineXml'
+import { bundledStylesheet, type DefineStylesheet } from '@/lib/cdisc/stylesheet'
 import { combineSiteCsvs, serializeDatasetJson, type CombinedTable, type DatasetJsonVersion } from '@/lib/cdisc/datasetJson'
 import { parseMappingSpec, parseScanReport, type MappingSpec, type SourceTable } from '@/lib/cdisc/sources'
 import { APP_VERSION, manifestEntries, safeId } from '@/lib/studypack/builder'
@@ -339,6 +340,8 @@ export async function buildRegulatoryExport(params: {
   /** "<Module>/<table>" keys to include; default all. */
   tables?: string[]
   now?: Date
+  /** Define-XML stylesheet to archive next to define.xml; default the one bundled for the chosen version, if any. null = none. */
+  stylesheet?: DefineStylesheet | null
   /** Disposition audit trail to ship with the package (R6.4). */
   disposition?: { entries: readonly DispositionEntry[]; jsonl: string; headHash: string; head: Uint8Array; headSignature?: DetachedJws }
 }): Promise<RegulatoryExport> {
@@ -352,7 +355,11 @@ export async function buildRegulatoryExport(params: {
   }
   const standards = { defineXml: params.defineXmlVersion ?? '2.1', datasetJson: params.datasetJsonVersion ?? '1.1' } as const
   const generatedAt = (params.now ?? new Date()).toISOString()
-  const adopted = params.rows.filter((r) => r.adopted).map((r) => r.site)
+  // Sorted so the datasets do not depend on the order the packs were dropped in.
+  const adopted = params.rows
+    .filter((r) => r.adopted)
+    .map((r) => r.site)
+    .sort((a, b) => (a.siteId < b.siteId ? -1 : a.siteId > b.siteId ? 1 : 0))
   if (adopted.length === 0) throw new Error('No adopted sites')
 
   // Cohorts come from the reference analysis specification (a site whose spec matches the reference hash).
@@ -417,6 +424,7 @@ export async function buildRegulatoryExport(params: {
       sourceVersion: APP_VERSION,
       now: params.now,
     })
+  const stylesheet = params.stylesheet === undefined ? bundledStylesheet(standards.defineXml) : (params.stylesheet ?? undefined)
   const defineXml = buildDefineXml({
     version: standards.defineXml,
     studyId: params.studyId,
@@ -429,14 +437,16 @@ export async function buildRegulatoryExport(params: {
     scanTables,
     mapping,
     auditReportHref: 'audit_report.html',
+    stylesheetHref: stylesheet?.name,
     now: params.now,
   })
 
   const content: { path: string; bytes: Uint8Array; role: FileRole }[] = [
     { path: 'define.xml', bytes: enc.encode(defineXml), role: 'metadata' },
+    ...(stylesheet ? [{ path: stylesheet.name, bytes: enc.encode(stylesheet.text), role: 'metadata' as FileRole }] : []),
     ...Object.entries(datasets).map(([path, text]) => ({ path, bytes: enc.encode(text), role: 'result' as FileRole })),
   ]
-  for (const s of params.rows) {
+  for (const s of [...params.rows].sort((a, b) => (a.site.siteId < b.site.siteId ? -1 : a.site.siteId > b.site.siteId ? 1 : 0))) {
     for (const f of ['manifest.json', 'manifest.jws.json', 'audit_report.json']) {
       const b = s.site.files[f]
       if (b) content.push({ path: `sites/${safeId(s.site.siteId)}/${f}`, bytes: b, role: 'evidence' })

@@ -112,6 +112,11 @@ describe('the checks catch defects', () => {
     expect(rules(mutate('xlink:href="datasets/cmresult.json"', 'xlink:href="datasets/cm_result.json"'))).toEqual(['SS-DEF-036'])
     expect(rules(mutate(/(<ItemGroupDef OID="IG.CM_RESULT"[\s\S]*?)<def:Class Name="ADAM OTHER"\/>\n/, '$1'))).toEqual(['SS-DEF-037'])
     expect(rules(mutate(/ *<def:Standard OID="STD.CT.ADAM"[^\n]*\n/, ''))).toEqual(['SS-DEF-030'])
+    // The v2.1 spelling of a standard name in v2.0 (a PMDA reject).
+    const v20 = buildDefineXml({ ...(await inputs()), version: '2.0' })
+    expect(rules(v20)).toEqual([])
+    expect(rules(v20.replace('def:StandardName="ADaM-IG"', 'def:StandardName="ADaMIG"'))).toEqual(['SS-DEF-038'])
+    expect(rules(mutate('Name="ADaMIG" Type="IG"', 'Name="ADaM-IG" Type="IG"'))).toEqual(['SS-DEF-038'])
     // Neither standard nor flagged non-standard.
     expect(rules(mutate(/(OID="IG.CM_RESULT"[^>]*) def:IsNonStandard="Yes"/, '$1'))).toEqual(['SS-DEF-029'])
   })

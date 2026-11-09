@@ -143,7 +143,7 @@ describe('Define-XML v2.0', () => {
     })
     expect(XMLValidator.validate(xml)).toBe(true)
     expect(xml).toContain('xmlns:def="http://www.cdisc.org/ns/def/v2.0"')
-    expect(xml).toContain('def:DefineVersion="2.0.0" def:StandardName="ADaMIG" def:StandardVersion="1.3"')
+    expect(xml).toContain('def:DefineVersion="2.0.0" def:StandardName="ADaM-IG" def:StandardVersion="1.3"')
     for (const v21 of ['def:Standards', 'def:IsNonStandard', 'def:Context', 'ns/def/v2.1']) expect(xml).not.toContain(v21)
     expect(definedAndReferenced(xml)).toEqual([])
   })

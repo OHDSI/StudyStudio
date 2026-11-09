@@ -222,6 +222,14 @@ export function checkDefineXml(xml: string): DefineIssue[] {
       if (family.length && !stds.some((s) => attr(s, 'Type') === 'CT' && family.includes(attr(s, 'PublishingSet') ?? ''))) add('SS-DEF-030', 'def:Standards', `No CT package with PublishingSet ${family.join(' or ')} for ${attr(ig, 'Name')}`)
     }
   }
+  // Standard names use the spelling of the Define-XML version (P21 DD0021, a PMDA reject).
+  const V20_NAMES = ['SDTM-IG', 'SEND-IG', 'SEND-IG-AR', 'SEND-IG-DART', 'SEND-IG-GENETOX', 'ADaM-IG', 'BIMO']
+  const V21_IG_NAMES = ['ADaMIG', 'SDTMIG', 'SENDIG', 'SENDIG-AR', 'SENDIG-DART', 'SENDIG-GENETOX', 'BIMO', 'CDISC/NCI']
+  if (v21) {
+    for (const st of list((mdv['def:Standards'] as El | undefined)?.['def:Standard']))
+      if (!V21_IG_NAMES.includes(attr(st, 'Name') ?? '')) add('SS-DEF-038', attr(st, 'OID')!, `Standard name "${attr(st, 'Name')}" is not a Define-XML 2.1 standard name`)
+  } else if (!V20_NAMES.includes(attr(mdv, 'def:StandardName') ?? '')) add('SS-DEF-038', 'MetaDataVersion', `def:StandardName "${attr(mdv, 'def:StandardName')}" is not a Define-XML 2.0 standard name`)
+
   // SAS names: present, at most 8 characters, unique per scope (P21 DD0047 / DD0051 / DD0070).
   const SAS = /^[A-Za-z_][A-Za-z0-9_]{0,7}$/
   const dsNames = new Map<string, string>()

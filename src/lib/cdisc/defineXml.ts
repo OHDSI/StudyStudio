@@ -13,7 +13,8 @@
  * v2.1: def:Standards names ADaMIG 1.3 and the CDISC/NCI ADaM terminology (validators require an IG and
  *       a CT standard), and every ItemGroupDef carries def:IsNonStandard="Yes".
  * v2.0: has no notion of non-standard datasets; ADaMIG 1.3 is named through def:StandardName /
- *       def:StandardVersion, which the schema requires. Prefer v2.1.
+ *       def:StandardVersion, which the schema requires, with the v2.0 spelling "ADaM-IG" (PMDA rejects
+ *       "ADaMIG" there: Pinnacle 21 DD0021). Prefer v2.1.
  *
  * Names longer than 8 characters get an 8-character SASDatasetName / SASFieldName, unique within the
  * MetaDataVersion / dataset, as regulatory validators require; dataset files are named after the
@@ -299,7 +300,7 @@ export function buildDefineXml(input: DefineInput): string {
   L.push('    </GlobalVariables>')
   L.push(
     `    <MetaDataVersion OID="${mdvOid}" Name="${xmlEscape(input.studyTitle)} — OMOP network study" Description="Generated from StudyPacks by OHDSI Study Studio" ` +
-      `${v20 ? 'def:DefineVersion="2.0.0" def:StandardName="ADaMIG" def:StandardVersion="1.3"' : 'def:DefineVersion="2.1.0"'}${cohortsComment && !tables.length ? ` def:CommentOID="${cohortsComment}"` : ''}>`,
+      `${v20 ? 'def:DefineVersion="2.0.0" def:StandardName="ADaM-IG" def:StandardVersion="1.3"' : 'def:DefineVersion="2.1.0"'}${cohortsComment && !tables.length ? ` def:CommentOID="${cohortsComment}"` : ''}>`,
   )
   if (!v20) {
     L.push('      <def:Standards>')

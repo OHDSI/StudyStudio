@@ -1,0 +1,37 @@
+name: Define-XML schema
+
+# Checks the define.xml built from the network demo (v2.1 and v2.0) against the CDISC Define-XML
+# schemas with xmllint. The schemas are CDISC's and are not committed here: they are fetched from
+# cdisc-org/data-definition-engine at a pinned commit.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SCHEMAS_REPO: cdisc-org/data-definition-engine
+  SCHEMAS_SHA: 993c4880cccb7a62d207f187c198f7c6cd9f4291
+
+jobs:
+  define-xsd:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install xmllint
+        run: sudo apt-get update && sudo apt-get install -y libxml2-utils
+      - name: Fetch the CDISC schemas
+        run: |
+          mkdir -p "$RUNNER_TEMP/cdisc"
+          curl -fsSL "https://codeload.github.com/$SCHEMAS_REPO/tar.gz/$SCHEMAS_SHA" \
+            | tar xz -C "$RUNNER_TEMP/cdisc" --strip-components=1 --wildcards '*/schemas/define/*' '*/schemas/odm/1.3.2/*'
+          echo "STUDYSTUDIO_DEFINE_XSD=$RUNNER_TEMP/cdisc/schemas" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx vitest run src/lib/cdisc/defineXml.xsd.test.ts

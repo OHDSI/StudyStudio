@@ -114,6 +114,10 @@ describe('Define-XML v2.1', () => {
     const doc = new XMLParser({ ignoreAttributes: false }).parse(xml)
     expect(doc.ODM.Study.MetaDataVersion['@_def:DefineVersion']).toBe('2.1.0')
     expect(xml).toContain('xmlns:def="http://www.cdisc.org/ns/def/v2.1"')
+    // Every dataset is non-standard, so no implementation guide is declared.
+    expect(xml).not.toContain('def:Standards')
+    expect(xml).not.toContain('ADaMIG')
+    expect((xml.match(/<ItemGroupDef /g) ?? []).length).toBe((xml.match(/def:IsNonStandard="Yes"/g) ?? []).length)
     for (const t of ['CG_COHORT_COUNT', 'CM_RESULT', 'CM_DIAGNOSTICS_SUMMARY', 'SCCS_RESULT', 'DATABASE_META_DATA', 'CDM_CONDITION_OCCURRENCE', 'SRC_PATIENTS'])
       expect(xml).toContain(`<ItemGroupDef OID="IG.${t}"`)
     expect(xml).toContain('<def:WhereClauseDef OID="WC.CG_COHORT_COUNT.COHORT_ID.1781"')

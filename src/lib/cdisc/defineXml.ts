@@ -8,10 +8,11 @@
  *                                 results data model specification (+ value-level metadata per cohort)
  *
  * v2.1: OMOP / source datasets are not CDISC-standard datasets, so every ItemGroupDef carries
- *       def:IsNonStandard="Yes"; def:Standards still lists the IG required by the schema.
- * v2.0: has no notion of non-standard datasets; the IG is declared through
- *       def:StandardName / def:StandardVersion on MetaDataVersion, and source-system fields use
- *       Origin Type="eDT" because "Collected" was introduced in v2.1.
+ *       def:IsNonStandard="Yes" and def:Standards is omitted (optional in the schema): declaring an
+ *       implementation guide that no dataset follows would misstate what the package contains.
+ * v2.0: has no notion of non-standard datasets and requires def:StandardName / def:StandardVersion
+ *       on MetaDataVersion, so ADaMIG 1.3 is named there although the datasets do not follow it;
+ *       prefer v2.1. Source-system fields use Origin Type="eDT" because "Collected" was introduced in v2.1.
  */
 import { describeCohort } from '@/lib/codegen/circe'
 import type { CombinedTable } from './datasetJson'
@@ -274,11 +275,6 @@ export function buildDefineXml(input: DefineInput): string {
   L.push(`      <ProtocolName>${xmlEscape(input.protocolName || input.studyTitle)}</ProtocolName>`)
   L.push('    </GlobalVariables>')
   L.push(`    <MetaDataVersion OID="${mdvOid}" Name="${xmlEscape(input.studyTitle)} — OMOP network study" Description="Generated from StudyPacks by OHDSI Study Studio" ${v20 ? 'def:DefineVersion="2.0.0" def:StandardName="ADaMIG" def:StandardVersion="1.3"' : 'def:DefineVersion="2.1.0"'}>`)
-  if (!v20) {
-    L.push('      <def:Standards>')
-    L.push('        <def:Standard OID="STD.ADAMIG.1.3" Name="ADaMIG" Type="IG" Version="1.3" Status="Final"/>')
-    L.push('      </def:Standards>')
-  }
   if (auditLeaf) {
     L.push('      <def:SupplementalDoc>')
     L.push(`        <def:DocumentRef leafID="${auditLeaf.id}"/>`)

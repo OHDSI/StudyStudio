@@ -2,22 +2,30 @@
  * CDISC Define-XML builder for v2.1 (default) and v2.0 (native string builder, no network, no DOM).
  *
  *  analysisSpecifications.json  → def:WhereClauseDef per cohort (+ def:CommentDef / MethodDef with the CIRCE logic)
- *  mapping_specification.json   → ItemDef with <def:Origin Type="Derived"> and MethodDef
- *  ScanReport.xlsx              → source-data ItemGroupDef / ItemDef
  *  Strategus result tables      → one ItemGroupDef per table, ItemDefs typed/described from the
  *                                 results data model specification (+ value-level metadata per cohort)
  *
- * v2.1: OMOP / source datasets are not CDISC-standard datasets, so every ItemGroupDef carries
- *       def:IsNonStandard="Yes" and def:Standards is omitted (optional in the schema): declaring an
- *       implementation guide that no dataset follows would misstate what the package contains.
- * v2.0: has no notion of non-standard datasets and requires def:StandardName / def:StandardVersion
- *       on MetaDataVersion, so ADaMIG 1.3 is named there although the datasets do not follow it;
- *       prefer v2.1. Source-system fields use Origin Type="eDT" because "Collected" was introduced in v2.1.
+ * define.xml describes the submitted datasets only. The site ETL (WhiteRabbit ScanReport, mapping
+ * specification) is source-data lineage and is reported in the audit report, which define.xml references.
+ *
+ * The result datasets are not datasets of any CDISC standard. They are declared as non-standard
+ * datasets of an ADaM submission:
+ * v2.1: def:Standards names ADaMIG 1.3 and the CDISC/NCI ADaM terminology (validators require an IG and
+ *       a CT standard), and every ItemGroupDef carries def:IsNonStandard="Yes".
+ * v2.0: has no notion of non-standard datasets; ADaMIG 1.3 is named through def:StandardName /
+ *       def:StandardVersion, which the schema requires. Prefer v2.1.
+ *
+ * Names longer than 8 characters get an 8-character SASDatasetName / SASFieldName, unique within the
+ * MetaDataVersion / dataset, as regulatory validators require; dataset files are named after the
+ * SASDatasetName. Every dataset has the ADaM class "ADAM OTHER".
+ *
+ * Validators also report the declared standards as unreferenced (Pinnacle 21 DD0139): only a standard
+ * dataset or a CDISC code list can reference one, and there are neither. That is inherent to declaring
+ * non-standard datasets and is to be explained in the reviewer's guide.
  */
 import { describeCohort } from '@/lib/codegen/circe'
 import type { CombinedTable } from './datasetJson'
-import { itemGroupOid, itemOid, toVarName } from './datasetJson'
-import type { MappingSpec, SourceTable } from './sources'
+import { itemGroupOid, itemOid } from './datasetJson'
 
 export interface DefineCohort {
   cohortId: number
@@ -30,6 +38,9 @@ export interface DefineCohort {
 export const DEFINE_XML_VERSIONS = ['2.1', '2.0'] as const
 export type DefineXmlVersion = (typeof DEFINE_XML_VERSIONS)[number]
 
+/** CDISC/NCI ADaM controlled terminology package declared in def:Standards (v2.1) unless one is given. */
+export const DEFAULT_ADAM_CT_VERSION = '2026-03-27'
+
 export interface DefineInput {
   /** Define-XML version to emit (default v2.1). */
   version?: DefineXmlVersion
@@ -40,13 +51,13 @@ export interface DefineInput {
   originator?: string
   sourceSystemVersion: string
   cohorts: DefineCohort[]
-  /** Combined Strategus result tables; each is archived at datasets/<sourceTable>.json. */
+  /** Combined Strategus result tables; each is archived at the path given by datasetFiles(). */
   resultTables?: CombinedTable[]
-  scanTables?: SourceTable[]
-  mapping?: MappingSpec
   auditReportHref?: string
   /** Relative href of an XSLT stylesheet archived next to define.xml (adds an xml-stylesheet instruction). */
   stylesheetHref?: string
+  /** CDISC/NCI ADaM CT package date (v2.1 def:Standards); default DEFAULT_ADAM_CT_VERSION. */
+  ctVersion?: string
   now?: Date
 }
 
@@ -66,24 +77,69 @@ const oid = (s: string) => s.replace(/[^A-Za-z0-9._-]+/g, '_')
 const tt = (text: string, indent: string) =>
   `${indent}<Description>\n${indent}  <TranslatedText xml:lang="en">${xmlEscape(text)}</TranslatedText>\n${indent}</Description>`
 
-type DefineDataType = 'text' | 'integer' | 'float' | 'date' | 'datetime'
+type DefineDataType = 'text' | 'integer' | 'float'
 
-export function mapSourceType(t?: string): DefineDataType {
-  const s = (t ?? '').toLowerCase()
-  if (/^(int|integer|bigint|smallint|tinyint|serial|bigserial)/.test(s)) return 'integer'
-  if (/(numeric|decimal|float|double|real|number|money)/.test(s)) return 'float'
-  if (/timestamp|datetime/.test(s)) return 'datetime'
-  if (/^date$/.test(s)) return 'date'
-  return 'text'
+/**
+ * An 8-character SAS name for `name`: kept as is when it fits, otherwise each underscore-separated
+ * part contributes its first letters (CM_DIAGNOSTICS_SUMMARY → CMDIASUM). `taken` holds the names
+ * already used in the same scope; a clash is resolved with a numeric suffix.
+ */
+export function sasName(name: string, taken: Set<string>): string {
+  const clean = name.toUpperCase().replace(/[^A-Z0-9_]/g, '_')
+  let base = clean
+  if (base.length > 8) {
+    const parts = clean.split('_').filter(Boolean)
+    let budget = 8
+    base = ''
+    parts.forEach((p, i) => {
+      const n = Math.max(1, Math.ceil(budget / (parts.length - i)))
+      const piece = p.slice(0, n)
+      base += piece
+      budget -= piece.length
+    })
+    base = base.slice(0, 8)
+  }
+  if (!/^[A-Z_]/.test(base)) base = `V${base}`.slice(0, 8)
+  let out = base
+  for (let k = 1; taken.has(out); k++) out = `${base.slice(0, 8 - String(k).length)}${k}`
+  taken.add(out)
+  return out
+}
+
+/**
+ * SASDatasetName and archive path of each result table. The file is named after the SAS dataset name
+ * (datasets/<sasname>.json), as validators expect the def:leaf file name to equal SASDatasetName.
+ */
+export function datasetFiles(tables: { name: string }[]): Map<string, { sasName: string; path: string }> {
+  const taken = new Set<string>()
+  return new Map(
+    tables.map((t) => {
+      const n = sasName(t.name, taken)
+      return [t.name, { sasName: n, path: `datasets/${n.toLowerCase()}.json` }]
+    }),
+  )
+}
+
+/** Digits after the decimal point needed to show every value of a numeric column (def SignificantDigits). */
+export function significantDigits(values: unknown[]): number {
+  let max = 0
+  for (const v of values) {
+    if (typeof v !== 'number' || !Number.isFinite(v)) continue
+    const m = String(v).match(/^-?\d*(?:\.(\d+))?(?:e([+-]\d+))?$/i)
+    if (m) max = Math.max(max, (m[1]?.length ?? 0) - Number(m[2] ?? 0))
+  }
+  return max
 }
 
 interface ItemDef {
   oid: string
   name: string
+  sasName: string
   dataType: DefineDataType
-  length?: number
+  length: number
+  significantDigits?: number
   description: string
-  origin?: { type: 'Collected' | 'eDT' | 'Derived' | 'Assigned'; description?: string }
+  origin: { type: 'Derived' | 'Assigned'; description?: string }
   valueListOid?: string
 }
 
@@ -98,11 +154,11 @@ interface ItemRef {
 interface ItemGroup {
   oid: string
   name: string
+  sasName: string
   description: string
-  purpose: 'Tabulation' | 'Analysis'
   structure: string
-  className?: string
-  leaf?: { id: string; href: string; title: string }
+  leaf: { id: string; href: string; title: string }
+  commentOid?: string
   refs: ItemRef[]
 }
 
@@ -111,6 +167,10 @@ interface Method {
   name: string
   description: string
 }
+
+const COM_COHORTS = 'COM.COHORTS'
+/** ADaM class for analysis datasets that follow none of the ADaM structures. */
+const CLASS = 'ADAM OTHER'
 
 export function buildDefineXml(input: DefineInput): string {
   const v20 = input.version === '2.0'
@@ -124,40 +184,64 @@ export function buildDefineXml(input: DefineInput): string {
   const comments: { oid: string; text: string }[] = []
   const whereClauses: { oid: string; commentOid: string; itemOid: string; value: string }[] = []
   const valueLists: { oid: string; refs: (ItemRef & { whereOid: string })[] }[] = []
-  const addItem = (d: ItemDef) => {
-    if (!items.has(d.oid)) items.set(d.oid, d)
+  const fieldSasNames = new Map<string, Map<string, string>>()
+  const fieldSas = (t: CombinedTable, column: string) => {
+    if (!fieldSasNames.has(t.name)) fieldSasNames.set(t.name, new Map())
+    const names = fieldSasNames.get(t.name)!
+    if (!names.has(column)) names.set(column, sasName(column, new Set(names.values())))
+    return names.get(column)!
   }
 
   // ---- Strategus result tables + cohort where clauses ----------------------
   const tables = input.resultTables ?? []
   const hasCohortId = (t: CombinedTable) => t.columns.some((c) => c.name === 'COHORT_ID')
   const cohortTable = tables.find((t) => t.sourceTable === 'cg_cohort_count' && hasCohortId(t)) ?? tables.find(hasCohortId)
-  const countVar = cohortTable?.columns.find((c) => c.name === 'COHORT_SUBJECTS')?.name
-  const vlOid = cohortTable && countVar ? `VL.${cohortTable.name}.${countVar}` : undefined
+  const countCol = cohortTable?.columns.find((c) => c.name === 'COHORT_SUBJECTS')
+  const vlOid = cohortTable && countCol ? `VL.${cohortTable.name}.${countCol.name}` : undefined
+  const lengthOf = (dataType: DefineDataType, length: number) => Math.min(dataType === 'text' ? 2000 : 32, Math.max(1, length))
+  const typeOf = (c: CombinedTable['columns'][number]): DefineDataType => (c.dataType === 'string' ? 'text' : c.dataType === 'integer' ? 'integer' : 'float')
 
+  // Cohorts are described through value-level metadata on the cohort count (one where clause, method
+  // and comment per cohort). Without a cohort count table, a single comment lists them all and is
+  // attached to the result datasets (or, in v2.1, to MetaDataVersion), so no definition is left unreferenced.
   const vlRefs: (ItemRef & { whereOid: string })[] = []
+  const cohortTexts: string[] = []
   input.cohorts.forEach((c, i) => {
-    const com = `COM.COHORT.${c.cohortId}`
     const logic = c.expression ? describeCohort(c.expression) : 'Defined in the Strategus analysis specification (subset or non-CIRCE cohort).'
-    comments.push({ oid: com, text: `Cohort ${c.cohortId} "${c.cohortName}"${c.roles.length ? ` (${c.roles.join(', ')})` : ''}. ${logic}` })
-    if (!cohortTable) return
+    const text = `Cohort ${c.cohortId} "${c.cohortName}"${c.roles.length ? ` (${c.roles.join(', ')})` : ''}. ${logic}`
+    if (!cohortTable || !vlOid || !countCol) return cohortTexts.push(text)
+    const com = `COM.COHORT.${c.cohortId}`
+    comments.push({ oid: com, text })
     const wc = `WC.${cohortTable.name}.COHORT_ID.${c.cohortId}`
     whereClauses.push({ oid: wc, commentOid: com, itemOid: itemOid(cohortTable, 'COHORT_ID'), value: String(c.cohortId) })
-    if (vlOid && countVar) {
-      const mt = `MT.COHORT.${c.cohortId}`
-      methods.set(mt, {
-        oid: mt,
-        name: `Cohort ${c.cohortId} subject count`,
-        description: `Distinct persons in OMOP cohort ${c.cohortId} (${c.cohortName}) generated by the Strategus CohortGeneratorModule; values 0 < n < minCellCount are censored as -minCellCount. ${logic}`,
-      })
-      const itOid = `${itemOid(cohortTable, countVar)}.C${c.cohortId}`
-      addItem({ oid: itOid, name: countVar, dataType: 'integer', length: 12, description: `Subjects in cohort ${c.cohortId}: ${c.cohortName}`, origin: { type: 'Derived' } })
-      vlRefs.push({ itemOid: itOid, order: i + 1, mandatory: false, methodOid: mt, whereOid: wc })
-    }
+    const mt = `MT.COHORT.${c.cohortId}`
+    methods.set(mt, {
+      oid: mt,
+      name: `Cohort ${c.cohortId} subject count`,
+      description: `Distinct persons in OMOP cohort ${c.cohortId} (${c.cohortName}) generated by the Strategus CohortGeneratorModule; values 0 < n < minCellCount are censored as -minCellCount. ${logic}`,
+    })
+    const itOid = `${itemOid(cohortTable, countCol.name)}.C${c.cohortId}`
+    const dataType = typeOf(countCol)
+    items.set(itOid, {
+      oid: itOid,
+      name: countCol.name,
+      sasName: fieldSas(cohortTable, countCol.name),
+      dataType,
+      // A value-level slice is never longer than its parent variable.
+      length: lengthOf(dataType, countCol.length),
+      significantDigits: dataType === 'float' ? significantDigits(cohortTable.rows.map((r) => r[cohortTable.columns.indexOf(countCol)])) : undefined,
+      description: `Subjects in cohort ${c.cohortId}: ${c.cohortName}`,
+      origin: { type: 'Derived' },
+    })
+    vlRefs.push({ itemOid: itOid, order: i + 1, mandatory: false, methodOid: mt, whereOid: wc })
   })
   if (vlOid && vlRefs.length) valueLists.push({ oid: vlOid, refs: vlRefs })
+  const cohortsComment = cohortTexts.length && (tables.length || !v20) ? COM_COHORTS : undefined
+  if (cohortsComment) comments.push({ oid: cohortsComment, text: `Study cohorts. ${cohortTexts.join(' ')}` })
 
+  const files = datasetFiles(tables)
   for (const t of tables) {
+    const file = files.get(t.name)!
     const mt = `MT.${t.name}`
     methods.set(mt, {
       oid: mt,
@@ -167,93 +251,32 @@ export function buildDefineXml(input: DefineInput): string {
     const keys = t.columns.filter((c) => c.primaryKey).map((c) => c.name)
     const refs: ItemRef[] = t.columns.map((c, i) => {
       const itOid = itemOid(t, c.name)
-      const dataType: DefineDataType = c.dataType === 'string' ? 'text' : c.dataType === 'integer' ? 'integer' : 'float'
-      addItem({
+      const dataType = typeOf(c)
+      items.set(itOid, {
         oid: itOid,
         name: c.name,
+        sasName: fieldSas(t, c.name),
         dataType,
-        length: Math.min(dataType === 'text' ? 2000 : 32, Math.max(1, c.length)),
+        length: lengthOf(dataType, c.length),
+        significantDigits: dataType === 'float' ? significantDigits(t.rows.map((r) => r[i])) : undefined,
         description: c.description || c.name.replace(/_/g, ' ').toLowerCase(),
         origin:
           c.name === 'SITE_ID'
             ? { type: 'Assigned', description: 'Assigned from the StudyPack manifest siteId' }
             : { type: 'Derived', description: c.minCellCount ? 'Subject to min-cell-count suppression (censored values are reported as -minCellCount)' : undefined },
-        valueListOid: t === cohortTable && c.name === countVar && valueLists.length ? vlOid : undefined,
+        valueListOid: t === cohortTable && c === countCol && valueLists.length ? vlOid : undefined,
       })
-      return { itemOid: itOid, order: i + 1, mandatory: !!c.primaryKey, methodOid: c.name === 'SITE_ID' ? undefined : mt }
+      const keySequence = c.primaryKey ? keys.indexOf(c.name) + 1 : undefined
+      return { itemOid: itOid, order: i + 1, mandatory: !!c.primaryKey, keySequence, methodOid: c.name === 'SITE_ID' ? undefined : mt }
     })
     groups.push({
       oid: itemGroupOid(t),
       name: t.name,
+      sasName: file.sasName,
       description: `${t.label} — ${t.rows.length} record(s)`,
-      purpose: 'Analysis',
       structure: keys.length ? `One record per ${keys.join(', ')}` : 'One record per site result row',
-      leaf: { id: `LF.${t.name}`, href: `datasets/${t.sourceTable}.json`, title: `${t.sourceTable}.json` },
-      refs,
-    })
-  }
-
-  // ---- Source data (WhiteRabbit ScanReport) -------------------------------
-  for (const t of input.scanTables ?? []) {
-    const gName = toVarName(`SRC_${t.name.replace(/\.[a-z]+$/i, '')}`)
-    const refs = t.fields.map((f, i) => {
-      const itOid = `IT.${gName}.${toVarName(f.name)}`
-      const dataType = mapSourceType(f.type)
-      addItem({
-        oid: itOid,
-        name: toVarName(f.name),
-        dataType,
-        length: dataType === 'text' || dataType === 'integer' || dataType === 'float' ? Math.min(2000, f.maxLength ?? (dataType === 'text' ? 200 : 8)) : undefined,
-        description: f.description || `${t.name}.${f.name}${f.type ? ` (${f.type})` : ''}`,
-        origin: { type: v20 ? 'eDT' : 'Collected', description: `Source system field ${t.name}.${f.name} profiled by WhiteRabbit` },
-      })
-      return { itemOid: itOid, order: i + 1, mandatory: false }
-    })
-    if (refs.length)
-      groups.push({
-        oid: `IG.${gName}`,
-        name: gName,
-        description: `Source table ${t.name}${t.rows ? ` (${t.rows} rows profiled)` : ''} — WhiteRabbit ScanReport`,
-        purpose: 'Tabulation',
-        structure: 'As profiled in source system',
-        refs,
-      })
-  }
-
-  // ---- ETL mapping (Rabbit-In-A-Hat) → OMOP CDM target tables -------------
-  const byTarget = new Map<string, MappingSpec['fieldMaps']>()
-  for (const m of input.mapping?.fieldMaps ?? []) {
-    if (!m.targetTable || !m.targetField) continue
-    byTarget.set(m.targetTable, [...(byTarget.get(m.targetTable) ?? []), m])
-  }
-  for (const [table, maps] of byTarget) {
-    const gName = toVarName(`CDM_${table}`)
-    const fields = new Map<string, MappingSpec['fieldMaps']>()
-    maps.forEach((m) => fields.set(m.targetField, [...(fields.get(m.targetField) ?? []), m]))
-    const refs: ItemRef[] = [...fields.entries()].map(([field, fm], i) => {
-      const itOid = `IT.${gName}.${toVarName(field)}`
-      const mt = `MT.${gName}.${toVarName(field)}`
-      const text = fm
-        .map((m) => `${m.sourceTable}.${m.sourceField} → ${table}.${field}${m.logic ? `: ${m.logic}` : ' (direct copy)'}${m.comment ? ` [${m.comment}]` : ''}`)
-        .join('; ')
-      methods.set(mt, { oid: mt, name: `ETL ${table}.${field}`, description: text })
-      addItem({
-        oid: itOid,
-        name: toVarName(field),
-        dataType: /(_id|_concept_id)$/i.test(field) ? 'integer' : /_datetime$/i.test(field) ? 'datetime' : /_date$/i.test(field) ? 'date' : 'text',
-        length: /(_id)$/i.test(field) ? 20 : /_date/i.test(field) ? undefined : 200,
-        description: `OMOP CDM ${table}.${field}`,
-        origin: { type: 'Derived', description: `Derived by ETL from ${fm.map((m) => `${m.sourceTable}.${m.sourceField}`).join(', ')}` },
-      })
-      return { itemOid: itOid, order: i + 1, mandatory: false, methodOid: mt }
-    })
-    const tableLogic = input.mapping?.tableMaps.filter((t) => t.targetTable === table).map((t) => t.sourceTable)
-    groups.push({
-      oid: `IG.${gName}`,
-      name: gName,
-      description: `OMOP CDM table ${table}${tableLogic?.length ? ` populated from ${tableLogic.join(', ')}` : ''}`,
-      purpose: 'Tabulation',
-      structure: 'OMOP CDM',
+      leaf: { id: `LF.${t.name}`, href: file.path, title: file.path.slice('datasets/'.length) },
+      commentOid: cohortsComment,
       refs,
     })
   }
@@ -274,7 +297,16 @@ export function buildDefineXml(input: DefineInput): string {
   L.push(`      <StudyDescription>${xmlEscape(input.description || input.studyTitle)}</StudyDescription>`)
   L.push(`      <ProtocolName>${xmlEscape(input.protocolName || input.studyTitle)}</ProtocolName>`)
   L.push('    </GlobalVariables>')
-  L.push(`    <MetaDataVersion OID="${mdvOid}" Name="${xmlEscape(input.studyTitle)} — OMOP network study" Description="Generated from StudyPacks by OHDSI Study Studio" ${v20 ? 'def:DefineVersion="2.0.0" def:StandardName="ADaMIG" def:StandardVersion="1.3"' : 'def:DefineVersion="2.1.0"'}>`)
+  L.push(
+    `    <MetaDataVersion OID="${mdvOid}" Name="${xmlEscape(input.studyTitle)} — OMOP network study" Description="Generated from StudyPacks by OHDSI Study Studio" ` +
+      `${v20 ? 'def:DefineVersion="2.0.0" def:StandardName="ADaMIG" def:StandardVersion="1.3"' : 'def:DefineVersion="2.1.0"'}${cohortsComment && !tables.length ? ` def:CommentOID="${cohortsComment}"` : ''}>`,
+  )
+  if (!v20) {
+    L.push('      <def:Standards>')
+    L.push('        <def:Standard OID="STD.ADAMIG.1.3" Name="ADaMIG" Type="IG" Version="1.3" Status="Final"/>')
+    L.push(`        <def:Standard OID="STD.CT.ADAM" Name="CDISC/NCI" Type="CT" PublishingSet="ADaM" Version="${xmlEscape(input.ctVersion ?? DEFAULT_ADAM_CT_VERSION)}" Status="Final"/>`)
+    L.push('      </def:Standards>')
+  }
   if (auditLeaf) {
     L.push('      <def:SupplementalDoc>')
     L.push(`        <def:DocumentRef leafID="${auditLeaf.id}"/>`)
@@ -298,30 +330,31 @@ export function buildDefineXml(input: DefineInput): string {
   }
   for (const g of groups) {
     L.push(
-      `      <ItemGroupDef OID="${g.oid}" Name="${xmlEscape(g.name)}" Repeating="Yes" IsReferenceData="No"` +
-        ` Purpose="${g.purpose}" def:Structure="${xmlEscape(g.structure)}"${v20 ? '' : ' def:IsNonStandard="Yes"'}${g.leaf ? ` def:ArchiveLocationID="${g.leaf.id}"` : ''}>`,
+      `      <ItemGroupDef OID="${g.oid}" Name="${xmlEscape(g.name)}" SASDatasetName="${g.sasName}" Repeating="Yes" IsReferenceData="No"` +
+        ` Purpose="Analysis" def:Structure="${xmlEscape(g.structure)}"${v20 ? ` def:Class="${CLASS}"` : ' def:IsNonStandard="Yes"'}` +
+        `${g.commentOid ? ` def:CommentOID="${g.commentOid}"` : ''} def:ArchiveLocationID="${g.leaf.id}">`,
     )
     L.push(tt(g.description, '        '))
     for (const r of g.refs)
-      L.push(`        <ItemRef ItemOID="${r.itemOid}" OrderNumber="${r.order}" Mandatory="${r.mandatory ? 'Yes' : 'No'}"${r.methodOid ? ` MethodOID="${r.methodOid}"` : ''}/>`)
-    if (g.leaf) {
-      L.push(`        <def:leaf ID="${g.leaf.id}" xlink:href="${xmlEscape(g.leaf.href)}">`)
-      L.push(`          <def:title>${xmlEscape(g.leaf.title)}</def:title>`)
-      L.push('        </def:leaf>')
-    }
+      L.push(`        <ItemRef ItemOID="${r.itemOid}" OrderNumber="${r.order}" Mandatory="${r.mandatory ? 'Yes' : 'No'}"${r.keySequence ? ` KeySequence="${r.keySequence}"` : ''}${r.methodOid ? ` MethodOID="${r.methodOid}"` : ''}/>`)
+    if (!v20) L.push(`        <def:Class Name="${CLASS}"/>`)
+    L.push(`        <def:leaf ID="${g.leaf.id}" xlink:href="${xmlEscape(g.leaf.href)}">`)
+    L.push(`          <def:title>${xmlEscape(g.leaf.title)}</def:title>`)
+    L.push('        </def:leaf>')
     L.push('      </ItemGroupDef>')
   }
   for (const it of items.values()) {
-    L.push(`      <ItemDef OID="${it.oid}" Name="${xmlEscape(it.name)}" DataType="${it.dataType}"${it.length ? ` Length="${it.length}"` : ''}>`)
+    L.push(
+      `      <ItemDef OID="${it.oid}" Name="${xmlEscape(it.name)}" SASFieldName="${it.sasName}" DataType="${it.dataType}" Length="${it.length}"` +
+        `${it.significantDigits !== undefined ? ` SignificantDigits="${it.significantDigits}"` : ''}>`,
+    )
     L.push(tt(it.description, '        '))
     if (it.valueListOid) L.push(`        <def:ValueListRef ValueListOID="${it.valueListOid}"/>`)
-    if (it.origin) {
-      if (it.origin.description) {
-        L.push(`        <def:Origin Type="${it.origin.type}">`)
-        L.push(tt(it.origin.description, '          '))
-        L.push('        </def:Origin>')
-      } else L.push(`        <def:Origin Type="${it.origin.type}"/>`)
-    }
+    if (it.origin.description) {
+      L.push(`        <def:Origin Type="${it.origin.type}">`)
+      L.push(tt(it.origin.description, '          '))
+      L.push('        </def:Origin>')
+    } else L.push(`        <def:Origin Type="${it.origin.type}"/>`)
     L.push('      </ItemDef>')
   }
   for (const m of methods.values()) {

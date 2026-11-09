@@ -99,30 +99,32 @@ const definedAndReferenced = (xml: string) => {
 }
 
 describe('Define-XML v2.1', () => {
-  it('describes every Strategus result table, cohort and ETL mapping', async () => {
+  it('describes every Strategus result table and cohort', async () => {
     const xml = buildDefineXml({
       studyId: 'S1',
       studyTitle: 'Study <1> & "co"',
       sourceSystemVersion: '0.1.0',
       cohorts: spec().cohorts,
       resultTables: await resultTables(),
-      scanTables: parseScanReport(readFileSync(path.join(samples, 'site/ScanReport_sanitized.xlsx'))),
-      mapping: parseMappingSpec(JSON.parse(readFileSync(path.join(samples, 'site/mapping_specification.json'), 'utf8'))),
       auditReportHref: 'audit_report.html',
     })
     expect(XMLValidator.validate(xml)).toBe(true)
     const doc = new XMLParser({ ignoreAttributes: false }).parse(xml)
     expect(doc.ODM.Study.MetaDataVersion['@_def:DefineVersion']).toBe('2.1.0')
     expect(xml).toContain('xmlns:def="http://www.cdisc.org/ns/def/v2.1"')
-    // Every dataset is non-standard, so no implementation guide is declared.
-    expect(xml).not.toContain('def:Standards')
-    expect(xml).not.toContain('ADaMIG')
+    // Non-standard datasets of an ADaM submission: the IG and the CT package are declared.
+    expect(xml).toContain('<def:Standard OID="STD.ADAMIG.1.3" Name="ADaMIG" Type="IG" Version="1.3" Status="Final"/>')
+    expect(xml).toContain('Type="CT" PublishingSet="ADaM"')
     expect((xml.match(/<ItemGroupDef /g) ?? []).length).toBe((xml.match(/def:IsNonStandard="Yes"/g) ?? []).length)
-    for (const t of ['CG_COHORT_COUNT', 'CM_RESULT', 'CM_DIAGNOSTICS_SUMMARY', 'SCCS_RESULT', 'DATABASE_META_DATA', 'CDM_CONDITION_OCCURRENCE', 'SRC_PATIENTS'])
+    for (const t of ['CG_COHORT_COUNT', 'CM_RESULT', 'CM_DIAGNOSTICS_SUMMARY', 'SCCS_RESULT', 'DATABASE_META_DATA'])
       expect(xml).toContain(`<ItemGroupDef OID="IG.${t}"`)
+    // The site ETL is reported in the audit report, not described as datasets.
+    expect(xml).not.toMatch(/IG\.(SRC|CDM)_/)
+    expect(xml).toContain('Name="CM_DIAGNOSTICS_SUMMARY" SASDatasetName="CMDIASUM"')
+    expect(xml).toContain('<def:Class Name="ADAM OTHER"/>')
     expect(xml).toContain('<def:WhereClauseDef OID="WC.CG_COHORT_COUNT.COHORT_ID.1781"')
     expect(xml).toContain('<def:ValueListDef OID="VL.CG_COHORT_COUNT.COHORT_SUBJECTS">')
-    expect(xml).toContain('xlink:href="datasets/cm_result.json"')
+    expect(xml).toContain('xlink:href="datasets/cmresult.json"')
     expect(xml).toContain('The number of subject in the target cohort.') // description from the results data model
     expect(xml).toContain('censored values are reported as -minCellCount')
     expect(definedAndReferenced(xml)).toEqual([])
@@ -138,13 +140,11 @@ describe('Define-XML v2.0', () => {
       sourceSystemVersion: '0.1.0',
       cohorts: spec().cohorts,
       resultTables: await resultTables(),
-      scanTables: parseScanReport(readFileSync(path.join(samples, 'site/ScanReport_sanitized.xlsx'))),
     })
     expect(XMLValidator.validate(xml)).toBe(true)
     expect(xml).toContain('xmlns:def="http://www.cdisc.org/ns/def/v2.0"')
     expect(xml).toContain('def:DefineVersion="2.0.0" def:StandardName="ADaMIG" def:StandardVersion="1.3"')
-    for (const v21 of ['def:Standards', 'def:IsNonStandard', 'def:Context', 'Type="Collected"', 'ns/def/v2.1']) expect(xml).not.toContain(v21)
-    expect(xml).toContain('<def:Origin Type="eDT">')
+    for (const v21 of ['def:Standards', 'def:IsNonStandard', 'def:Context', 'ns/def/v2.1']) expect(xml).not.toContain(v21)
     expect(definedAndReferenced(xml)).toEqual([])
   })
 })

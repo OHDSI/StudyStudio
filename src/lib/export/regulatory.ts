@@ -7,7 +7,7 @@ import type { CrossSiteResult, LoadedSitePack, SiteVerdict } from '@/lib/network
 import type { SiteEvidence } from '@/lib/studypack/evidence'
 import { kidFingerprint, type DetachedJws, type SignatureCheck } from '@/lib/security/signer'
 import type { DispositionEntry } from '@/lib/network/dispositionLog'
-import { buildDefineXml, xmlEscape, type DefineXmlVersion } from '@/lib/cdisc/defineXml'
+import { buildDefineXml, datasetFiles, xmlEscape, type DefineXmlVersion } from '@/lib/cdisc/defineXml'
 import { bundledStylesheet, type DefineStylesheet } from '@/lib/cdisc/stylesheet'
 import { combineSiteCsvs, serializeDatasetJson, type CombinedTable, type DatasetJsonVersion } from '@/lib/cdisc/datasetJson'
 import { parseMappingSpec, parseScanReport, type MappingSpec, type SourceTable } from '@/lib/cdisc/sources'
@@ -41,6 +41,47 @@ export interface ReportInput {
   /** Disposition audit trail entries (R6). */
   disposition?: readonly DispositionEntry[]
   dispositionHead?: string
+  /** Site ETL lineage (WhiteRabbit ScanReport, mapping specification) of the adopted sites. */
+  etl?: SiteEtl[]
+}
+
+export interface SiteEtl {
+  siteId: string
+  scanTables?: SourceTable[]
+  mapping?: MappingSpec
+}
+
+/** ETL lineage section: source tables profiled and source → OMOP CDM field mappings, per site. */
+function etlSection(etl: SiteEtl[] | undefined): { md: string[]; html: string } {
+  const sites = (etl ?? []).filter((e) => e.scanTables?.length || e.mapping?.fieldMaps.length || e.mapping?.tableMaps.length)
+  if (!sites.length) return { md: [], html: '' }
+  const intro = 'Source data never leaves the sites; these artifacts document how each site populated its OMOP CDM. They are not submitted datasets and are therefore not described in define.xml.'
+  const md = ['## Data lineage (site ETL)', '', intro, '']
+  let html = `<h2>Data lineage (site ETL)</h2><p>${xmlEscape(intro)}</p>`
+  for (const e of sites) {
+    md.push(`### ${e.siteId}`, '')
+    html += `<h3>${xmlEscape(e.siteId)}</h3>`
+    if (e.scanTables?.length) {
+      md.push('Source tables profiled (WhiteRabbit ScanReport):', '', '| Source table | Rows profiled | Fields |', '|---|---|---|')
+      for (const t of e.scanTables) md.push(`| ${mdCell(t.name)} | ${t.rows ?? '—'} | ${mdCell(t.fields.map((f) => (f.type ? `${f.name} (${f.type})` : f.name)).join(', '))} |`)
+      md.push('')
+      html += `<table><tr><th>Source table</th><th>Rows profiled</th><th>Fields</th></tr>${e.scanTables
+        .map((t) => `<tr><td>${xmlEscape(t.name)}</td><td>${t.rows ?? '—'}</td><td>${xmlEscape(t.fields.map((f) => (f.type ? `${f.name} (${f.type})` : f.name)).join(', '))}</td></tr>`)
+        .join('')}</table>`
+    }
+    const m = e.mapping
+    if (m?.tableMaps.length || m?.fieldMaps.length) {
+      md.push('Mapping specification (source → OMOP CDM):', '', '| Source | OMOP CDM target | Logic |', '|---|---|---|')
+      const lines = [
+        ...(m?.tableMaps ?? []).map((t) => [t.sourceTable, t.targetTable, t.logic ?? '']),
+        ...(m?.fieldMaps ?? []).map((f) => [`${f.sourceTable}.${f.sourceField}`, `${f.targetTable}.${f.targetField}`, [f.logic ?? 'direct copy', f.comment].filter(Boolean).join(' — ')]),
+      ]
+      for (const [a, b, c] of lines) md.push(`| ${mdCell(a)} | ${mdCell(b)} | ${mdCell(c || '—')} |`)
+      md.push('')
+      html += `<table><tr><th>Source</th><th>OMOP CDM target</th><th>Logic</th></tr>${lines.map(([a, b, c]) => `<tr><td>${xmlEscape(a)}</td><td>${xmlEscape(b)}</td><td>${xmlEscape(c || '—')}</td></tr>`).join('')}</table>`
+    }
+  }
+  return { md, html }
 }
 
 /** Latest decision entry per pack, for the disposition table. */
@@ -193,6 +234,8 @@ export function buildMarkdownReport(i: ReportInput): string {
     L.push('')
   }
 
+  L.push(...etlSection(i.etl).md)
+
   L.push('## Limitations', '')
   for (const l of LIMITATIONS) L.push(`- ${l}`)
   L.push('')
@@ -240,6 +283,7 @@ Sites received ${i.rows.length} · adopted ${adopted} · excluded ${i.rows.lengt
 <table><tr><th>Site</th><th>Manifest</th><th>Analysis spec</th><th>ExecuteAnalyses.R</th><th>renv.lock</th><th>DQD</th><th>Small cells</th><th>Decision</th><th>Reasons</th></tr>
 ${rows}</table>
 ${htmlDisposition(i)}
+${etlSection(i.etl).html}
 ${files ? `<h2>7. Submission package contents</h2><table><tr><th>File</th><th>SHA-256</th><th>Bytes</th></tr>${files}</table>` : ''}
 <p class="foot">All processing was performed client-side; no data was transmitted to any server.</p>
 </body></html>
@@ -320,7 +364,7 @@ export interface RegulatoryExport {
   zipBlob: Blob
   zipName: string
   defineXml: string
-  /** Dataset-JSON text per archive path (datasets/<table>.json). */
+  /** Dataset-JSON text per archive path (see datasetFiles). */
   datasets: Record<string, string>
   tables: CombinedTable[]
   markdown: string
@@ -376,19 +420,20 @@ export async function buildRegulatoryExport(params: {
   }
   if (!cohorts.length && params.config) cohorts = params.config.cohorts
 
-  let scanTables: SourceTable[] | undefined
-  for (const s of adopted) {
+  // Site ETL lineage, reported in the audit report (not in define.xml: these are not submitted datasets).
+  const etl: SiteEtl[] = adopted.map((s) => {
+    let scanTables: SourceTable[] | undefined
     const x = s.files['etl/ScanReport_sanitized.xlsx']
-    if (!x) continue
-    try {
-      scanTables = parseScanReport(x)
-      break
-    } catch {
-      /* ignore */
+    if (x) {
+      try {
+        scanTables = parseScanReport(x)
+      } catch {
+        /* unreadable workbook: reported without it */
+      }
     }
-  }
-  const mappingRaw = firstJson<unknown>(adopted, 'etl/mapping_specification.json')
-  const mapping: MappingSpec | undefined = mappingRaw ? parseMappingSpec(mappingRaw) : undefined
+    const mappingRaw = firstJson<unknown>([s], 'etl/mapping_specification.json')
+    return { siteId: s.siteId, scanTables, mapping: mappingRaw ? parseMappingSpec(mappingRaw) : undefined }
+  })
 
   // Results data model per module (first adopted site that ships it).
   const rdmsByModule = new Map<string, Rdms>()
@@ -416,8 +461,9 @@ export async function buildRegulatoryExport(params: {
   const mdvOID = `MDV.${safeId(params.studyId)}.1`
 
   const datasets: Record<string, string> = {}
+  const files = datasetFiles(tables)
   for (const t of tables)
-    datasets[`datasets/${t.sourceTable}.json`] = serializeDatasetJson(standards.datasetJson, t, {
+    datasets[files.get(t.name)!.path] = serializeDatasetJson(standards.datasetJson, t, {
       studyOID,
       metaDataVersionOID: mdvOID,
       originator: params.config?.sponsor || 'OHDSI Study Studio',
@@ -434,8 +480,6 @@ export async function buildRegulatoryExport(params: {
     sourceSystemVersion: APP_VERSION,
     cohorts,
     resultTables: tables,
-    scanTables,
-    mapping,
     auditReportHref: 'audit_report.html',
     stylesheetHref: stylesheet?.name,
     now: params.now,
@@ -459,7 +503,7 @@ export async function buildRegulatoryExport(params: {
     if (d.headSignature) content.push({ path: 'disposition/disposition_head.jws.json', bytes: enc.encode(JSON.stringify(d.headSignature, null, 2) + '\n'), role: 'evidence' })
   }
   const exportedFiles = await manifestEntries(content)
-  const reportInput: ReportInput = { ...params, generatedAt, exportedFiles, standards, disposition: d?.entries, dispositionHead: d?.headHash }
+  const reportInput: ReportInput = { ...params, generatedAt, exportedFiles, standards, disposition: d?.entries, dispositionHead: d?.headHash, etl }
   const markdown = buildMarkdownReport(reportInput)
   const html = buildHtmlReport(reportInput)
   content.push({ path: 'audit_report.md', bytes: enc.encode(markdown), role: 'evidence' })

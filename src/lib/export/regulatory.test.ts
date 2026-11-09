@@ -33,14 +33,14 @@ describe('network demo end-to-end', () => {
     const out = await buildRegulatoryExport({ studyId: config.studyId, studyTitle: config.studyTitle, config, cross, rows })
     expect(XMLValidator.validate(out.defineXml)).toBe(true)
     expect(Object.keys(out.datasets).sort()).toEqual([
-      'datasets/cd_cohort_count.json',
-      'datasets/cg_cohort_count.json',
-      'datasets/cm_diagnostics_summary.json',
-      'datasets/cm_result.json',
-      'datasets/database_meta_data.json',
-      'datasets/sccs_result.json',
+      'datasets/cdcohcou.json',
+      'datasets/cgcohcou.json',
+      'datasets/cmdiasum.json',
+      'datasets/cmresult.json',
+      'datasets/datmetda.json',
+      'datasets/sccsresu.json',
     ])
-    const cm = JSON.parse(out.datasets['datasets/cm_result.json'])
+    const cm = JSON.parse(out.datasets['datasets/cmresult.json'])
     expect(new Set(cm.rows.map((r: unknown[]) => r[0]))).toEqual(new Set(['Site_A', 'Site_B']))
     // HADES-censored counts stay numeric (-5), so the column stays an integer.
     expect(cm.columns.find((c: { name: string }) => c.name === 'TARGET_OUTCOMES').dataType).toBe('integer')
@@ -62,9 +62,9 @@ describe('network demo end-to-end', () => {
     expect((await loadStudyPack(out.zipName, await out.zipBlob.arrayBuffer())).integrity.status).toBe('verified')
 
     const subset = await buildRegulatoryExport({ studyId: config.studyId, studyTitle: config.studyTitle, config, cross, rows, tables: ['CohortMethodModule/cm_result'], defineXmlVersion: '2.0', datasetJsonVersion: '1.0' })
-    expect(Object.keys(subset.datasets)).toEqual(['datasets/cm_result.json'])
+    expect(Object.keys(subset.datasets)).toEqual(['datasets/cmresult.json'])
     expect(subset.defineXml).toContain('ns/def/v2.0')
-    expect(JSON.parse(subset.datasets['datasets/cm_result.json']).datasetJSONVersion).toBe('1.0.0')
+    expect(JSON.parse(subset.datasets['datasets/cmresult.json']).datasetJSONVersion).toBe('1.0.0')
   })
 })
 

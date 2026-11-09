@@ -5,7 +5,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { crossCheckSites, loadStudyPack, siteVerdict } from '@/lib/network/aggregator'
 import { buildRegulatoryExport } from '@/lib/export/regulatory'
-import { DEFINE_XML_VERSIONS } from './defineXml'
+import { buildDefineXml, DEFINE_XML_VERSIONS } from './defineXml'
 import type { StudyConfig } from '@/types/studypack'
 
 /**
@@ -38,17 +38,22 @@ describe.skipIf(!schemas)('define.xml against the CDISC schemas', () => {
       stylesheet: { name: `define${version.replace('.', '-')}-0.xsl`, text: '' },
     })
     // The demo must cover every kind of dataset the builder emits.
-    for (const g of ['IG.CM_RESULT', 'IG.CG_COHORT_COUNT', 'IG.SRC_PATIENTS', 'IG.CDM_PERSON']) expect(out.defineXml).toContain(`<ItemGroupDef OID="${g}"`)
+    for (const g of ['IG.CM_RESULT', 'IG.CG_COHORT_COUNT']) expect(out.defineXml).toContain(`<ItemGroupDef OID="${g}"`)
+    expect(out.defineXml).toContain('SignificantDigits=')
     expect(out.defineXml).toContain('<def:WhereClauseDef ')
-    const file = path.join(mkdtempSync(path.join(tmpdir(), 'define-xsd-')), `define-${version}.xml`)
-    writeFileSync(file, out.defineXml)
-    let output = ''
-    try {
-      output = execFileSync('xmllint', ['--noout', '--schema', path.join(schemas!, xsd[version]), file], { encoding: 'utf8', stdio: 'pipe' })
-    } catch (e) {
-      const err = e as { stderr?: string; message: string }
-      throw new Error(`define.xml (v${version}) is not schema-valid:\n${err.stderr || err.message}`)
-    }
-    expect(output).toBe('')
+    expect(xmllint(version, out.defineXml)).toBe('')
+    // Without result tables the cohort comment moves to MetaDataVersion (v2.1).
+    expect(xmllint(version, buildDefineXml({ version, studyId: 'S1', studyTitle: 'S', sourceSystemVersion: '0', cohorts: [{ cohortId: 1, cohortName: 'T', roles: [] }] }))).toBe('')
   })
 })
+
+function xmllint(version: keyof typeof xsd, xml: string): string {
+  const file = path.join(mkdtempSync(path.join(tmpdir(), 'define-xsd-')), `define-${version}.xml`)
+  writeFileSync(file, xml)
+  try {
+    return execFileSync('xmllint', ['--noout', '--schema', path.join(schemas!, xsd[version]), file], { encoding: 'utf8', stdio: 'pipe' })
+  } catch (e) {
+    const err = e as { stderr?: string; message: string }
+    throw new Error(`define.xml (v${version}) is not schema-valid:\n${err.stderr || err.message}`)
+  }
+}

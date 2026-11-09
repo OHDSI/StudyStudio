@@ -3,6 +3,7 @@ import { Download, FileCode, FileText, Loader2, Package, Printer, ScrollText } f
 import { useNetworkAnalysis } from './useNetworkAnalysis'
 import { useStudyStore } from '@/store/useStudyStore'
 import { addSignature } from '@/lib/security/signer'
+import { datasetFiles } from '@/lib/cdisc/defineXml'
 import { buildHtmlReport, buildMarkdownReport, buildRegulatoryExport, listResultTables, type RegulatoryExport } from '@/lib/export/regulatory'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -237,7 +238,8 @@ export function ExportHub() {
                     </TableHeader>
                     <TableBody>
                       {out.tables.map((t) => {
-                        const path = `datasets/${t.sourceTable}.json`
+                        const path = datasetFiles(out.tables).get(t.name)!.path
+                        const file = path.slice('datasets/'.length)
                         return (
                           <TableRow key={path} className="text-xs">
                             <TableCell className="font-mono">{t.name}</TableCell>
@@ -245,7 +247,7 @@ export function ExportHub() {
                             <TableCell>{t.rows.length.toLocaleString()}</TableCell>
                             <TableCell>{t.columns.length}</TableCell>
                             <TableCell>
-                              <Button size="sm" variant="ghost" onClick={() => download(`${t.sourceTable}.json`, out.datasets[path], 'application/json')}><Download /> {t.sourceTable}.json</Button>
+                              <Button size="sm" variant="ghost" onClick={() => download(file, out.datasets[path], 'application/json')}><Download /> {file}</Button>
                             </TableCell>
                           </TableRow>
                         )

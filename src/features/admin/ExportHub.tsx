@@ -349,17 +349,30 @@ function Conformance({ out, agency }: { out: RegulatoryExport; agency: Agency })
           </Table>
         </>
       )}
-      {expected.length > 0 && (
-        <div className="flex flex-col gap-1">
-          <div className="text-xs font-medium">Expected validator findings (explain them in the reviewer's guide; also recorded in the audit report)</div>
-          {expected.map((e) => (
-            <div key={e.p21} className="rounded-md bg-muted/40 p-2 text-xs">
-              <div className="flex flex-wrap items-center gap-2"><span className="font-mono">{e.p21}</span>{rating(e.severity)}<span>{e.message}</span></div>
-              <p className="mt-1 text-muted-foreground">{e.explanation}</p>
-            </div>
-          ))}
-        </div>
+      {expected.some((e) => e.severity.FDA === 'Reject' || e.severity.PMDA === 'Reject') && (
+        <Alert variant="warning">
+          <AlertDescription>
+            Validating the datasets as ADaM data reports a Reject by design ({expected.filter((e) => e.severity.FDA === 'Reject' || e.severity.PMDA === 'Reject').map((e) => `${e.p21}: ${e.message}`).join('; ')}): the study submits aggregated results without subject-level data. Agree this submission format with the agency before submitting.
+          </AlertDescription>
+        </Alert>
       )}
+      {(['define', 'data'] as const).map((scope) => {
+        const list = expected.filter((e) => e.scope === scope)
+        if (!list.length) return null
+        return (
+          <div key={scope} className="flex flex-col gap-1">
+            <div className="text-xs font-medium">
+              Expected validator findings — {scope === 'define' ? 'define.xml' : 'datasets validated with define.xml'} (explain them in the reviewer's guide; also recorded in the audit report)
+            </div>
+            {list.map((e) => (
+              <div key={e.p21} className="rounded-md bg-muted/40 p-2 text-xs">
+                <div className="flex flex-wrap items-center gap-2"><span className="font-mono">{e.p21}</span>{rating(e.severity)}<span>{e.message}</span></div>
+                <p className="mt-1 text-muted-foreground">{e.explanation}</p>
+              </div>
+            ))}
+          </div>
+        )
+      })}
     </div>
   )
 }

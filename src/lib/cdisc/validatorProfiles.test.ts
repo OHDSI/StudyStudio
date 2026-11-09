@@ -20,8 +20,17 @@ describe('validator profiles', () => {
     expect(own).toMatchObject({ p21: [], severity: {} })
   })
 
-  it('lists the unreferenced-standards warning for v2.1 only', () => {
-    expect(expectedFindings('2.1').map((f) => [f.p21, f.severity.PMDA])).toEqual([['DD0139', 'Warning']])
-    expect(expectedFindings('2.0')).toEqual([])
+  it('lists the define.xml findings of the version and the dataset findings, with their ratings', () => {
+    const rows = (v: '2.1' | '2.0') => expectedFindings(v).map((f) => [f.p21, f.scope, f.severity.FDA, f.severity.PMDA])
+    const data = [
+      ['AD0001', 'data', 'Reject', 'Reject'],
+      ['AD1024', 'data', 'Warning', 'Error'],
+      ['AD1026', 'data', 'Warning', 'Error'],
+      ['SD0061', 'data', 'Warning', 'Error'],
+      ['AD9999', 'data', 'Warning', 'Warning'],
+    ]
+    expect(rows('2.1')).toEqual([['DD0139', 'define', 'Warning', 'Warning'], ...data])
+    expect(rows('2.0')).toEqual(data)
+    for (const f of expectedFindings('2.1')) expect(f.explanation.length).toBeGreaterThan(40)
   })
 })

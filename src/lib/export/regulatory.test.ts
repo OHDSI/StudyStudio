@@ -63,11 +63,12 @@ describe('network demo end-to-end', () => {
 
     // Conformance: no issue from the checks; the validator warning expected by design is listed and explained.
     expect(out.conformance.issues).toEqual([])
-    expect(out.conformance.expected.map((e) => e.p21)).toEqual(['DD0139'])
+    expect(out.conformance.expected.map((e) => e.p21)).toEqual(['DD0139', 'AD0001', 'AD1024', 'AD1026', 'SD0061', 'AD9999'])
     expect(out.standards.ctVersion).toBe('2026-03-27')
     expect(out.defineXml).toContain('PublishingSet="ADaM" Version="2026-03-27"')
     expect(out.markdown).toContain('## Define-XML conformance')
-    expect(out.markdown).toContain('**DD0139** (FDA Warning / PMDA Warning)')
+    expect(out.markdown).toContain('**DD0139** (FDA Warning / PMDA Warning; define.xml)')
+    expect(out.markdown).toContain('**AD0001** (FDA Reject / PMDA Reject; datasets)')
 
     // Draft reviewer's guide: filled from the study, with the sponsor's parts marked; not sealed in the package.
     const g = out.reviewersGuide.markdown
@@ -75,7 +76,8 @@ describe('network demo end-to-end', () => {
       expect(g).toContain(h)
     expect(g).toContain('| CMRESULT | cm_result (CohortMethodModule) | ADAM OTHER |')
     expect(g).toContain('| 1781 | New users of ACE inhibitors (Target) | target (CM), exposure (SCCS) |')
-    expect(g).toContain('| DD0139 |')
+    expect(g).toContain('| DD0139 | define.xml |')
+    expect(g).toContain('| AD0001 | datasets | Missing ADSL dataset | FDA Reject / PMDA Reject |')
     expect(g).toContain('| Strategus | 1.6.0 |')
     expect(g).toContain(`\`${config.expectedHashes['definitions/analysisSpecifications.json']}\``)
     expect(g).toContain('- Site_C: Tampering detected (hash mismatch)')
@@ -89,7 +91,8 @@ describe('network demo end-to-end', () => {
     expect(pmda.defineXml).toBe(fda.defineXml)
     expect(pmda.datasets).toEqual(fda.datasets)
     expect(pmda.markdown).toContain('validator profile: PMDA (Japan)')
-    expect(pmda.markdown).toContain('**DD0139** (Warning)')
+    expect(pmda.markdown).toContain('**DD0139** (Warning; define.xml)')
+    expect(pmda.markdown).toContain('**SD0061** (Error; datasets)')
     const ct = await buildRegulatoryExport({ studyId: config.studyId, studyTitle: config.studyTitle, config, cross, rows, ctVersion: '2025-09-26' })
     expect(ct.defineXml).toContain('PublishingSet="ADaM" Version="2025-09-26"')
     await expect(buildRegulatoryExport({ studyId: config.studyId, studyTitle: config.studyTitle, config, cross, rows, ctVersion: 'latest' })).rejects.toThrow('not a CDISC package date')
@@ -97,7 +100,8 @@ describe('network demo end-to-end', () => {
     const subset = await buildRegulatoryExport({ studyId: config.studyId, studyTitle: config.studyTitle, config, cross, rows, tables: ['CohortMethodModule/cm_result'], defineXmlVersion: '2.0', datasetJsonVersion: '1.0' })
     expect(Object.keys(subset.datasets)).toEqual(['datasets/cmresult.json'])
     // Dataset-JSON v1.0 is checked against define.xml too.
-    expect(subset.conformance).toEqual({ issues: [], expected: [] })
+    expect(subset.conformance.issues).toEqual([])
+    expect(subset.conformance.expected.map((e) => e.p21)).toEqual(['AD0001', 'AD1024', 'AD1026', 'SD0061', 'AD9999'])
     expect(subset.defineXml).toContain('ns/def/v2.0')
     expect(JSON.parse(subset.datasets['datasets/cmresult.json']).datasetJSONVersion).toBe('1.0.0')
   })

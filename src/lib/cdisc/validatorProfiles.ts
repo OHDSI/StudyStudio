@@ -7,9 +7,10 @@
  * or Error by either profile. It only changes how the remaining issues are rated and explained.
  *
  * Severities were read from Pinnacle 21 Community 4.2.0 (engines FDA 2508.1 and PMDA 2411.1,
- * "Define.xml" configurations) on 2026-11-09. The FDA configuration assigns no severities, and the
- * engine reports every define.xml rule as Warning; the PMDA configuration rates them Reject / Error /
- * Warning. Validator releases change these, so treat the table as a guide, not as the validator.
+ * "Define.xml" and "ADaM-IG 1.3" configurations) on 2026-11-09. The FDA configurations rate few rules
+ * (AD0001 Reject) and the engine reports the others as Warning; the PMDA configurations rate them
+ * Reject / Error / Warning. Validator releases change these, so treat the table as a guide, not as the
+ * validator.
  * Which standards and versions an agency accepts is set by its data standards catalog, not here.
  */
 import type { DefineXmlVersion } from './defineXml'
@@ -47,8 +48,15 @@ export const P21_EQUIVALENT: Record<string, string[]> = {
 }
 
 const P21_SEVERITY: Record<Exclude<Agency, 'OTHER'>, Record<string, Severity>> = {
-  FDA: {},
+  FDA: {
+    AD0001: 'Reject',
+  },
   PMDA: {
+    AD0001: 'Reject',
+    AD1024: 'Error',
+    AD1026: 'Error',
+    SD0061: 'Error',
+    AD9999: 'Warning',
     DD0006: 'Reject',
     DD0150: 'Reject',
     DD0021: 'Reject',
@@ -92,22 +100,71 @@ export function rateIssues(issues: DefineIssue[]): RatedIssue[] {
 
 export interface ExpectedFinding {
   p21: string
+  /** What the validator checks when it reports this: define.xml alone, or the datasets with define.xml. */
+  scope: 'define' | 'data'
   message: string
   severity: Record<Exclude<Agency, 'OTHER'>, Severity>
   /** Suggested explanation for the reviewer's guide. */
   explanation: string
 }
 
-/** Findings a validator reports on this tool's output by design, per Define-XML version. */
+const finding = (p21: string, scope: ExpectedFinding['scope'], message: string, explanation: string): ExpectedFinding => ({
+  p21,
+  scope,
+  message,
+  severity: { FDA: p21Severity(p21, 'FDA'), PMDA: p21Severity(p21, 'PMDA') },
+  explanation,
+})
+
+/**
+ * Findings a validator reports on this tool's output by design. Define-XML findings depend on the
+ * version; dataset findings come from validating the Dataset-JSON files as ADaM data (observed with the
+ * FDA engine; the PMDA engine 2411.1 did not process Dataset-JSON input, its ratings come from its
+ * configuration).
+ */
 export function expectedFindings(version: DefineXmlVersion): ExpectedFinding[] {
-  if (version === '2.0') return []
+  const define =
+    version === '2.0'
+      ? []
+      : [
+          finding(
+            'DD0139',
+            'define',
+            "Standards 'ADaMIG' and 'ADaM' (CT) are not referenced",
+            'The datasets are aggregated results of an OMOP CDM network study and follow no CDISC data structure; they are declared as non-standard (def:IsNonStandard="Yes") datasets of an ADaM submission. No dataset or code list can therefore reference the declared implementation guide and controlled terminology, which are declared because def:Standards is required.',
+          ),
+        ]
   return [
-    {
-      p21: 'DD0139',
-      message: "Standards 'ADaMIG' and 'ADaM' (CT) are not referenced",
-      severity: { FDA: p21Severity('DD0139', 'FDA'), PMDA: p21Severity('DD0139', 'PMDA') },
-      explanation:
-        'The datasets are aggregated results of an OMOP CDM network study and follow no CDISC data structure; they are declared as non-standard (def:IsNonStandard="Yes") datasets of an ADaM submission. No dataset or code list can therefore reference the declared implementation guide and controlled terminology, which are declared because def:Standards is required.',
-    },
+    ...define,
+    finding(
+      'AD0001',
+      'data',
+      'Missing ADSL dataset',
+      'By design the study collects no subject-level data: each site returns aggregated results only, so there is no subject-level analysis dataset (ADSL). The submitted datasets are aggregated analysis results. This submission format should be agreed with the agency before submission.',
+    ),
+    finding(
+      'AD1024',
+      'data',
+      'Traceability rules not executed due to missing DM dataset',
+      'No SDTM datasets exist because no subject-level data are collected. Traceability is provided instead by the pinned analysis specification, programs and package versions (section 7) and by the sealed, hash-verified site results.',
+    ),
+    finding(
+      'AD1026',
+      'data',
+      'Traceability rules not executed due to missing EX dataset',
+      'As for AD1024: there is no SDTM EX dataset; exposures are defined as cohorts in the analysis specification (section 2.2).',
+    ),
+    finding(
+      'SD0061',
+      'data',
+      'Domain referenced in define.xml, but dataset is missing',
+      'Every dataset described in define.xml is present and referenced by its def:leaf. The validator reports this for Dataset-JSON input; naming the datasets by their SAS names instead would make the PMDA profile report them as split datasets (DD0050, Error).',
+    ),
+    finding(
+      'AD9999',
+      'data',
+      'Dataset not validated',
+      'Validator rules cover only the ADSL, BDS and OCCDS structures; these "ADAM OTHER" datasets are not checked by them. OHDSI Study Studio checks each dataset against define.xml instead (names, types, keys, lengths, mandatory values, record counts).',
+    ),
   ]
 }

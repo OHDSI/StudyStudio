@@ -177,8 +177,9 @@ function conformanceSection(c: Conformance | undefined, agency: Agency | undefin
     md.push('Validator findings expected by design (to be explained in the reviewer\'s guide):', '')
     html += "<p>Validator findings expected by design (to be explained in the reviewer's guide):</p><ul>"
     for (const e of c.expected) {
-      md.push(`- **${e.p21}** (${rate(e.severity)}): ${e.message}. ${e.explanation}`)
-      html += `<li><b>${e.p21}</b> (${rate(e.severity)}): ${xmlEscape(e.message)}. ${xmlEscape(e.explanation)}</li>`
+      const scope = e.scope === 'define' ? 'define.xml' : 'datasets'
+      md.push(`- **${e.p21}** (${rate(e.severity)}; ${scope}): ${e.message}. ${e.explanation}`)
+      html += `<li><b>${e.p21}</b> (${rate(e.severity)}; ${scope}): ${xmlEscape(e.message)}. ${xmlEscape(e.explanation)}</li>`
     }
     md.push('')
     html += '</ul>'

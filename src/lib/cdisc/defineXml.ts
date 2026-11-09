@@ -20,6 +20,11 @@
  * MetaDataVersion / dataset, as regulatory validators require; dataset files are named after the
  * SASDatasetName. Every dataset has the ADaM class "ADAM OTHER".
  *
+ * The ItemGroupDef Name stays the Strategus table name (CM_RESULT), not the SAS name. Naming the dataset
+ * CMRESULT lets Pinnacle 21's FDA data validation match the Dataset-JSON file to its metadata, but the
+ * PMDA profile then reports every dataset as a split dataset without a Domain (DD0050, Error), and the
+ * FDA data validation still reports SD0061 for Dataset-JSON input. Checked with P21 Community 4.2.0.
+ *
  * Validators also report the declared standards as unreferenced (Pinnacle 21 DD0139): only a standard
  * dataset or a CDISC code list can reference one, and there are neither. That is inherent to declaring
  * non-standard datasets and is to be explained in the reviewer's guide.

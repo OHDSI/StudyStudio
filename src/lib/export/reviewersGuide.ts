@@ -195,6 +195,7 @@ export function buildReviewersGuideMarkdown(i: ReviewersGuideInput): string {
   L.push('## 6. Data Conformance Summary', '')
   L.push('### 6.1 Conformance Inputs', '')
   L.push(`- **Built-in checks:** OHDSI Study Studio ${APP_VERSION} define.xml and dataset checks, run at export.`)
+  L.push(`- **Datasets validated:** ${TODO('whether the validator was run on define.xml alone or on the datasets with define.xml')}`)
   if (i.standards.agency && i.standards.agency !== 'OTHER') L.push(`- **Ratings:** ${AGENCY_LABELS[i.standards.agency]} validator profile.`)
   L.push(`- **Validator:** ${TODO('validator, version, engine and configuration used, date run')}`)
   if (i.standards.defineXml === '2.1' && i.standards.ctVersion) L.push(`- **Controlled terminology:** CDISC/NCI ADaM ${i.standards.ctVersion}`)
@@ -203,12 +204,16 @@ export function buildReviewersGuideMarkdown(i: ReviewersGuideInput): string {
   const agency = i.standards.agency && i.standards.agency !== 'OTHER' ? i.standards.agency : undefined
   const rate = (s: Partial<Record<'FDA' | 'PMDA', string>>) => (agency ? (s[agency] ?? '—') : `FDA ${s.FDA ?? '—'} / PMDA ${s.PMDA ?? '—'}`)
   const issueRows = [
-    ...i.conformance.expected.map((e) => ({ rule: e.p21, message: e.message, severity: rate(e.severity), explanation: e.explanation })),
-    ...i.conformance.issues.map((x) => ({ rule: x.p21.join(', ') || x.rule, message: `${x.target}: ${x.message}`, severity: rate(x.severity), explanation: TODO('explanation') })),
+    ...i.conformance.expected.map((e) => ({ rule: e.p21, scope: e.scope === 'define' ? 'define.xml' : 'datasets', message: e.message, severity: rate(e.severity), explanation: e.explanation })),
+    ...i.conformance.issues.map((x) => ({ rule: x.p21.join(', ') || x.rule, scope: x.rule.startsWith('SS-DSJ') ? 'datasets' : 'define.xml', message: `${x.target}: ${x.message}`, severity: rate(x.severity), explanation: TODO('explanation') })),
   ]
+  L.push(
+    'The findings below are expected for every package produced this way: they follow from submitting aggregated, non-standard datasets without subject-level data. In particular, validating the datasets as ADaM data reports AD0001 (missing ADSL) with severity Reject.',
+    '',
+  )
   if (issueRows.length) {
-    L.push('| Rule ID | Message | Severity | Explanation |', '|---|---|---|---|')
-    for (const r of issueRows) L.push(`| ${cell(r.rule)} | ${cell(r.message)} | ${cell(r.severity)} | ${cell(r.explanation)} |`)
+    L.push('| Rule ID | Checked | Message | Severity | Explanation |', '|---|---|---|---|---|')
+    for (const r of issueRows) L.push(`| ${cell(r.rule)} | ${r.scope} | ${cell(r.message)} | ${cell(r.severity)} | ${cell(r.explanation)} |`)
   } else L.push('No issues were found by the built-in checks.')
   L.push('', `${TODO('add every issue reported by the validator run above that is not listed here, with its explanation')}`, '')
 

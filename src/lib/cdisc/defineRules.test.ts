@@ -12,7 +12,7 @@ import { checkDatasetsAgainstDefine, checkDefineXml } from './defineRules'
 
 const samples = path.resolve(__dirname, '../../../samples')
 
-async function networkExport(version: (typeof DEFINE_XML_VERSIONS)[number]) {
+async function networkExport(version: (typeof DEFINE_XML_VERSIONS)[number], datasetJsonVersion: '1.1' | '1.0' = '1.1') {
   const config = JSON.parse(readFileSync(path.join(samples, 'protocol/study_config.json'), 'utf8')) as StudyConfig
   const dir = path.join(samples, 'network')
   const sites = await Promise.all(readdirSync(dir).map((f) => loadStudyPack(f, readFileSync(path.join(dir, f)))))
@@ -21,7 +21,7 @@ async function networkExport(version: (typeof DEFINE_XML_VERSIONS)[number]) {
     const verdict = siteVerdict(s, cross, config.studyId, sites)
     return { site: s, verdict, adopted: verdict.recommended === 'adopt' }
   })
-  return buildRegulatoryExport({ studyId: config.studyId, studyTitle: config.studyTitle, config, cross, rows, defineXmlVersion: version, stylesheet: null })
+  return buildRegulatoryExport({ studyId: config.studyId, studyTitle: config.studyTitle, config, cross, rows, defineXmlVersion: version, datasetJsonVersion, stylesheet: null })
 }
 
 describe('define.xml conformance', () => {
@@ -134,6 +134,12 @@ describe('the checks catch defects', () => {
     expect(drift((d) => (d.columns.find((c: { name: string }) => c.name === 'RR').dataType = 'string'))).toEqual(['SS-DSJ-006'])
     expect(drift((d) => (d.rows[0][0] = null))).toEqual(['SS-DSJ-009'])
     expect(checkDatasetsAgainstDefine(out.defineXml, { ...out.datasets, 'datasets/extra.json': '{}' }).map((i) => i.rule)).toEqual(['SS-DSJ-010'])
+    // Dataset-JSON v1.0: same checks, ITEMGROUPDATASEQ ignored.
+    const v10 = await networkExport('2.1', '1.0')
+    expect(checkDatasetsAgainstDefine(v10.defineXml, v10.datasets)).toEqual([])
+    const cm10 = JSON.parse(v10.datasets['datasets/cmresult.json'])
+    cm10.clinicalData.itemGroupData['IG.CM_RESULT'].records += 1
+    expect(checkDatasetsAgainstDefine(v10.defineXml, { ...v10.datasets, 'datasets/cmresult.json': JSON.stringify(cm10) }).map((i) => i.rule)).toEqual(['SS-DSJ-003'])
     const { ['datasets/cmresult.json']: _, ...missing } = out.datasets
     expect(checkDatasetsAgainstDefine(out.defineXml, missing).map((i) => i.rule)).toEqual(['SS-DSJ-001'])
   })

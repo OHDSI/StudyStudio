@@ -61,8 +61,29 @@ describe('network demo end-to-end', () => {
     expect(plain.defineXml).not.toContain('xml-stylesheet')
     expect((await loadStudyPack(out.zipName, await out.zipBlob.arrayBuffer())).integrity.status).toBe('verified')
 
+    // Conformance: no issue from the checks; the validator warning expected by design is listed and explained.
+    expect(out.conformance.issues).toEqual([])
+    expect(out.conformance.expected.map((e) => e.p21)).toEqual(['DD0139'])
+    expect(out.standards.ctVersion).toBe('2026-03-27')
+    expect(out.defineXml).toContain('PublishingSet="ADaM" Version="2026-03-27"')
+    expect(out.markdown).toContain('## Define-XML conformance')
+    expect(out.markdown).toContain('**DD0139** (FDA Warning / PMDA Warning)')
+
+    // The agency rates issues and is recorded; it does not change define.xml or the datasets.
+    const now = new Date('2026-01-02T03:04:05Z')
+    const [fda, pmda] = await Promise.all((['FDA', 'PMDA'] as const).map((agency) => buildRegulatoryExport({ studyId: config.studyId, studyTitle: config.studyTitle, config, cross, rows, agency, now })))
+    expect(pmda.defineXml).toBe(fda.defineXml)
+    expect(pmda.datasets).toEqual(fda.datasets)
+    expect(pmda.markdown).toContain('validator profile: PMDA (Japan)')
+    expect(pmda.markdown).toContain('**DD0139** (Warning)')
+    const ct = await buildRegulatoryExport({ studyId: config.studyId, studyTitle: config.studyTitle, config, cross, rows, ctVersion: '2025-09-26' })
+    expect(ct.defineXml).toContain('PublishingSet="ADaM" Version="2025-09-26"')
+    await expect(buildRegulatoryExport({ studyId: config.studyId, studyTitle: config.studyTitle, config, cross, rows, ctVersion: 'latest' })).rejects.toThrow('not a CDISC package date')
+
     const subset = await buildRegulatoryExport({ studyId: config.studyId, studyTitle: config.studyTitle, config, cross, rows, tables: ['CohortMethodModule/cm_result'], defineXmlVersion: '2.0', datasetJsonVersion: '1.0' })
     expect(Object.keys(subset.datasets)).toEqual(['datasets/cmresult.json'])
+    // Dataset-JSON v1.0 is checked against define.xml too.
+    expect(subset.conformance).toEqual({ issues: [], expected: [] })
     expect(subset.defineXml).toContain('ns/def/v2.0')
     expect(JSON.parse(subset.datasets['datasets/cmresult.json']).datasetJSONVersion).toBe('1.0.0')
   })

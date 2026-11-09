@@ -3,13 +3,14 @@ import { Download, FileCode, FileText, Loader2, Package, Printer, ScrollText } f
 import { useNetworkAnalysis } from './useNetworkAnalysis'
 import { useStudyStore } from '@/store/useStudyStore'
 import { addSignature } from '@/lib/security/signer'
-import { datasetFiles } from '@/lib/cdisc/defineXml'
+import { datasetFiles, DEFAULT_ADAM_CT_VERSION } from '@/lib/cdisc/defineXml'
+import { AGENCIES, AGENCY_LABELS, AGENCY_NOTES, type Agency } from '@/lib/cdisc/validatorProfiles'
 import { buildHtmlReport, buildMarkdownReport, buildRegulatoryExport, listResultTables, type RegulatoryExport } from '@/lib/export/regulatory'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Field, Select } from '@/components/ui/input'
+import { Field, Input, Select } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Hash } from '@/features/common/Hash'
@@ -21,7 +22,7 @@ import { DATASET_JSON_VERSIONS, type DatasetJsonVersion } from '@/lib/cdisc/data
 
 const DEFINE_NOTES: Record<DefineXmlVersion, string> = {
   '2.1': 'Current CDISC release. OMOP datasets are flagged def:IsNonStandard="Yes".',
-  '2.0': 'For reviewers that still require v2.0. Non-standard datasets cannot be flagged; source fields use Origin "eDT".',
+  '2.0': 'For reviewers that still require v2.0. Non-standard datasets cannot be flagged: the whole file is declared as ADaM-IG 1.3.',
 }
 const DATASET_JSON_NOTES: Record<DatasetJsonVersion, string> = {
   '1.1': 'Current CDISC release (flat columns / rows).',
@@ -45,6 +46,8 @@ export function ExportHub() {
   const [error, setError] = React.useState<string>()
   const [defineXmlVersion, setDefineXmlVersion] = React.useState<DefineXmlVersion>('2.1')
   const [datasetJsonVersion, setDatasetJsonVersion] = React.useState<DatasetJsonVersion>('1.1')
+  const [ctVersion, setCtVersion] = React.useState(DEFAULT_ADAM_CT_VERSION)
+  const [agency, setAgency] = React.useState<Agency>('OTHER')
   const adopted = rows.filter((r) => r.adopted)
   const tables = React.useMemo(() => listResultTables(adopted.map((r) => r.site)), [rows])
   /** Deselected "<Module>/<table>" keys (default: everything selected). */
@@ -68,7 +71,7 @@ export function ExportHub() {
     return { markdown: buildMarkdownReport(input), html: buildHtmlReport(input) }
   }, [studyId, studyTitle, config, cross, rows, log])
 
-  React.useEffect(() => setOut(undefined), [rows, config, defineXmlVersion, datasetJsonVersion, deselected])
+  React.useEffect(() => setOut(undefined), [rows, config, defineXmlVersion, datasetJsonVersion, ctVersion, agency, deselected])
 
   const generate = async () => {
     setBusy(true)
@@ -76,7 +79,11 @@ export function ExportHub() {
     try {
       if (regulatory && !locked) throw new Error('Lock the site dispositions (Multi-Site Aggregator) before generating the submission package')
       // The export is itself an audit-trail event (EMA-CS §6.2.1), recorded before the log is packaged.
-      await logExport({ standards: { defineXml: defineXmlVersion, datasetJson: datasetJsonVersion }, tables: selectedKeys, adoptedSites: adopted.map((r) => r.site.siteId) })
+      await logExport({
+        standards: { defineXml: defineXmlVersion, datasetJson: datasetJsonVersion, ...(defineXmlVersion === '2.1' ? { ctVersion } : {}), agency },
+        tables: selectedKeys,
+        adoptedSites: adopted.map((r) => r.site.siteId),
+      })
       const head = log.headBytes(studyId)
       const headSignature = coordinator ? await addSignature(undefined, head, coordinator, 'disposition-exported') : undefined
       setOut(
@@ -88,6 +95,8 @@ export function ExportHub() {
           rows,
           defineXmlVersion,
           datasetJsonVersion,
+          ctVersion,
+          agency,
           tables: selectedKeys,
           disposition: { entries: log.entries, jsonl: log.toJsonl(), headHash: log.headHash, head, headSignature },
         }),
@@ -179,6 +188,16 @@ export function ExportHub() {
               </Select>
               <span className="text-xs text-muted-foreground">{DATASET_JSON_NOTES[datasetJsonVersion]}</span>
             </Field>
+            <Field label="CDISC/NCI ADaM CT version (define.xml v2.1)">
+              <Input value={defineXmlVersion === '2.1' ? ctVersion : ''} placeholder="Not declared in v2.0" disabled={defineXmlVersion !== '2.1'} onChange={(e) => setCtVersion(e.target.value)} aria-label="ADaM CT version" />
+              <span className="text-xs text-muted-foreground">Package date (YYYY-MM-DD) declared in def:Standards. Use a version the target agency's data standards catalog accepts.</span>
+            </Field>
+            <Field label="Target agency (validator profile)">
+              <Select value={agency} onChange={(e) => setAgency(e.target.value as Agency)} aria-label="Target agency">
+                {AGENCIES.map((a) => <option key={a} value={a}>{AGENCY_LABELS[a]}</option>)}
+              </Select>
+              <span className="text-xs text-muted-foreground">Rates the conformance results; the package is the same for every agency. {AGENCY_NOTES[agency]}</span>
+            </Field>
           </div>
           {tables.length > 0 && (
             <details className="rounded-md border p-3 text-sm" open={tables.length <= 12}>
@@ -222,6 +241,7 @@ export function ExportHub() {
                 <Button size="sm" variant="success" onClick={() => download(out.zipName, out.zipBlob)}><Download /> {out.zipName} ({formatBytes(out.zipBlob.size)})</Button>
                 <Button size="sm" variant="outline" onClick={() => download('define.xml', out.defineXml, 'application/xml')}><Download /> define.xml (v{out.standards.defineXml})</Button>
               </div>
+              <Conformance out={out} agency={agency} />
               <Tabs defaultValue="define">
                 <TabsList>
                   <TabsTrigger value="define">define.xml</TabsTrigger>
@@ -277,6 +297,58 @@ export function ExportHub() {
           )}
         </CardContent>
       </Card>
+    </div>
+  )
+}
+
+const SEVERITY_VARIANT = { Reject: 'destructive', Error: 'destructive', Warning: 'warning' } as const
+
+/** Result of the define.xml conformance checks, rated for the chosen agency, and the findings expected by design. */
+function Conformance({ out, agency }: { out: RegulatoryExport; agency: Agency }) {
+  const { issues, expected } = out.conformance
+  const rating = (s: Partial<Record<'FDA' | 'PMDA', 'Reject' | 'Error' | 'Warning'>>) => {
+    const shown = agency === 'OTHER' ? (['FDA', 'PMDA'] as const) : ([agency] as const)
+    const parts = shown.filter((a) => s[a]).map((a) => <Badge key={a} variant={SEVERITY_VARIANT[s[a]!]}>{agency === 'OTHER' ? `${a} ${s[a]}` : s[a]}</Badge>)
+    return parts.length ? <span className="flex flex-wrap gap-1">{parts}</span> : <span className="text-muted-foreground">not rated</span>
+  }
+  const rejects = agency !== 'OTHER' && issues.some((i) => i.severity[agency] === 'Reject')
+  return (
+    <div className="flex flex-col gap-2 rounded-md border p-3 text-sm">
+      <div className="font-medium">Define-XML conformance</div>
+      {issues.length === 0 ? (
+        <Alert variant="success"><AlertDescription>No issues found by Study Studio's define.xml checks (references, SAS names, keys, lengths, classes, standards, datasets against define.xml). This does not replace running the agency's validator.</AlertDescription></Alert>
+      ) : (
+        <>
+          {rejects && <Alert variant="destructive"><AlertDescription>{AGENCY_LABELS[agency]} would not accept this package: at least one issue is rated Reject.</AlertDescription></Alert>}
+          <Table>
+            <TableHeader>
+              <TableRow><TableHead>Rule</TableHead><TableHead>Pinnacle 21</TableHead><TableHead>Rating</TableHead><TableHead>Element</TableHead><TableHead>Issue</TableHead></TableRow>
+            </TableHeader>
+            <TableBody>
+              {issues.map((i, k) => (
+                <TableRow key={k} className="text-xs">
+                  <TableCell className="font-mono">{i.rule}</TableCell>
+                  <TableCell className="font-mono">{i.p21.join(', ') || '—'}</TableCell>
+                  <TableCell>{rating(i.severity)}</TableCell>
+                  <TableCell className="font-mono">{i.target}</TableCell>
+                  <TableCell>{i.message}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </>
+      )}
+      {expected.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <div className="text-xs font-medium">Expected validator findings (explain them in the reviewer's guide; also recorded in the audit report)</div>
+          {expected.map((e) => (
+            <div key={e.p21} className="rounded-md bg-muted/40 p-2 text-xs">
+              <div className="flex flex-wrap items-center gap-2"><span className="font-mono">{e.p21}</span>{rating(e.severity)}<span>{e.message}</span></div>
+              <p className="mt-1 text-muted-foreground">{e.explanation}</p>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

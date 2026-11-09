@@ -7,7 +7,9 @@ import type { CrossSiteResult, LoadedSitePack, SiteVerdict } from '@/lib/network
 import type { SiteEvidence } from '@/lib/studypack/evidence'
 import { kidFingerprint, type DetachedJws, type SignatureCheck } from '@/lib/security/signer'
 import type { DispositionEntry } from '@/lib/network/dispositionLog'
-import { buildDefineXml, datasetFiles, xmlEscape, type DefineXmlVersion } from '@/lib/cdisc/defineXml'
+import { buildDefineXml, datasetFiles, DEFAULT_ADAM_CT_VERSION, xmlEscape, type DefineXmlVersion } from '@/lib/cdisc/defineXml'
+import { checkDatasetsAgainstDefine, checkDefineXml } from '@/lib/cdisc/defineRules'
+import { AGENCY_LABELS, expectedFindings, rateIssues, type Agency, type ExpectedFinding, type RatedIssue } from '@/lib/cdisc/validatorProfiles'
 import { bundledStylesheet, type DefineStylesheet } from '@/lib/cdisc/stylesheet'
 import { combineSiteCsvs, serializeDatasetJson, type CombinedTable, type DatasetJsonVersion } from '@/lib/cdisc/datasetJson'
 import { parseMappingSpec, parseScanReport, type MappingSpec, type SourceTable } from '@/lib/cdisc/sources'
@@ -37,12 +39,29 @@ export interface ReportInput {
   rows: SiteRow[]
   generatedAt: string
   exportedFiles?: { path: string; sha256: string; sizeBytes: number }[]
-  standards?: { defineXml: DefineXmlVersion; datasetJson: DatasetJsonVersion }
+  standards?: Standards
+  /** Result of the define.xml conformance checks, for the submission package. */
+  conformance?: Conformance
   /** Disposition audit trail entries (R6). */
   disposition?: readonly DispositionEntry[]
   dispositionHead?: string
   /** Site ETL lineage (WhiteRabbit ScanReport, mapping specification) of the adopted sites. */
   etl?: SiteEtl[]
+}
+
+export interface Standards {
+  defineXml: DefineXmlVersion
+  datasetJson: DatasetJsonVersion
+  /** CDISC/NCI ADaM CT package declared in define.xml (v2.1). */
+  ctVersion?: string
+  /** Agency whose validator profile rates the conformance issues (does not change the output). */
+  agency?: Agency
+}
+
+export interface Conformance {
+  issues: RatedIssue[]
+  /** Findings a validator reports on this output by design, with the explanation for the reviewer's guide. */
+  expected: ExpectedFinding[]
 }
 
 export interface SiteEtl {
@@ -129,7 +148,42 @@ const LIMITATIONS = [
 ]
 
 const standardsLine = (i: ReportInput) =>
-  i.standards ? `CDISC Define-XML v${i.standards.defineXml} / Dataset-JSON v${i.standards.datasetJson}` : undefined
+  i.standards
+    ? `CDISC Define-XML v${i.standards.defineXml} / Dataset-JSON v${i.standards.datasetJson}` +
+      `${i.standards.defineXml === '2.1' && i.standards.ctVersion ? ` / CDISC/NCI ADaM CT ${i.standards.ctVersion}` : ''}` +
+      `${i.standards.agency ? ` / validator profile: ${AGENCY_LABELS[i.standards.agency]}` : ''}`
+    : undefined
+
+/** Conformance section: Study Studio's own checks and the validator findings expected by design. */
+function conformanceSection(c: Conformance | undefined, agency: Agency | undefined): { md: string[]; html: string } {
+  if (!c) return { md: [], html: '' }
+  const rate = (s: Partial<Record<'FDA' | 'PMDA', string>>) =>
+    agency && agency !== 'OTHER' ? (s[agency] ?? 'not rated') : `FDA ${s.FDA ?? '—'} / PMDA ${s.PMDA ?? '—'}`
+  const md = ['## Define-XML conformance', '']
+  let html = '<h2>Define-XML conformance</h2>'
+  const summary = c.issues.length ? `${c.issues.length} issue(s) found by OHDSI Study Studio's define.xml checks.` : "No issues found by OHDSI Study Studio's define.xml checks (schema, references, SAS names, keys, lengths, datasets against define.xml)."
+  md.push(summary, '')
+  html += `<p>${xmlEscape(summary)}</p>`
+  if (c.issues.length) {
+    md.push('| Rule | Pinnacle 21 | Rating | Element | Issue |', '|---|---|---|---|---|')
+    for (const i of c.issues) md.push(`| ${i.rule} | ${i.p21.join(', ') || '—'} | ${rate(i.severity)} | ${mdCell(i.target)} | ${mdCell(i.message)} |`)
+    md.push('')
+    html += `<table><tr><th>Rule</th><th>Pinnacle 21</th><th>Rating</th><th>Element</th><th>Issue</th></tr>${c.issues
+      .map((i) => `<tr><td>${i.rule}</td><td>${i.p21.join(', ') || '—'}</td><td>${rate(i.severity)}</td><td>${xmlEscape(i.target)}</td><td>${xmlEscape(i.message)}</td></tr>`)
+      .join('')}</table>`
+  }
+  if (c.expected.length) {
+    md.push('Validator findings expected by design (to be explained in the reviewer\'s guide):', '')
+    html += "<p>Validator findings expected by design (to be explained in the reviewer's guide):</p><ul>"
+    for (const e of c.expected) {
+      md.push(`- **${e.p21}** (${rate(e.severity)}): ${e.message}. ${e.explanation}`)
+      html += `<li><b>${e.p21}</b> (${rate(e.severity)}): ${xmlEscape(e.message)}. ${xmlEscape(e.explanation)}</li>`
+    }
+    md.push('')
+    html += '</ul>'
+  }
+  return { md, html }
+}
 
 const short = (h?: string) => (h ? `${h.slice(0, 12)}…` : '—')
 const pct = (n?: number) => (n === undefined ? '—' : `${n.toFixed(1)}%`)
@@ -235,6 +289,7 @@ export function buildMarkdownReport(i: ReportInput): string {
   }
 
   L.push(...etlSection(i.etl).md)
+  L.push(...conformanceSection(i.conformance, i.standards?.agency).md)
 
   L.push('## Limitations', '')
   for (const l of LIMITATIONS) L.push(`- ${l}`)
@@ -284,6 +339,7 @@ Sites received ${i.rows.length} · adopted ${adopted} · excluded ${i.rows.lengt
 ${rows}</table>
 ${htmlDisposition(i)}
 ${etlSection(i.etl).html}
+${conformanceSection(i.conformance, i.standards?.agency).html}
 ${files ? `<h2>7. Submission package contents</h2><table><tr><th>File</th><th>SHA-256</th><th>Bytes</th></tr>${files}</table>` : ''}
 <p class="foot">All processing was performed client-side; no data was transmitted to any server.</p>
 </body></html>
@@ -370,7 +426,8 @@ export interface RegulatoryExport {
   markdown: string
   html: string
   manifest: StudyPackManifest
-  standards: { defineXml: DefineXmlVersion; datasetJson: DatasetJsonVersion }
+  standards: Standards
+  conformance: Conformance
 }
 
 export async function buildRegulatoryExport(params: {
@@ -380,6 +437,10 @@ export async function buildRegulatoryExport(params: {
   cross: CrossSiteResult
   rows: SiteRow[]
   defineXmlVersion?: DefineXmlVersion
+  /** CDISC/NCI ADaM CT package to declare in define.xml v2.1 (default DEFAULT_ADAM_CT_VERSION). */
+  ctVersion?: string
+  /** Agency whose validator profile rates the conformance issues; the output is the same for every agency. */
+  agency?: Agency
   datasetJsonVersion?: DatasetJsonVersion
   /** "<Module>/<table>" keys to include; default all. */
   tables?: string[]
@@ -397,7 +458,15 @@ export async function buildRegulatoryExport(params: {
     const undecided = params.rows.filter((r) => !r.decision).map((r) => r.site.siteId)
     if (undecided.length) throw new Error(`Regulatory study: no recorded decision for ${undecided.join(', ')}`)
   }
-  const standards = { defineXml: params.defineXmlVersion ?? '2.1', datasetJson: params.datasetJsonVersion ?? '1.1' } as const
+  const defineXmlVersion = params.defineXmlVersion ?? '2.1'
+  const ctVersion = params.ctVersion?.trim() || DEFAULT_ADAM_CT_VERSION
+  if (defineXmlVersion === '2.1' && !/^\d{4}-\d{2}-\d{2}$/.test(ctVersion)) throw new Error(`CT version "${ctVersion}" is not a CDISC package date (YYYY-MM-DD)`)
+  const standards: Standards = {
+    defineXml: defineXmlVersion,
+    datasetJson: params.datasetJsonVersion ?? '1.1',
+    ...(defineXmlVersion === '2.1' ? { ctVersion } : {}),
+    ...(params.agency ? { agency: params.agency } : {}),
+  }
   const generatedAt = (params.now ?? new Date()).toISOString()
   // Sorted so the datasets do not depend on the order the packs were dropped in.
   const adopted = params.rows
@@ -481,6 +550,7 @@ export async function buildRegulatoryExport(params: {
     cohorts,
     resultTables: tables,
     auditReportHref: 'audit_report.html',
+    ctVersion,
     stylesheetHref: stylesheet?.name,
     now: params.now,
   })
@@ -503,7 +573,12 @@ export async function buildRegulatoryExport(params: {
     if (d.headSignature) content.push({ path: 'disposition/disposition_head.jws.json', bytes: enc.encode(JSON.stringify(d.headSignature, null, 2) + '\n'), role: 'evidence' })
   }
   const exportedFiles = await manifestEntries(content)
-  const reportInput: ReportInput = { ...params, generatedAt, exportedFiles, standards, disposition: d?.entries, dispositionHead: d?.headHash, etl }
+  // Conformance of define.xml and the datasets, recorded in the audit report and shown in the Export Hub.
+  const conformance: Conformance = {
+    issues: rateIssues([...checkDefineXml(defineXml), ...checkDatasetsAgainstDefine(defineXml, datasets)]),
+    expected: expectedFindings(standards.defineXml),
+  }
+  const reportInput: ReportInput = { ...params, generatedAt, exportedFiles, standards, conformance, disposition: d?.entries, dispositionHead: d?.headHash, etl }
   const markdown = buildMarkdownReport(reportInput)
   const html = buildHtmlReport(reportInput)
   content.push({ path: 'audit_report.md', bytes: enc.encode(markdown), role: 'evidence' })
@@ -525,5 +600,5 @@ export async function buildRegulatoryExport(params: {
   for (const c of content) root.file(c.path, c.bytes)
   root.file('manifest.json', JSON.stringify(manifest, null, 2) + '\n')
   const zipBlob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' })
-  return { zipBlob, zipName: `${safeId(params.studyId)}_regulatory_submission.zip`, defineXml, datasets, tables, markdown, html, manifest, standards }
+  return { zipBlob, zipName: `${safeId(params.studyId)}_regulatory_submission.zip`, defineXml, datasets, tables, markdown, html, manifest, standards, conformance }
 }

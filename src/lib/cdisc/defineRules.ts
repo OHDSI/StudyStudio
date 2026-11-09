@@ -279,12 +279,38 @@ export function checkDefineXml(xml: string): DefineIssue[] {
   return issues
 }
 
+interface NormalizedDataset {
+  itemGroupOID: string
+  name: string
+  records: number
+  columns: { itemOID: string; name: string; dataType: string; length?: number; keySequence?: number }[]
+  rows: unknown[][]
+}
+
+/** Dataset-JSON v1.1 as is; v1.0 (clinicalData.itemGroupData) mapped to the same shape, without ITEMGROUPDATASEQ. */
+function normalizeDatasetJson(ds: El, groupOid: string): NormalizedDataset {
+  const clinical = ds.clinicalData as El | undefined
+  if (!clinical) return ds as unknown as NormalizedDataset
+  const groups = (clinical.itemGroupData ?? {}) as Record<string, El>
+  const [oid, g] = Object.entries(groups).find(([k]) => k === groupOid) ?? Object.entries(groups)[0] ?? [groupOid, {}]
+  const items = (g.items ?? []) as { OID: string; name: string; type: string; length?: number; keySequence?: number }[]
+  const seq = items.findIndex((i) => i.OID === 'ITEMGROUPDATASEQ')
+  const rows = ((g.itemData ?? []) as unknown[][]).map((r) => (seq < 0 ? r : r.filter((_, i) => i !== seq)))
+  return {
+    itemGroupOID: oid,
+    name: g.name as string,
+    records: g.records as number,
+    columns: items.filter((_, i) => i !== seq).map((i) => ({ itemOID: i.OID, name: i.name, dataType: i.type, length: i.length, keySequence: i.keySequence })),
+    rows,
+  }
+}
+
 const DSJ_TO_DEFINE: Record<string, string> = { string: 'text', integer: 'integer', double: 'float', float: 'float', decimal: 'float', date: 'date', datetime: 'datetime', time: 'time', boolean: 'text', URI: 'text' }
 
 /**
  * Datasets against their metadata: each archived dataset exists and is described, and its columns
  * match the ItemRefs (OID, name, order, type, keys) with no value longer than its declared Length.
- * `datasets` maps archive paths (def:leaf xlink:href) to Dataset-JSON v1.1 text.
+ * `datasets` maps archive paths (def:leaf xlink:href) to Dataset-JSON (v1.1 or v1.0) text.
  */
 export function checkDatasetsAgainstDefine(xml: string, datasets: Record<string, string>): DefineIssue[] {
   const issues: DefineIssue[] = []
@@ -303,7 +329,7 @@ export function checkDatasetsAgainstDefine(xml: string, datasets: Record<string,
       add('SS-DSJ-001', go, `Archived dataset ${href} is missing`)
       continue
     }
-    const ds = JSON.parse(raw) as { itemGroupOID: string; name: string; records: number; columns: { itemOID: string; name: string; dataType: string; length?: number; keySequence?: number }[]; rows: unknown[][] }
+    const ds = normalizeDatasetJson(JSON.parse(raw), go)
     if (ds.itemGroupOID !== go) add('SS-DSJ-002', href, `itemGroupOID ${ds.itemGroupOID} ≠ ${go}`)
     if (ds.name !== attr(g, 'Name')) add('SS-DSJ-002', href, `name ${ds.name} ≠ ${attr(g, 'Name')}`)
     if (ds.records !== ds.rows.length) add('SS-DSJ-003', href, `records ${ds.records} ≠ ${ds.rows.length} rows`)

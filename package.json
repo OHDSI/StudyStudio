@@ -19,6 +19,7 @@
   "dependencies": {
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "fast-xml-parser": "^5.12.0",
     "file-saver": "^2.0.5",
     "jszip": "^3.10.2",
     "lucide-react": "^1.68.0",
@@ -37,7 +38,6 @@
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^6.2.1",
-    "fast-xml-parser": "^5.12.0",
     "tailwindcss": "^4.3.4",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",

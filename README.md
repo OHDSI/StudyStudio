@@ -72,7 +72,7 @@ To see the safety lock, use `samples/site/with_violations/` instead of the match
 4. **Record recommendations for undecided sites** (or adopt / exclude each site with a pre-specified reason), tick the attestation and **Lock** the dispositions. Every step is in the **Disposition audit trail**.
 5. **Export Hub**:
    - **Audit report:** live **Preview**, **Markdown source**, Markdown download, or **PDF (print)**.
-   - **Submission package:** choose the Define-XML / Dataset-JSON versions and the result tables, then generate the ZIP. It includes the disposition log and each site's manifest, signature and audit report. If the CDISC stylesheet has been placed in `src/lib/cdisc/stylesheets/` before building (see the README there), it is included too, and `define.xml` refers to it.
+   - **Submission package:** choose the Define-XML / Dataset-JSON versions, the CDISC/NCI ADaM CT version (Define-XML 2.1), the target agency and the result tables, then generate the ZIP. The **Define-XML conformance** panel lists any issue found by the built-in checks, rated as the Pinnacle 21 profile of the chosen agency (FDA or PMDA) would rate it, and the validator findings expected by design with an explanation for the reviewer's guide; both are also recorded in the audit report. The agency does not change the package. Which versions an agency accepts is set by its data standards catalog: check it before choosing. It includes the disposition log and each site's manifest, signature and audit report. If the CDISC stylesheet has been placed in `src/lib/cdisc/stylesheets/` before building (see the README there), it is included too, and `define.xml` refers to it.
 
 ---
 

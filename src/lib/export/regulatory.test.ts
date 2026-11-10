@@ -162,6 +162,26 @@ describe('XPT submission package', () => {
     const out = await buildRegulatoryExport({ studyId: config.studyId, studyTitle: config.studyTitle, config, cross, rows, datasetFormat: 'xpt' })
     const broken = { ...out.datasets, 'datasets/cmresult.xpt': (out.datasets['datasets/cmresult.xpt'] as Uint8Array).slice(0, 400) }
     expect(checkDatasetsAgainstDefine(out.defineXml, broken).map((i) => i.rule)).toEqual(['SS-DSJ-011'])
+    expect(out.standards.simplifiedTs).toBeUndefined()
+
+    // FDA simplified ts.xpt at the package root, outside define.xml.
+    const withTs = await buildRegulatoryExport({ studyId: config.studyId, studyTitle: config.studyTitle, config, cross, rows, datasetFormat: 'xpt', simplifiedTs: {} })
+    const zip = await JSZip.loadAsync(await withTs.zipBlob.arrayBuffer())
+    const root = `${config.studyId.replace(/[^A-Za-z0-9._-]/g, '_')}-submission/`
+    const tsFile = zip.file(`${root}ts.xpt`)
+    expect(tsFile).not.toBeNull()
+    const ts = readXpt(await tsFile!.async('uint8array'))
+    expect(ts.name).toBe('TS')
+    expect(ts.variables.map((v) => v.name)).toEqual(['STUDYID', 'TSPARMCD', 'TSVAL', 'TSVALNF'])
+    expect(ts.rows).toHaveLength(1)
+    expect(ts.rows[0][0]).toBe(config.studyId)
+    expect(ts.rows[0].slice(1)).toEqual(['SSTDTC', null, 'NA'])
+    expect(withTs.defineXml).not.toContain('ts.xpt')
+    expect(withTs.manifest.files.some((f) => f.path === 'ts.xpt')).toBe(true)
+    expect(withTs.markdown).toContain('simplified ts.xpt (example B)')
+    expect(withTs.reviewersGuide.markdown).toContain('TSVALNF = "NA"')
+    expect((await loadStudyPack(withTs.zipName, await withTs.zipBlob.arrayBuffer())).integrity.status).toBe('verified')
+    await expect(buildRegulatoryExport({ studyId: config.studyId, studyTitle: config.studyTitle, config, cross, rows, simplifiedTs: { studyStartDate: '2016-13-01' } })).rejects.toThrow('not a date')
   })
 })
 

@@ -4,6 +4,7 @@ import { useNetworkAnalysis } from './useNetworkAnalysis'
 import { useStudyStore } from '@/store/useStudyStore'
 import { addSignature } from '@/lib/security/signer'
 import { datasetFiles, DEFAULT_ADAM_CT_VERSION, type DatasetFormat } from '@/lib/cdisc/defineXml'
+import { simplifiedTsFor } from '@/lib/cdisc/simplifiedTs'
 import { AGENCIES, AGENCY_LABELS, AGENCY_NOTES, type Agency } from '@/lib/cdisc/validatorProfiles'
 import { buildHtmlReport, buildMarkdownReport, buildRegulatoryExport, datasetFormatLabel, listResultTables, PROFILE_LABELS, reviewersGuideFor, SUBMISSION_PROFILES, type RegulatoryExport, type SubmissionProfile } from '@/lib/export/regulatory'
 import { parseP21Report, reportMismatches, runLabel, type ValidatorRun } from '@/lib/cdisc/p21Report'
@@ -84,6 +85,8 @@ export function ExportHub() {
   const datasetJsonVersion: DatasetJsonVersion = datasetChoice === 'json-1.0' ? '1.0' : '1.1'
   const [ctVersion, setCtVersion] = React.useState(DEFAULT_ADAM_CT_VERSION)
   const [agency, setAgency] = React.useState<Agency>('OTHER')
+  const [withTs, setWithTs] = React.useState(false)
+  const [tsStart, setTsStart] = React.useState('')
   const adopted = rows.filter((r) => r.adopted)
   const tables = React.useMemo(() => listResultTables(adopted.map((r) => r.site)), [rows])
   /** Deselected "<Module>/<table>" keys (default: every table except the copies of the specification). */
@@ -109,7 +112,7 @@ export function ExportHub() {
     return { markdown: buildMarkdownReport(input), html: buildHtmlReport(input) }
   }, [studyId, studyTitle, config, cross, rows, log])
 
-  React.useEffect(() => setOut(undefined), [rows, config, profile, defineXmlVersion, datasetChoice, ctVersion, agency, deselected])
+  React.useEffect(() => setOut(undefined), [rows, config, profile, defineXmlVersion, datasetChoice, ctVersion, agency, deselected, withTs, tsStart])
 
   const generate = async () => {
     setBusy(true)
@@ -118,7 +121,15 @@ export function ExportHub() {
       if (regulatory && !locked) throw new Error('Lock the site dispositions (Multi-Site Aggregator) before generating the submission package')
       // The export is itself an audit-trail event (EMA-CS §6.2.1), recorded before the log is packaged.
       await logExport({
-        standards: { profile, defineXml: defineXmlVersion, datasetJson: datasetJsonVersion, ...(datasetFormat === 'xpt' ? { datasetFormat } : {}), ...(defineXmlVersion === '2.1' ? { ctVersion } : {}), agency },
+        standards: {
+          profile,
+          defineXml: defineXmlVersion,
+          datasetJson: datasetJsonVersion,
+          ...(datasetFormat === 'xpt' ? { datasetFormat } : {}),
+          ...(defineXmlVersion === '2.1' ? { ctVersion } : {}),
+          agency,
+          ...(withTs ? { simplifiedTs: simplifiedTsFor(tsStart) } : {}),
+        },
         tables: selectedKeys,
         adoptedSites: adopted.map((r) => r.site.siteId),
       })
@@ -137,6 +148,7 @@ export function ExportHub() {
           profile,
           ctVersion,
           agency,
+          ...(withTs ? { simplifiedTs: { studyStartDate: tsStart } } : {}),
           tables: selectedKeys,
           disposition: { entries: log.entries, jsonl: log.toJsonl(), headHash: log.headHash, head, headSignature },
         }),
@@ -243,6 +255,18 @@ export function ExportHub() {
                 {AGENCIES.map((a) => <option key={a} value={a}>{AGENCY_LABELS[a]}</option>)}
               </Select>
               <span className="text-xs text-muted-foreground">Rates the conformance results; the package is the same for every agency. {AGENCY_NOTES[agency]}</span>
+            </Field>
+            <Field label="FDA simplified ts.xpt" className="md:col-span-2">
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={withTs} onChange={(e) => setWithTs(e.target.checked)} aria-label="Include simplified ts.xpt" />
+                Include ts.xpt at the package root
+              </label>
+              {withTs && (
+                <Input value={tsStart} placeholder="Study start date (yyyy-mm-dd), only for a study started on or before 2016-12-17" onChange={(e) => setTsStart(e.target.value)} aria-label="Study start date" />
+              )}
+              <span className="text-xs text-muted-foreground">
+                Technical Conformance Guide 8.1.2.2 / Appendix G: STUDYID, TSPARMCD = SSTDTC, TSVAL, TSVALNF. Identifies xpt data that need no SDTM or ADaM when placed in a section where the technical rejection criteria apply. TSVALNF = "NA" (example B) unless the study started on or before 2016-12-17 (example A, with the date). STUDYID is the study ID ({studyId}), which must match the study tagging file.
+              </span>
             </Field>
           </div>
           {tables.length > 0 && (

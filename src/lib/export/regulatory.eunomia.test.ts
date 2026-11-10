@@ -97,7 +97,7 @@ describe.skipIf(!out)('submission package from a real Strategus run on Eunomia',
       const base = { studyId: STUDY, studyTitle: config.studyTitle, config, cross, rows, defineXmlVersion: version, agency: 'FDA' as const }
       exports[version] = await buildRegulatoryExport(base)
       await save(`define-${version}`, exports[version])
-      xpts[version] = await buildRegulatoryExport({ ...base, datasetFormat: 'xpt', tables: resultsOnly })
+      xpts[version] = await buildRegulatoryExport({ ...base, datasetFormat: 'xpt', tables: resultsOnly, simplifiedTs: {} })
       await save(`define-${version}-xpt`, xpts[version])
     }
     const conformance = Object.fromEntries(DEFINE_XML_VERSIONS.flatMap((v) => [[v, exports[v].conformance], [`${v}-xpt`, xpts[v].conformance]]))
@@ -183,6 +183,9 @@ describe.skipIf(!out)('submission package from a real Strategus run on Eunomia',
   it.each(DEFINE_XML_VERSIONS)('writes the result tables as XPT with the same values (define.xml %s)', (version) => {
     const x = xpts[version]
     expect(x.tables.map((t) => t.sourceTable)).not.toContain('cg_cohort_definition')
+    // FDA simplified ts.xpt (example B) at the package root, outside define.xml.
+    expect(x.standards.simplifiedTs).toEqual({ example: 'B', studyStartDate: null })
+    expect(x.manifest.files.map((f) => f.path)).toContain('ts.xpt')
     expect(Object.keys(x.datasets)).toHaveLength(x.tables.length)
     for (const t of x.tables) {
       const file = datasetFiles(x.tables, 'xpt').get(t.name)!

@@ -9,6 +9,7 @@ import { kidFingerprint, type DetachedJws, type SignatureCheck } from '@/lib/sec
 import type { DispositionEntry } from '@/lib/network/dispositionLog'
 import { buildDefineXml, columnSasNames, datasetFiles, DEFAULT_ADAM_CT_VERSION, xmlEscape, type DatasetFormat, type DefineXmlVersion } from '@/lib/cdisc/defineXml'
 import { writeXpt, xptLimitIssues } from '@/lib/cdisc/xpt'
+import { simplifiedTsFor, writeSimplifiedTs, type SimplifiedTs } from '@/lib/cdisc/simplifiedTs'
 import { checkDatasetsAgainstDefine, checkDefineXml } from '@/lib/cdisc/defineRules'
 import { AGENCY_LABELS, expectedFindings, rateIssues, type Agency, type ExpectedFinding, type RatedIssue } from '@/lib/cdisc/validatorProfiles'
 import { bundledStylesheet, type DefineStylesheet } from '@/lib/cdisc/stylesheet'
@@ -81,6 +82,8 @@ export interface Standards {
   ctVersion?: string
   /** Agency whose validator profile rates the conformance issues (does not change the output). */
   agency?: Agency
+  /** FDA simplified ts.xpt shipped at the package root (TCG 8.1.2.2, Appendix G). */
+  simplifiedTs?: SimplifiedTs
 }
 
 export interface Conformance {
@@ -179,7 +182,8 @@ const standardsLine = (i: ReportInput) =>
   i.standards
     ? `${PROFILE_LABELS[i.standards.profile ?? 'adam-other']}: CDISC Define-XML v${i.standards.defineXml} / ${datasetFormatLabel(i.standards)}` +
       `${i.standards.defineXml === '2.1' && i.standards.ctVersion ? ` / CDISC/NCI ADaM CT ${i.standards.ctVersion}` : ''}` +
-      `${i.standards.agency ? ` / validator profile: ${AGENCY_LABELS[i.standards.agency]}` : ''}`
+      `${i.standards.agency ? ` / validator profile: ${AGENCY_LABELS[i.standards.agency]}` : ''}` +
+      `${i.standards.simplifiedTs ? ` / simplified ts.xpt (example ${i.standards.simplifiedTs.example})` : ''}`
     : undefined
 
 /** Conformance section: Study Studio's own checks and the validator findings expected by design. */
@@ -499,6 +503,11 @@ export async function buildRegulatoryExport(params: {
   datasetFormat?: DatasetFormat
   /** How the datasets are presented (default aggregated-results). */
   profile?: SubmissionProfile
+  /**
+   * Ship the FDA simplified ts.xpt (STUDYID = studyId, which must match the study tagging file). The start
+   * date is written only for a study that started on or before 2016-12-17; otherwise TSVALNF = "NA".
+   */
+  simplifiedTs?: { studyStartDate?: string }
   /** "<Module>/<table>" keys to include; default all. */
   tables?: string[]
   now?: Date
@@ -527,6 +536,7 @@ export async function buildRegulatoryExport(params: {
     ...(params.datasetFormat === 'xpt' ? { datasetFormat: 'xpt' as const } : {}),
     ...(defineXmlVersion === '2.1' ? { ctVersion } : {}),
     ...(params.agency ? { agency: params.agency } : {}),
+    ...(params.simplifiedTs ? { simplifiedTs: simplifiedTsFor(params.simplifiedTs.studyStartDate) } : {}),
   }
   const generatedAt = (params.now ?? new Date()).toISOString()
   // Sorted so the datasets do not depend on the order the packs were dropped in.
@@ -640,6 +650,7 @@ export async function buildRegulatoryExport(params: {
     ...(dataDefinitionHtml ? [{ path: `${dataFolder}data_definition.html`, bytes: enc.encode(dataDefinitionHtml), role: 'metadata' as FileRole }] : []),
     ...(stylesheet ? [{ path: `${dataFolder}${stylesheet.name}`, bytes: enc.encode(stylesheet.text), role: 'metadata' as FileRole }] : []),
     ...Object.entries(datasets).map(([path, d]) => ({ path: `${dataFolder}${path}`, bytes: typeof d === 'string' ? enc.encode(d) : d, role: 'result' as FileRole })),
+    ...(standards.simplifiedTs ? [{ path: 'ts.xpt', bytes: writeSimplifiedTs(params.studyId, standards.simplifiedTs, params.now), role: 'metadata' as FileRole }] : []),
   ]
   for (const s of [...params.rows].sort((a, b) => (a.site.siteId < b.site.siteId ? -1 : a.site.siteId > b.site.siteId ? 1 : 0))) {
     for (const f of ['manifest.json', 'manifest.jws.json', 'audit_report.json']) {

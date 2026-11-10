@@ -45,6 +45,15 @@ export interface ReviewersGuideInput {
   validatorRuns?: ValidatorRun[]
 }
 
+/** Sentence on the simplified ts.xpt shipped with the package (FDA TCG 8.1.2.2, Appendix G), with a trailing space. */
+function simplifiedTsNote(i: ReviewersGuideInput): string {
+  const ts = i.standards.simplifiedTs
+  if (!ts) return ''
+  return ts.example === 'A'
+    ? `A simplified ts.xpt (Technical Conformance Guide, Appendix G, example A) gives the study ID and the study start date ${ts.studyStartDate} (TSPARMCD = SSTDTC) so that the datasets are identified as not requiring SDTM and ADaM. `
+    : 'A simplified ts.xpt (Technical Conformance Guide 8.1.2.2 and Appendix G, example B) gives the study ID with TSPARMCD = SSTDTC and TSVALNF = "NA", identifying the datasets as data to which SDTM and ADaM do not apply. Its STUDYID must equal the study ID of the study tagging file. '
+}
+
 /** HADES / Strategus packages worth naming in the programs section, when the lock file has them. */
 const KEY_PACKAGES = [
   'Strategus', 'CohortGenerator', 'CohortDiagnostics', 'CohortIncidence', 'Characterization', 'CohortMethod', 'SelfControlledCaseSeries',
@@ -135,7 +144,7 @@ export function buildReviewersGuideMarkdown(i: ReviewersGuideInput): string {
       'The datasets, define.xml and the data definition are provided as non-standard data (folder misc). They are not to be tagged as SDTM or ADaM datasets or as an analysis data definition: validators then check them against rules for subject-level data (for example, a missing ADSL).',
       '',
     )
-    L.push(`- **FDA:** as the data of a non-interventional database study report, eCTD 5.3.5.4 (5.3.5.3 for an integrated analysis across studies; 5.3.6 for postmarketing safety). The Study Data Technical Conformance Guide lists these sections among those where the study data technical rejection criteria do not apply. ${TODO('confirm the eCTD section and file tagging with the review division')}`)
+    L.push(`- **FDA:** as the data of a non-interventional database study report, eCTD 5.3.5.4 (5.3.5.3 for an integrated analysis across studies; 5.3.6 for postmarketing safety). The Study Data Technical Conformance Guide lists these sections among those where the study data technical rejection criteria do not apply. ${simplifiedTsNote(i)}${TODO('confirm the eCTD section and file tagging with the review division')}`)
     L.push(`- **PMDA:** non-CDISC datasets in the misc folder. Post-marketing database study (GPSP) data are not subject to the electronic study data requirement; for other uses the scope is decided in a pre-submission consultation. ${TODO('confirm the handling with PMDA (事前面談)')}`)
     L.push('')
   }

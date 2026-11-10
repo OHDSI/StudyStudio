@@ -9,6 +9,7 @@
  * Used by the tests (fast-xml-parser is a dev dependency); not part of the app bundle.
  */
 import { XMLParser } from 'fast-xml-parser'
+import { readXpt } from './xpt'
 
 export interface DefineIssue {
   rule: string
@@ -305,14 +306,43 @@ function normalizeDatasetJson(ds: El, groupOid: string): NormalizedDataset {
   }
 }
 
+/**
+ * A SAS V5 transport file in the same shape. XPT carries no OIDs, record count or keys: columns are
+ * matched to the ItemRefs by position and the keys are taken from them; numbers take the ItemDef type.
+ */
+function normalizeXpt(bytes: Uint8Array, group: El, itemById: Map<string, El>): NormalizedDataset {
+  const x = readXpt(bytes)
+  const refs = list(group.ItemRef)
+  return {
+    itemGroupOID: attr(group, 'OID')!,
+    name: x.name,
+    records: x.rows.length,
+    columns: x.variables.map((v, i) => {
+      const ref = refs[i]
+      const itemOID = ref ? attr(ref, 'ItemOID')! : `#${i + 1}`
+      const defined = attr(itemById.get(itemOID) ?? {}, 'DataType')
+      const key = ref ? attr(ref, 'KeySequence') : undefined
+      return {
+        itemOID,
+        name: v.name,
+        dataType: v.type === 'char' ? 'string' : defined === 'integer' ? 'integer' : 'double',
+        length: v.type === 'char' ? v.length : undefined,
+        keySequence: key === undefined ? undefined : Number(key),
+      }
+    }),
+    rows: x.rows,
+  }
+}
+
 const DSJ_TO_DEFINE: Record<string, string> = { string: 'text', integer: 'integer', double: 'float', float: 'float', decimal: 'float', date: 'date', datetime: 'datetime', time: 'time', boolean: 'text', URI: 'text' }
 
 /**
  * Datasets against their metadata: each archived dataset exists and is described, and its columns
  * match the ItemRefs (OID, name, order, type, keys) with no value longer than its declared Length.
- * `datasets` maps archive paths (def:leaf xlink:href) to Dataset-JSON (v1.1 or v1.0) text.
+ * `datasets` maps archive paths (def:leaf xlink:href) to Dataset-JSON (v1.1 or v1.0) text or to the
+ * bytes of a SAS V5 transport file (.xpt).
  */
-export function checkDatasetsAgainstDefine(xml: string, datasets: Record<string, string>): DefineIssue[] {
+export function checkDatasetsAgainstDefine(xml: string, datasets: Record<string, string | Uint8Array>): DefineIssue[] {
   const issues: DefineIssue[] = []
   const add = (rule: string, target: string, message: string) => issues.push({ rule, target, message })
   const mdv = (((parser.parse(xml) as El).ODM as El).Study as El).MetaDataVersion as El
@@ -329,7 +359,15 @@ export function checkDatasetsAgainstDefine(xml: string, datasets: Record<string,
       add('SS-DSJ-001', go, `Archived dataset ${href} is missing`)
       continue
     }
-    const ds = normalizeDatasetJson(JSON.parse(raw), go)
+    let ds: NormalizedDataset
+    try {
+      ds = typeof raw === 'string' ? normalizeDatasetJson(JSON.parse(raw), go) : normalizeXpt(raw, g, itemById)
+    } catch (e) {
+      add('SS-DSJ-011', href, `Dataset cannot be read: ${e instanceof Error ? e.message : String(e)}`)
+      continue
+    }
+    if (typeof raw !== 'string' && ds.rows.some((r) => r.some((v) => typeof v === 'string' && /[^\x20-\x7e]/.test(v))))
+      add('SS-XPT-001', href, 'Text with characters outside printable ASCII (agencies expect ASCII in XPT files)')
     if (ds.itemGroupOID !== go) add('SS-DSJ-002', href, `itemGroupOID ${ds.itemGroupOID} ≠ ${go}`)
     if (ds.name !== attr(g, 'Name')) add('SS-DSJ-002', href, `name ${ds.name} ≠ ${attr(g, 'Name')}`)
     if (ds.records !== ds.rows.length) add('SS-DSJ-003', href, `records ${ds.records} ≠ ${ds.rows.length} rows`)
@@ -347,7 +385,8 @@ export function checkDatasetsAgainstDefine(xml: string, datasets: Record<string,
       if ((key === undefined ? undefined : Number(key)) !== c.keySequence) add('SS-DSJ-007', where, `keySequence ${c.keySequence} ≠ ItemRef KeySequence ${key}`)
       const len = Number(attr(item, 'Length'))
       if (c.dataType === 'string' && Number.isFinite(len)) {
-        const longest = Math.max(0, ...ds.rows.map((r) => (typeof r[ci] === 'string' ? (r[ci] as string).length : 0)))
+        const size = typeof raw === 'string' ? (v: string) => v.length : (v: string) => new TextEncoder().encode(v).byteLength
+        const longest = Math.max(0, ...ds.rows.map((r) => (typeof r[ci] === 'string' ? size(r[ci] as string) : 0)))
         if (longest > len) add('SS-DSJ-008', where, `value of length ${longest} exceeds Length ${len}`)
         if (c.length !== undefined && c.length !== len) add('SS-DSJ-008', where, `length ${c.length} ≠ ItemDef Length ${len}`)
       }

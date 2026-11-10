@@ -3,9 +3,9 @@ import { Download, FileCode, FileText, Loader2, Package, Printer, ScrollText } f
 import { useNetworkAnalysis } from './useNetworkAnalysis'
 import { useStudyStore } from '@/store/useStudyStore'
 import { addSignature } from '@/lib/security/signer'
-import { datasetFiles, DEFAULT_ADAM_CT_VERSION } from '@/lib/cdisc/defineXml'
+import { datasetFiles, DEFAULT_ADAM_CT_VERSION, type DatasetFormat } from '@/lib/cdisc/defineXml'
 import { AGENCIES, AGENCY_LABELS, AGENCY_NOTES, type Agency } from '@/lib/cdisc/validatorProfiles'
-import { buildHtmlReport, buildMarkdownReport, buildRegulatoryExport, listResultTables, type RegulatoryExport } from '@/lib/export/regulatory'
+import { buildHtmlReport, buildMarkdownReport, buildRegulatoryExport, datasetFormatLabel, listResultTables, type RegulatoryExport } from '@/lib/export/regulatory'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -24,9 +24,13 @@ const DEFINE_NOTES: Record<DefineXmlVersion, string> = {
   '2.1': 'Current CDISC release. OMOP datasets are flagged def:IsNonStandard="Yes".',
   '2.0': 'For reviewers that still require v2.0. Non-standard datasets cannot be flagged: the whole file is declared as ADaM-IG 1.3.',
 }
-const DATASET_JSON_NOTES: Record<DatasetJsonVersion, string> = {
-  '1.1': 'Current CDISC release (flat columns / rows).',
-  '1.0': 'Legacy layout (clinicalData.itemGroupData with ITEMGROUPDATASEQ).',
+/** Dataset format choices: Dataset-JSON per version, or SAS V5 transport. */
+const DATASET_CHOICES = [...DATASET_JSON_VERSIONS.map((v) => `json-${v}` as const), 'xpt'] as const
+type DatasetChoice = (typeof DATASET_CHOICES)[number]
+const DATASET_NOTES: Record<DatasetChoice, string> = {
+  'json-1.1': 'Current CDISC release (flat columns / rows).',
+  'json-1.0': 'Legacy layout (clinicalData.itemGroupData with ITEMGROUPDATASEQ).',
+  xpt: 'SAS Version 5 transport files, the format most agencies expect, and the one the PMDA validator reads. Dataset and variable names become the 8-character SAS names; text is limited to 200 bytes.',
 }
 
 /** Open the HTML report in a new window and trigger the browser's print dialog (Save as PDF). */
@@ -45,7 +49,9 @@ export function ExportHub() {
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string>()
   const [defineXmlVersion, setDefineXmlVersion] = React.useState<DefineXmlVersion>('2.1')
-  const [datasetJsonVersion, setDatasetJsonVersion] = React.useState<DatasetJsonVersion>('1.1')
+  const [datasetChoice, setDatasetChoice] = React.useState<DatasetChoice>('json-1.1')
+  const datasetFormat: DatasetFormat = datasetChoice === 'xpt' ? 'xpt' : 'dataset-json'
+  const datasetJsonVersion: DatasetJsonVersion = datasetChoice === 'json-1.0' ? '1.0' : '1.1'
   const [ctVersion, setCtVersion] = React.useState(DEFAULT_ADAM_CT_VERSION)
   const [agency, setAgency] = React.useState<Agency>('OTHER')
   const adopted = rows.filter((r) => r.adopted)
@@ -73,7 +79,7 @@ export function ExportHub() {
     return { markdown: buildMarkdownReport(input), html: buildHtmlReport(input) }
   }, [studyId, studyTitle, config, cross, rows, log])
 
-  React.useEffect(() => setOut(undefined), [rows, config, defineXmlVersion, datasetJsonVersion, ctVersion, agency, deselected])
+  React.useEffect(() => setOut(undefined), [rows, config, defineXmlVersion, datasetChoice, ctVersion, agency, deselected])
 
   const generate = async () => {
     setBusy(true)
@@ -82,7 +88,7 @@ export function ExportHub() {
       if (regulatory && !locked) throw new Error('Lock the site dispositions (Multi-Site Aggregator) before generating the submission package')
       // The export is itself an audit-trail event (EMA-CS §6.2.1), recorded before the log is packaged.
       await logExport({
-        standards: { defineXml: defineXmlVersion, datasetJson: datasetJsonVersion, ...(defineXmlVersion === '2.1' ? { ctVersion } : {}), agency },
+        standards: { defineXml: defineXmlVersion, datasetJson: datasetJsonVersion, ...(datasetFormat === 'xpt' ? { datasetFormat } : {}), ...(defineXmlVersion === '2.1' ? { ctVersion } : {}), agency },
         tables: selectedKeys,
         adoptedSites: adopted.map((r) => r.site.siteId),
       })
@@ -97,6 +103,7 @@ export function ExportHub() {
           rows,
           defineXmlVersion,
           datasetJsonVersion,
+          datasetFormat,
           ctVersion,
           agency,
           tables: selectedKeys,
@@ -173,7 +180,7 @@ export function ExportHub() {
         <CardHeader>
           <CardTitle><Package className="size-5" /> Submission package</CardTitle>
           <CardDescription>
-            Combines the adopted sites' datasets into a hashed ZIP with define.xml, Dataset-JSON and the audit report (which additionally records the chosen standards and the package contents).
+            Combines the adopted sites' datasets into a hashed ZIP with define.xml, the datasets (Dataset-JSON or XPT) and the audit report (which additionally records the chosen standards and the package contents).
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
@@ -184,11 +191,11 @@ export function ExportHub() {
               </Select>
               <span className="text-xs text-muted-foreground">{DEFINE_NOTES[defineXmlVersion]}</span>
             </Field>
-            <Field label="Dataset-JSON version">
-              <Select value={datasetJsonVersion} onChange={(e) => setDatasetJsonVersion(e.target.value as DatasetJsonVersion)} aria-label="Dataset-JSON version">
-                {DATASET_JSON_VERSIONS.map((v) => <option key={v} value={v}>Dataset-JSON v{v}</option>)}
+            <Field label="Dataset format">
+              <Select value={datasetChoice} onChange={(e) => setDatasetChoice(e.target.value as DatasetChoice)} aria-label="Dataset format">
+                {DATASET_CHOICES.map((c) => <option key={c} value={c}>{c === 'xpt' ? 'SAS V5 transport (XPT)' : `Dataset-JSON v${c.slice(5)}`}</option>)}
               </Select>
-              <span className="text-xs text-muted-foreground">{DATASET_JSON_NOTES[datasetJsonVersion]}</span>
+              <span className="text-xs text-muted-foreground">{DATASET_NOTES[datasetChoice]}</span>
             </Field>
             <Field label="CDISC/NCI ADaM CT version (define.xml v2.1)">
               <Input value={defineXmlVersion === '2.1' ? ctVersion : ''} placeholder="Not declared in v2.0" disabled={defineXmlVersion !== '2.1'} onChange={(e) => setCtVersion(e.target.value)} aria-label="ADaM CT version" />
@@ -260,7 +267,7 @@ export function ExportHub() {
               <Tabs defaultValue="define">
                 <TabsList>
                   <TabsTrigger value="define">define.xml</TabsTrigger>
-                  <TabsTrigger value="datasets">Dataset-JSON v{out.standards.datasetJson} ({Object.keys(out.datasets).length})</TabsTrigger>
+                  <TabsTrigger value="datasets">{datasetFormatLabel(out.standards)} ({Object.keys(out.datasets).length})</TabsTrigger>
                   <TabsTrigger value="manifest">manifest</TabsTrigger>
                   <TabsTrigger value="guide">Reviewer's guide (draft)</TabsTrigger>
                 </TabsList>
@@ -280,7 +287,7 @@ export function ExportHub() {
                     </TableHeader>
                     <TableBody>
                       {out.tables.map((t) => {
-                        const path = datasetFiles(out.tables).get(t.name)!.path
+                        const path = datasetFiles(out.tables, out.standards.datasetFormat).get(t.name)!.path
                         const file = path.slice('datasets/'.length)
                         return (
                           <TableRow key={path} className="text-xs">
@@ -289,7 +296,7 @@ export function ExportHub() {
                             <TableCell>{t.rows.length.toLocaleString()}</TableCell>
                             <TableCell>{t.columns.length}</TableCell>
                             <TableCell>
-                              <Button size="sm" variant="ghost" onClick={() => download(file, out.datasets[path], 'application/json')}><Download /> {file}</Button>
+                              <Button size="sm" variant="ghost" onClick={() => download(file, out.datasets[path], typeof out.datasets[path] === 'string' ? 'application/json' : 'application/octet-stream')}><Download /> {file}</Button>
                             </TableCell>
                           </TableRow>
                         )

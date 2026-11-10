@@ -40,7 +40,7 @@ describe('network demo end-to-end', () => {
       'datasets/datmetda.json',
       'datasets/sccsresu.json',
     ])
-    const cm = JSON.parse(out.datasets['datasets/cmresult.json'])
+    const cm = JSON.parse(out.datasets['datasets/cmresult.json'] as string)
     expect(new Set(cm.rows.map((r: unknown[]) => r[0]))).toEqual(new Set(['Site_A', 'Site_B']))
     // HADES-censored counts stay numeric (-5), so the column stays an integer.
     expect(cm.columns.find((c: { name: string }) => c.name === 'TARGET_OUTCOMES').dataType).toBe('integer')
@@ -103,7 +103,41 @@ describe('network demo end-to-end', () => {
     expect(subset.conformance.issues).toEqual([])
     expect(subset.conformance.expected.map((e) => e.p21)).toEqual(['AD0001', 'AD1024', 'AD1026', 'SD0061', 'AD9999'])
     expect(subset.defineXml).toContain('ns/def/v2.0')
-    expect(JSON.parse(subset.datasets['datasets/cmresult.json']).datasetJSONVersion).toBe('1.0.0')
+    expect(JSON.parse(subset.datasets['datasets/cmresult.json'] as string).datasetJSONVersion).toBe('1.0.0')
+  })
+})
+
+describe('XPT submission package', () => {
+  it('writes the datasets as SAS V5 transport files described by SAS names in define.xml', async () => {
+    const { readXpt } = await import('@/lib/cdisc/xpt')
+    const { checkDatasetsAgainstDefine } = await import('@/lib/cdisc/defineRules')
+    const config = JSON.parse(readFileSync(path.join(samples, 'protocol/study_config.json'), 'utf8')) as StudyConfig
+    const dir = path.join(samples, 'network')
+    const sites = await Promise.all(readdirSync(dir).map((f) => loadStudyPack(f, readFileSync(path.join(dir, f)))))
+    const cross = crossCheckSites(sites, config.expectedHashes, config.protectedSections, [...Object.keys(config.expectedHashes), ...Object.keys(config.protectedSections)])
+    const rows = sites.map((s) => {
+      const verdict = siteVerdict(s, cross, config.studyId, sites)
+      return { site: s, verdict, adopted: verdict.recommended === 'adopt' }
+    })
+    for (const defineXmlVersion of ['2.1', '2.0'] as const) {
+      const out = await buildRegulatoryExport({ studyId: config.studyId, studyTitle: config.studyTitle, config, cross, rows, defineXmlVersion, datasetFormat: 'xpt' })
+      expect(Object.keys(out.datasets).sort()).toEqual(['cdcohcou', 'cgcohcou', 'cmdiasum', 'cmresult', 'datmetda', 'sccsresu'].map((n) => `datasets/${n}.xpt`))
+      expect(out.defineXml).toContain('Name="CMRESULT" SASDatasetName="CMRESULT"')
+      expect(out.defineXml).toContain('xlink:href="datasets/cmresult.xpt"')
+      expect(out.defineXml).toMatch(/<ItemDef OID="IT\.CM_RESULT\.TARGET_OUTCOMES" Name="TARGOUTC" SASFieldName="TARGOUTC"/)
+      expect(out.conformance.issues).toEqual([])
+      expect(checkDatasetsAgainstDefine(out.defineXml, out.datasets)).toEqual([])
+      const cm = readXpt(out.datasets['datasets/cmresult.xpt'] as Uint8Array)
+      expect(cm.rows.map((r) => r[0])).toEqual(['Site_A', 'Site_A', 'Site_B', 'Site_B'])
+      expect(out.standards.datasetFormat).toBe('xpt')
+      expect(out.markdown).toContain(`Define-XML v${defineXmlVersion} / SAS V5 transport (XPT)`)
+      expect(out.reviewersGuide.markdown).toContain('| SAS Version 5 transport format (XPT) | 5 | Analysis datasets |')
+      expect((await loadStudyPack(out.zipName, await out.zipBlob.arrayBuffer())).integrity.status).toBe('verified')
+    }
+    // A defect in an XPT file is caught like one in Dataset-JSON.
+    const out = await buildRegulatoryExport({ studyId: config.studyId, studyTitle: config.studyTitle, config, cross, rows, datasetFormat: 'xpt' })
+    const broken = { ...out.datasets, 'datasets/cmresult.xpt': (out.datasets['datasets/cmresult.xpt'] as Uint8Array).slice(0, 400) }
+    expect(checkDatasetsAgainstDefine(out.defineXml, broken).map((i) => i.rule)).toEqual(['SS-DSJ-011'])
   })
 })
 
@@ -141,7 +175,7 @@ describe('deterministic export', () => {
     const c = await build(sites, new Date('2027-06-07T08:09:10Z'))
     const stripTs = (s: string) => s.replaceAll('2026-01-02T03:04:05', 'T').replaceAll('2027-06-07T08:09:10', 'T')
     expect(stripTs(c.defineXml)).toBe(stripTs(a.defineXml))
-    for (const k of Object.keys(a.datasets)) expect(stripTs(c.datasets[k])).toBe(stripTs(a.datasets[k]))
+    for (const k of Object.keys(a.datasets)) expect(stripTs(c.datasets[k] as string)).toBe(stripTs(a.datasets[k] as string))
   })
 })
 

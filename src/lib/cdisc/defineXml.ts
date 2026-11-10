@@ -20,10 +20,13 @@
  * MetaDataVersion / dataset, as regulatory validators require; dataset files are named after the
  * SASDatasetName. Every dataset has the ADaM class "ADAM OTHER".
  *
- * The ItemGroupDef Name stays the Strategus table name (CM_RESULT), not the SAS name. Naming the dataset
- * CMRESULT lets Pinnacle 21's FDA data validation match the Dataset-JSON file to its metadata, but the
- * PMDA profile then reports every dataset as a split dataset without a Domain (DD0050, Error), and the
- * FDA data validation still reports SD0061 for Dataset-JSON input. Checked with P21 Community 4.2.0.
+ * With Dataset-JSON the ItemGroupDef Name stays the Strategus table name (CM_RESULT), not the SAS name:
+ * with P21 Community 4.2.0 naming it CMRESULT made the PMDA profile report every dataset as a split
+ * dataset without a Domain (DD0050, Error). XPT can only hold the SAS names, so with XPT they are the
+ * Names; the P21 Community CLI 1.0.9 PMDA profile (2411.1) reports no DD0050 on that define.xml.
+ * Validators report SD0061 (dataset missing) for either format although every dataset is read.
+ * Dataset names do not start with "AD": validators then apply ADaM rules meant for ADSL / BDS / OCCDS
+ * (e.g. STUDYID required) to these aggregated tables.
  *
  * Validators also report the declared standards as unreferenced (Pinnacle 21 DD0139): only a standard
  * dataset or a CDISC code list can reference one, and there are neither. That is inherent to declaring
@@ -32,6 +35,15 @@
 import { describeCohort } from '@/lib/codegen/circe'
 import type { CombinedTable } from './datasetJson'
 import { itemGroupOid, itemOid } from './datasetJson'
+import { textLength } from './xpt'
+
+/**
+ * How the datasets are archived. Dataset-JSON keeps the Strategus names (CM_RESULT, TARGET_OUTCOMES);
+ * SAS V5 transport (XPT) files can only hold 8-character names, so with XPT the ItemGroupDef and ItemDef
+ * Names are the SAS names (CMRESULT, TAROUT), as in any XPT submission, and text Lengths are in bytes.
+ */
+export const DATASET_FORMATS = ['dataset-json', 'xpt'] as const
+export type DatasetFormat = (typeof DATASET_FORMATS)[number]
 
 export interface DefineCohort {
   cohortId: number
@@ -64,6 +76,8 @@ export interface DefineInput {
   stylesheetHref?: string
   /** CDISC/NCI ADaM CT package date (v2.1 def:Standards); default DEFAULT_ADAM_CT_VERSION. */
   ctVersion?: string
+  /** Archive format of the datasets (default Dataset-JSON). */
+  datasetFormat?: DatasetFormat
   now?: Date
 }
 
@@ -114,16 +128,23 @@ export function sasName(name: string, taken: Set<string>): string {
 
 /**
  * SASDatasetName and archive path of each result table. The file is named after the SAS dataset name
- * (datasets/<sasname>.json), as validators expect the def:leaf file name to equal SASDatasetName.
+ * (datasets/<sasname>.json or .xpt), as validators expect the def:leaf file name to equal SASDatasetName.
  */
-export function datasetFiles(tables: { name: string }[]): Map<string, { sasName: string; path: string }> {
+export function datasetFiles(tables: { name: string }[], format: DatasetFormat = 'dataset-json'): Map<string, { sasName: string; path: string }> {
   const taken = new Set<string>()
+  const ext = format === 'xpt' ? 'xpt' : 'json'
   return new Map(
     tables.map((t) => {
       const n = sasName(t.name, taken)
-      return [t.name, { sasName: n, path: `datasets/${n.toLowerCase()}.json` }]
+      return [t.name, { sasName: n, path: `datasets/${n.toLowerCase()}.${ext}` }]
     }),
   )
+}
+
+/** SASFieldName of each column, in column order, unique within the table. */
+export function columnSasNames(t: { columns: { name: string }[] }): string[] {
+  const taken = new Set<string>()
+  return t.columns.map((c) => sasName(c.name, taken))
 }
 
 /** Digits after the decimal point needed to show every value of a numeric column (def SignificantDigits). */
@@ -190,13 +211,16 @@ export function buildDefineXml(input: DefineInput): string {
   const comments: { oid: string; text: string }[] = []
   const whereClauses: { oid: string; commentOid: string; itemOid: string; value: string }[] = []
   const valueLists: { oid: string; refs: (ItemRef & { whereOid: string })[] }[] = []
-  const fieldSasNames = new Map<string, Map<string, string>>()
+  const xpt = input.datasetFormat === 'xpt'
+  const fieldSasNames = new Map<string, string[]>()
   const fieldSas = (t: CombinedTable, column: string) => {
-    if (!fieldSasNames.has(t.name)) fieldSasNames.set(t.name, new Map())
-    const names = fieldSasNames.get(t.name)!
-    if (!names.has(column)) names.set(column, sasName(column, new Set(names.values())))
-    return names.get(column)!
+    if (!fieldSasNames.has(t.name)) fieldSasNames.set(t.name, columnSasNames(t))
+    return fieldSasNames.get(t.name)![t.columns.findIndex((c) => c.name === column)]
   }
+  // XPT holds only the SAS names, so they are the Names too; XPT text Length is the longest value in bytes.
+  const itemName = (t: CombinedTable, column: string) => (xpt ? fieldSas(t, column) : column)
+  const columnLength = (t: CombinedTable, i: number, dataType: DefineDataType) =>
+    xpt && dataType === 'text' ? textLength(t, i) : lengthOf(dataType, t.columns[i].length)
 
   // ---- Strategus result tables + cohort where clauses ----------------------
   const tables = input.resultTables ?? []
@@ -232,11 +256,11 @@ export function buildDefineXml(input: DefineInput): string {
     const dataType = typeOf(countCol)
     items.set(itOid, {
       oid: itOid,
-      name: countCol.name,
+      name: itemName(cohortTable, countCol.name),
       sasName: fieldSas(cohortTable, countCol.name),
       dataType,
       // A value-level slice is never longer than its parent variable.
-      length: lengthOf(dataType, countCol.length),
+      length: columnLength(cohortTable, cohortTable.columns.indexOf(countCol), dataType),
       significantDigits: dataType === 'float' ? significantDigits(cohortTable.rows.map((r) => r[cohortTable.columns.indexOf(countCol)])) : undefined,
       description: `Subjects in cohort ${c.cohortId}: ${c.cohortName}`,
       origin: { type: 'Derived' },
@@ -247,7 +271,7 @@ export function buildDefineXml(input: DefineInput): string {
   const cohortsComment = cohortTexts.length && (tables.length || !v20) ? COM_COHORTS : undefined
   if (cohortsComment) comments.push({ oid: cohortsComment, text: `Study cohorts. ${cohortTexts.join(' ')}` })
 
-  const files = datasetFiles(tables)
+  const files = datasetFiles(tables, input.datasetFormat)
   for (const t of tables) {
     const file = files.get(t.name)!
     const mt = `MT.${t.name}`
@@ -262,10 +286,10 @@ export function buildDefineXml(input: DefineInput): string {
       const dataType = typeOf(c)
       items.set(itOid, {
         oid: itOid,
-        name: c.name,
+        name: itemName(t, c.name),
         sasName: fieldSas(t, c.name),
         dataType,
-        length: lengthOf(dataType, c.length),
+        length: columnLength(t, i, dataType),
         significantDigits: dataType === 'float' ? significantDigits(t.rows.map((r) => r[i])) : undefined,
         description: c.description || c.name.replace(/_/g, ' ').toLowerCase(),
         origin:
@@ -279,7 +303,7 @@ export function buildDefineXml(input: DefineInput): string {
     })
     groups.push({
       oid: itemGroupOid(t),
-      name: t.name,
+      name: xpt ? file.sasName : t.name,
       sasName: file.sasName,
       description: `${t.label} — ${t.rows.length} record(s)`,
       structure: keys.length ? `One record per ${keys.join(', ')}` : 'One record per site result row',

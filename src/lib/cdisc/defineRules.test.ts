@@ -123,7 +123,7 @@ describe('the checks catch defects', () => {
 
   it('on datasets that drift from their metadata', async () => {
     const out = await networkExport('2.1')
-    const cm = JSON.parse(out.datasets['datasets/cmresult.json'])
+    const cm = JSON.parse(out.datasets['datasets/cmresult.json'] as string)
     const drift = (edit: (d: typeof cm) => void) => {
       const d = structuredClone(cm)
       edit(d)
@@ -137,7 +137,7 @@ describe('the checks catch defects', () => {
     // Dataset-JSON v1.0: same checks, ITEMGROUPDATASEQ ignored.
     const v10 = await networkExport('2.1', '1.0')
     expect(checkDatasetsAgainstDefine(v10.defineXml, v10.datasets)).toEqual([])
-    const cm10 = JSON.parse(v10.datasets['datasets/cmresult.json'])
+    const cm10 = JSON.parse(v10.datasets['datasets/cmresult.json'] as string)
     cm10.clinicalData.itemGroupData['IG.CM_RESULT'].records += 1
     expect(checkDatasetsAgainstDefine(v10.defineXml, { ...v10.datasets, 'datasets/cmresult.json': JSON.stringify(cm10) }).map((i) => i.rule)).toEqual(['SS-DSJ-003'])
     const { ['datasets/cmresult.json']: _, ...missing } = out.datasets

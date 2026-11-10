@@ -118,9 +118,9 @@ const finding = (p21: string, scope: ExpectedFinding['scope'], message: string, 
 
 /**
  * Findings a validator reports on this tool's output by design. Define-XML findings depend on the
- * version; dataset findings come from validating the Dataset-JSON files as ADaM data (observed with the
- * FDA engine; the PMDA engine 2411.1 did not process Dataset-JSON input, its ratings come from its
- * configuration).
+ * version; dataset findings come from validating the datasets as ADaM data and are the same for
+ * Dataset-JSON and XPT (Pinnacle 21 Community CLI 1.0.9: FDA engine 2508.1 with either format, PMDA engine
+ * 2411.1 with XPT, which is the only format it reads).
  */
 export function expectedFindings(version: DefineXmlVersion): ExpectedFinding[] {
   const define =
@@ -158,7 +158,7 @@ export function expectedFindings(version: DefineXmlVersion): ExpectedFinding[] {
       'SD0061',
       'data',
       'Domain referenced in define.xml, but dataset is missing',
-      'Every dataset described in define.xml is present and referenced by its def:leaf. The validator reports this for Dataset-JSON input; naming the datasets by their SAS names instead would make the PMDA profile report them as split datasets (DD0050, Error).',
+      'Every dataset described in define.xml is present, referenced by its def:leaf and read by the validator, which lists each of them with its define.xml label and class. The validator reports this finding for Dataset-JSON and XPT input alike, wherever define.xml is placed relative to the datasets; it does not indicate a missing file.',
     ),
     finding(
       'AD9999',

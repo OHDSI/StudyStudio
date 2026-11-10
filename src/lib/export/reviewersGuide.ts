@@ -99,7 +99,7 @@ export function buildReviewersGuideMarkdown(i: ReviewersGuideInput): string {
   L.push('### 1.2 Study Data Standards and Dictionary Inventory', '')
   L.push('| Standard or dictionary | Version(s) | Used for |', '|---|---|---|')
   L.push(`| CDISC Define-XML | ${i.standards.defineXml} | Metadata (define.xml) |`)
-  L.push(`| CDISC Dataset-JSON | ${i.standards.datasetJson} | Analysis datasets |`)
+  L.push(i.standards.datasetFormat === 'xpt' ? '| SAS Version 5 transport format (XPT) | 5 | Analysis datasets |' : `| CDISC Dataset-JSON | ${i.standards.datasetJson} | Analysis datasets |`)
   L.push(`| CDISC ADaMIG | 1.3 | Declared standard; every dataset is non-standard (see 5.2) |`)
   if (i.standards.defineXml === '2.1' && i.standards.ctVersion) L.push(`| CDISC/NCI ADaM controlled terminology | ${i.standards.ctVersion} | Declared in define.xml; no CDISC code list is used |`)
   L.push(`| OMOP Common Data Model | ${cell(cdmVersions.join(', ') || TODO('CDM version'))} | Site data model |`)
@@ -181,7 +181,7 @@ export function buildReviewersGuideMarkdown(i: ReviewersGuideInput): string {
   L.push('## 5. Analysis Dataset Descriptions', '')
   L.push('### 5.1 Overview', '')
   L.push(
-    `The datasets are the Strategus result tables of the adopted sites, one dataset per table, in CDISC Dataset-JSON ${i.standards.datasetJson}. They follow none of the ADaM data structures and are declared in define.xml as non-standard datasets of class "ADAM OTHER". Variable definitions, origins and derivations (including value-level metadata per cohort) are in define.xml.`,
+    `The datasets are the Strategus result tables of the adopted sites, one dataset per table, in ${i.standards.datasetFormat === 'xpt' ? 'SAS Version 5 transport files (XPT), with the 8-character SAS names as dataset and variable names (the Strategus names are given in the dataset labels and variable descriptions)' : `CDISC Dataset-JSON ${i.standards.datasetJson}`}. They follow none of the ADaM data structures and are declared in define.xml as non-standard datasets of class "ADAM OTHER". Variable definitions, origins and derivations (including value-level metadata per cohort) are in define.xml.`,
     '',
   )
   L.push('### 5.2 Analysis Datasets', '')

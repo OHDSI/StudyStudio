@@ -7,7 +7,8 @@ import type { CrossSiteResult, LoadedSitePack, SiteVerdict } from '@/lib/network
 import type { SiteEvidence } from '@/lib/studypack/evidence'
 import { kidFingerprint, type DetachedJws, type SignatureCheck } from '@/lib/security/signer'
 import type { DispositionEntry } from '@/lib/network/dispositionLog'
-import { buildDefineXml, datasetFiles, DEFAULT_ADAM_CT_VERSION, xmlEscape, type DefineXmlVersion } from '@/lib/cdisc/defineXml'
+import { buildDefineXml, columnSasNames, datasetFiles, DEFAULT_ADAM_CT_VERSION, xmlEscape, type DatasetFormat, type DefineXmlVersion } from '@/lib/cdisc/defineXml'
+import { writeXpt, xptLimitIssues } from '@/lib/cdisc/xpt'
 import { checkDatasetsAgainstDefine, checkDefineXml } from '@/lib/cdisc/defineRules'
 import { AGENCY_LABELS, expectedFindings, rateIssues, type Agency, type ExpectedFinding, type RatedIssue } from '@/lib/cdisc/validatorProfiles'
 import { bundledStylesheet, type DefineStylesheet } from '@/lib/cdisc/stylesheet'
@@ -52,6 +53,9 @@ export interface ReportInput {
 
 export interface Standards {
   defineXml: DefineXmlVersion
+  /** Archive format of the datasets; absent = Dataset-JSON. */
+  datasetFormat?: DatasetFormat
+  /** Dataset-JSON version (when the datasets are Dataset-JSON). */
   datasetJson: DatasetJsonVersion
   /** CDISC/NCI ADaM CT package declared in define.xml (v2.1). */
   ctVersion?: string
@@ -148,9 +152,12 @@ const LIMITATIONS = [
   'Run records are written by R on each site’s machine. They show that the sealed results are the ones the recorded run wrote from the protocol’s inputs; they cannot rule out a record produced some other way. Masked results are compared with the record at the site only.',
 ]
 
+/** "Dataset-JSON v1.1" or "SAS V5 transport (XPT)". */
+export const datasetFormatLabel = (s: Pick<Standards, 'datasetFormat' | 'datasetJson'>) => (s.datasetFormat === 'xpt' ? 'SAS V5 transport (XPT)' : `Dataset-JSON v${s.datasetJson}`)
+
 const standardsLine = (i: ReportInput) =>
   i.standards
-    ? `CDISC Define-XML v${i.standards.defineXml} / Dataset-JSON v${i.standards.datasetJson}` +
+    ? `CDISC Define-XML v${i.standards.defineXml} / ${datasetFormatLabel(i.standards)}` +
       `${i.standards.defineXml === '2.1' && i.standards.ctVersion ? ` / CDISC/NCI ADaM CT ${i.standards.ctVersion}` : ''}` +
       `${i.standards.agency ? ` / validator profile: ${AGENCY_LABELS[i.standards.agency]}` : ''}`
     : undefined
@@ -437,8 +444,8 @@ export interface RegulatoryExport {
   zipBlob: Blob
   zipName: string
   defineXml: string
-  /** Dataset-JSON text per archive path (see datasetFiles). */
-  datasets: Record<string, string>
+  /** Dataset-JSON text, or XPT bytes, per archive path (see datasetFiles). */
+  datasets: Record<string, string | Uint8Array>
   tables: CombinedTable[]
   markdown: string
   html: string
@@ -461,6 +468,8 @@ export async function buildRegulatoryExport(params: {
   /** Agency whose validator profile rates the conformance issues; the output is the same for every agency. */
   agency?: Agency
   datasetJsonVersion?: DatasetJsonVersion
+  /** Dataset-JSON (default) or SAS V5 transport files. */
+  datasetFormat?: DatasetFormat
   /** "<Module>/<table>" keys to include; default all. */
   tables?: string[]
   now?: Date
@@ -483,6 +492,7 @@ export async function buildRegulatoryExport(params: {
   const standards: Standards = {
     defineXml: defineXmlVersion,
     datasetJson: params.datasetJsonVersion ?? '1.1',
+    ...(params.datasetFormat === 'xpt' ? { datasetFormat: 'xpt' as const } : {}),
     ...(defineXmlVersion === '2.1' ? { ctVersion } : {}),
     ...(params.agency ? { agency: params.agency } : {}),
   }
@@ -550,9 +560,20 @@ export async function buildRegulatoryExport(params: {
   const studyOID = `STUDY.${safeId(params.studyId)}`
   const mdvOID = `MDV.${safeId(params.studyId)}.1`
 
-  const datasets: Record<string, string> = {}
-  const files = datasetFiles(tables)
-  for (const t of tables)
+  const datasets: Record<string, string | Uint8Array> = {}
+  const files = datasetFiles(tables, params.datasetFormat)
+  if (params.datasetFormat === 'xpt') {
+    const tooLong = tables.flatMap((t) => xptLimitIssues(t).map((x) => `${t.sourceTable}.${x}`))
+    if (tooLong.length) throw new Error(`XPT cannot hold text longer than 200 bytes: ${tooLong.join('; ')}. Leave these tables out or export Dataset-JSON.`)
+    for (const t of tables)
+      datasets[files.get(t.name)!.path] = writeXpt(t, {
+        name: files.get(t.name)!.sasName,
+        variables: columnSasNames(t),
+        labels: t.columns.map((c) => c.name.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (m) => m.toUpperCase())),
+        label: t.label,
+        now: params.now,
+      })
+  } else for (const t of tables)
     datasets[files.get(t.name)!.path] = serializeDatasetJson(standards.datasetJson, t, {
       studyOID,
       metaDataVersionOID: mdvOID,
@@ -572,6 +593,7 @@ export async function buildRegulatoryExport(params: {
     resultTables: tables,
     auditReportHref: 'audit_report.html',
     ctVersion,
+    datasetFormat: params.datasetFormat,
     stylesheetHref: stylesheet?.name,
     now: params.now,
   })
@@ -579,7 +601,7 @@ export async function buildRegulatoryExport(params: {
   const content: { path: string; bytes: Uint8Array; role: FileRole }[] = [
     { path: 'define.xml', bytes: enc.encode(defineXml), role: 'metadata' },
     ...(stylesheet ? [{ path: stylesheet.name, bytes: enc.encode(stylesheet.text), role: 'metadata' as FileRole }] : []),
-    ...Object.entries(datasets).map(([path, text]) => ({ path, bytes: enc.encode(text), role: 'result' as FileRole })),
+    ...Object.entries(datasets).map(([path, d]) => ({ path, bytes: typeof d === 'string' ? enc.encode(d) : d, role: 'result' as FileRole })),
   ]
   for (const s of [...params.rows].sort((a, b) => (a.site.siteId < b.site.siteId ? -1 : a.site.siteId > b.site.siteId ? 1 : 0))) {
     for (const f of ['manifest.json', 'manifest.jws.json', 'audit_report.json']) {

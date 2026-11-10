@@ -52,7 +52,7 @@ flowchart LR
     PI -->|signed protocol ZIP| X1(( ))
     RO[Signer roster<br/>signed by protocol key]
     AG[Aggregator<br/>verify, re-evaluate,<br/>dispositions, lock]
-    EH[Export Hub<br/>audit report,<br/>Define-XML, Dataset-JSON]
+    EH[Export Hub<br/>audit report,<br/>Define-XML, Dataset-JSON / XPT]
     AG --> EH
     RO --> AG
   end
@@ -100,7 +100,7 @@ Residual risk is assessed after the controls.
 | 11 | Time | Wrong or altered clocks | 2 | 2 | 3 | 12 | Sourced times, ordering checks, trusted window | `provenance.test.ts` (timeline) | **High — no trusted clock offline (documented limitation)** |
 | 12 | Disposition | Selection bias / undocumented exclusion | 3 | 2 | 2 | 12 | Pre-specified reason codes, justification for deviations, lock before export | `dispositionLog.test.ts`, `regulatory.test.ts` | Low |
 | 13 | Audit trail | Entries changed or removed | 3 | 1 | 2 | 6 | Hash chain, signed head, head retained in TMF | `dispositionLog.test.ts` | Medium — depends on retaining the head (SOP) |
-| 14 | Export | Submission content differs from adopted packs | 3 | 1 | 2 | 6 | Export manifest hashes; per-site manifests and audit reports included | `regulatory.test.ts`, `cdisc.test.ts`; `regulatory.eunomia.test.ts` (results of a real Strategus run on Eunomia: every table and row carried into the datasets, define.xml v2.1 and v2.0 schema-valid; `.github/workflows/strategus-eunomia.yml`, run by hand) | Low |
+| 14 | Export | Submission content differs from adopted packs | 3 | 1 | 2 | 6 | Export manifest hashes; per-site manifests and audit reports included | `regulatory.test.ts`, `cdisc.test.ts`; `xpt.test.ts`; `regulatory.eunomia.test.ts` (results of a real Strategus run on Eunomia: every table and row carried into the datasets, Dataset-JSON and XPT, define.xml v2.1 and v2.0 schema-valid; `.github/workflows/strategus-eunomia.yml`, run by hand) | Low |
 | 15 | Network isolation | Data sent off the device | 3 | 1 | 2 | 6 | CSP `connect-src 'none'`, runtime network guard | ‹UI test or manual check: network panel shows no requests› | Low |
 
 ## 6. Requirements → verification traceability

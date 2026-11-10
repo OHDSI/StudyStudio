@@ -9,8 +9,9 @@ import { auditResultFiles, readResultsZip, RDMS_FILE, type ResultFile } from '@/
 import { parseAnalysisSpecification } from '@/lib/strategus/spec'
 import { buildStudyPack, type PackInputFile } from '@/lib/studypack/builder'
 import { SLOT_BY_ID, type SlotId } from '@/lib/studypack/slots'
-import { DEFINE_XML_VERSIONS, type DefineXmlVersion } from '@/lib/cdisc/defineXml'
+import { datasetFiles, DEFINE_XML_VERSIONS, type DefineXmlVersion } from '@/lib/cdisc/defineXml'
 import type { DatasetJson11 } from '@/lib/cdisc/datasetJson'
+import { readXpt } from '@/lib/cdisc/xpt'
 import { xmllint } from '@/lib/cdisc/xmllint.testutil'
 import { buildRegulatoryExport, listResultTables, type RegulatoryExport, type SiteRow } from './regulatory'
 
@@ -35,6 +36,8 @@ describe.skipIf(!out)('submission package from a real Strategus run on Eunomia',
   let site: LoadedSitePack
   let rows: SiteRow[]
   const exports = {} as Record<DefineXmlVersion, RegulatoryExport>
+  /** SAS V5 transport files of the result tables (the Export Hub default, without the copies of the specification). */
+  const xpts = {} as Record<DefineXmlVersion, RegulatoryExport>
 
   beforeAll(async () => {
     const file = (...p: string[]) => new Uint8Array(readFileSync(path.join(out!, ...p)))
@@ -69,19 +72,26 @@ describe.skipIf(!out)('submission package from a real Strategus run on Eunomia',
     rows = [{ site, verdict, adopted: verdict.recommended === 'adopt' }]
 
     const dir = path.join(out!, 'submission')
-    for (const version of DEFINE_XML_VERSIONS) {
-      const x = await buildRegulatoryExport({ studyId: STUDY, studyTitle: config.studyTitle, config, cross, rows, defineXmlVersion: version, agency: 'FDA' })
-      exports[version] = x
-      const v = path.join(dir, `define-${version}`)
+    const save = async (name: string, x: RegulatoryExport) => {
+      const v = path.join(dir, name)
       mkdirSync(path.join(v, 'datasets'), { recursive: true })
       writeFileSync(path.join(v, 'define.xml'), x.defineXml)
-      for (const [p, t] of Object.entries(x.datasets)) writeFileSync(path.join(v, p), t)
+      for (const [p, d] of Object.entries(x.datasets)) writeFileSync(path.join(v, p), d)
       writeFileSync(path.join(v, 'audit_report.md'), x.markdown)
       writeFileSync(path.join(v, 'adrg.md'), x.reviewersGuide.markdown)
       writeFileSync(path.join(v, 'adrg.html'), x.reviewersGuide.html)
       writeFileSync(path.join(v, x.zipName), new Uint8Array(await x.zipBlob.arrayBuffer()))
     }
-    writeFileSync(path.join(dir, 'issues.json'), JSON.stringify(Object.fromEntries(DEFINE_XML_VERSIONS.map((v) => [v, exports[v].conformance])), null, 2) + '\n')
+    const resultsOnly = listResultTables([site]).filter((t) => !t.specification).map((t) => t.key)
+    for (const version of DEFINE_XML_VERSIONS) {
+      const base = { studyId: STUDY, studyTitle: config.studyTitle, config, cross, rows, defineXmlVersion: version, agency: 'FDA' as const }
+      exports[version] = await buildRegulatoryExport(base)
+      await save(`define-${version}`, exports[version])
+      xpts[version] = await buildRegulatoryExport({ ...base, datasetFormat: 'xpt', tables: resultsOnly })
+      await save(`define-${version}-xpt`, xpts[version])
+    }
+    const conformance = Object.fromEntries(DEFINE_XML_VERSIONS.flatMap((v) => [[v, exports[v].conformance], [`${v}-xpt`, xpts[v].conformance]]))
+    writeFileSync(path.join(dir, 'issues.json'), JSON.stringify(conformance, null, 2) + '\n')
   }, 120_000)
 
   const csvs = () => results.filter((r) => r.path.endsWith('.csv') && !r.path.endsWith('/' + RDMS_FILE))
@@ -105,7 +115,7 @@ describe.skipIf(!out)('submission package from a real Strategus run on Eunomia',
     for (const t of x.tables) expect(x.defineXml).toContain(`<ItemGroupDef OID="IG.${t.name}"`)
     // Every dataset row has a value or null for each column, in the declared type.
     for (const [p, text] of Object.entries(x.datasets)) {
-      const d = JSON.parse(text) as DatasetJson11
+      const d = JSON.parse(text as string) as DatasetJson11
       expect(d.records, p).toBe(d.rows.length)
       for (const r of d.rows) {
         expect(r, p).toHaveLength(d.columns.length)
@@ -118,11 +128,31 @@ describe.skipIf(!out)('submission package from a real Strategus run on Eunomia',
     }
   })
 
-  it.each(DEFINE_XML_VERSIONS)('define.xml %s passes the built-in checks and the CDISC schema', (version) => {
-    const x = exports[version]
-    expect(XMLValidator.validate(x.defineXml)).toBe(true)
-    expect(x.conformance.issues).toEqual([])
-    if (schemas) expect(xmllint(schemas, version, x.defineXml)).toBe('')
+  it.each(DEFINE_XML_VERSIONS)('define.xml %s passes the built-in checks and the CDISC schema, with Dataset-JSON and with XPT', (version) => {
+    for (const x of [exports[version], xpts[version]]) {
+      expect(XMLValidator.validate(x.defineXml)).toBe(true)
+      expect(x.conformance.issues).toEqual([])
+      if (schemas) expect(xmllint(schemas, version, x.defineXml)).toBe('')
+    }
+  })
+
+  it.each(DEFINE_XML_VERSIONS)('writes the result tables as XPT with the same values (define.xml %s)', (version) => {
+    const x = xpts[version]
+    expect(x.tables.map((t) => t.sourceTable)).not.toContain('cg_cohort_definition')
+    expect(Object.keys(x.datasets)).toHaveLength(x.tables.length)
+    for (const t of x.tables) {
+      const file = datasetFiles(x.tables, 'xpt').get(t.name)!
+      const d = readXpt(x.datasets[file.path] as Uint8Array)
+      expect(d.name).toBe(file.sasName)
+      expect(d.rows, t.name).toHaveLength(t.rows.length)
+      expect(d.variables.map((v) => (v.type === 'char' ? 'string' : 'number')), t.name).toEqual(t.columns.map((c) => (c.dataType === 'string' ? 'string' : 'number')))
+      d.rows.forEach((r, ri) =>
+        r.forEach((v, ci) => {
+          const want = t.rows[ri][ci]
+          expect(v, `${t.name}[${ri}].${t.columns[ci].name}`).toEqual(typeof want === 'string' ? want.trimEnd() || null : want)
+        }),
+      )
+    }
   })
 
   it('fills the draft reviewer\'s guide from the Eunomia study', () => {

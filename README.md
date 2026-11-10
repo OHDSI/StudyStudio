@@ -7,7 +7,7 @@ A browser-only workspace for running OHDSI network studies. It sits between the 
 1. **Distribute** a Strategus study with its code and settings pinned by SHA-256.
 2. **Check** each site's results for small cells before anything leaves the hospital.
 3. **Package** the results into a file whose contents are listed by SHA-256 (a *StudyPack*), optionally signed. A signed pack reveals any later change; an unsigned one only reveals changes made without also rewriting its manifest.
-4. **Verify** all the packs centrally, record which sites are adopted and why, and export the results as CDISC Define-XML / Dataset-JSON.
+4. **Verify** all the packs centrally, record which sites are adopted and why, and export the results as CDISC Define-XML with Dataset-JSON or SAS V5 transport (XPT) datasets.
 
 A protocol can be issued with **regulatory assurance**, which adds electronic signatures, a pre-specified data-quality gate, CDM / vocabulary traceability, execution logs, a run record and a site-disposition audit trail (see [Regulatory controls](#regulatory-controls)).
 
@@ -72,7 +72,7 @@ To see the safety lock, use `samples/site/with_violations/` instead of the match
 4. **Record recommendations for undecided sites** (or adopt / exclude each site with a pre-specified reason), tick the attestation and **Lock** the dispositions. Every step is in the **Disposition audit trail**.
 5. **Export Hub**:
    - **Audit report:** live **Preview**, **Markdown source**, Markdown download, or **PDF (print)**.
-   - **Submission package:** choose the Define-XML / Dataset-JSON versions, the CDISC/NCI ADaM CT version (Define-XML 2.1), the target agency and the result tables, then generate the ZIP. The **Define-XML conformance** panel lists any issue found by the built-in checks, rated as the Pinnacle 21 profile of the chosen agency (FDA or PMDA) would rate it, and the validator findings expected by design with an explanation for the reviewer's guide; both are also recorded in the audit report. The agency does not change the package. Which versions an agency accepts is set by its data standards catalog: check it before choosing.
+   - **Submission package:** choose the Define-XML version and the dataset format (Dataset-JSON v1.1 / v1.0, or XPT: 8-character SAS names, text up to 200 bytes; the format the PMDA validator reads), the CDISC/NCI ADaM CT version (Define-XML 2.1), the target agency and the result tables, then generate the ZIP. The **Define-XML conformance** panel lists any issue found by the built-in checks, rated as the Pinnacle 21 profile of the chosen agency (FDA or PMDA) would rate it, and the validator findings expected by design with an explanation for the reviewer's guide; both are also recorded in the audit report. The agency does not change the package. Which versions an agency accepts is set by its data standards catalog: check it before choosing.
    - **Reviewer's guide (draft):** an Analysis Data Reviewer's Guide structured after the PHUSE ADRG template, filled from the study (standards and versions, sites and dispositions, cohorts and analyses, datasets, conformance issues with explanations, pinned programs and package versions). The parts only the sponsor can write are marked "TO BE COMPLETED". Download it as Markdown, HTML or PDF (print); it is not sealed in the ZIP because it is meant to be completed. It includes the disposition log and each site's manifest, signature and audit report. If the CDISC stylesheet has been placed in `src/lib/cdisc/stylesheets/` before building (see the README there), it is included too, and `define.xml` refers to it.
 
 ---
@@ -214,7 +214,7 @@ Rscript r/tests/cross-check.R /tmp/rr && STUDYSTUDIO_R_RECORD=/tmp/rr npx vitest
                                             # a record written by R, checked by the TypeScript code
 ```
 
-Every push to `main` runs the tests, builds `dist/` and deploys it to GitHub Pages (`.github/workflows/pages.yml`). Pushes and pull requests also run the R tests and the R-to-TypeScript check (`.github/workflows/r-run-record.yml`). `.github/workflows/strategus-eunomia.yml`, started by hand, runs a real Strategus study on Eunomia through `recordStrategusRun()` (a full run and a `skipCompletedTasks` re-run) and checks the record the same way. It then seals the results as a site StudyPack and exports them as the Export Hub does: define.xml v2.1 and v2.0 (built-in checks and the CDISC schemas), Dataset-JSON, the audit report and the draft reviewer's guide, which are uploaded with the run for review.
+Every push to `main` runs the tests, builds `dist/` and deploys it to GitHub Pages (`.github/workflows/pages.yml`). Pushes and pull requests also run the R tests and the R-to-TypeScript check (`.github/workflows/r-run-record.yml`). `.github/workflows/strategus-eunomia.yml`, started by hand, runs a real Strategus study on Eunomia through `recordStrategusRun()` (a full run and a `skipCompletedTasks` re-run) and checks the record the same way. It then seals the results as a site StudyPack and exports them as the Export Hub does: define.xml v2.1 and v2.0 (built-in checks and the CDISC schemas) with Dataset-JSON (every table) and with XPT (the result tables), the audit report and the draft reviewer's guide, which are uploaded with the run for review.
 
 ### Demo data reference (`samples/`)
 
@@ -241,7 +241,7 @@ src/lib/security/                zero-network guard, key files + JWS signatures 
 src/lib/provenance/              cdm_source / vocabulary / software provenance, time evidence
 src/lib/studypack/               slots, readiness checks, evidence, pack builder (manifest, RO-Crate, audit_report)
 src/lib/network/                 pack verification, cross-site hash checks, DQD summary, disposition audit trail
-src/lib/cdisc/                   Define-XML v2.1/v2.0, Dataset-JSON v1.1/v1.0, ScanReport / mapping parsers
+src/lib/cdisc/                   Define-XML v2.1/v2.0, Dataset-JSON v1.1/v1.0, SAS V5 transport (XPT), ScanReport / mapping parsers
 src/lib/export/                  audit reports (+ Markdown preview parser), regulatory submission ZIP
 src/store/useStudyStore.ts       Zustand store
 src/features/{site,admin}/       screens

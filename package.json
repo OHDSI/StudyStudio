@@ -14,7 +14,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc -p .",
-    "samples": "tsx --tsconfig tsconfig.json scripts/make-samples.ts"
+    "samples": "tsx --tsconfig tsconfig.json scripts/make-samples.ts",
+    "p21": "tsx --tsconfig tsconfig.json scripts/local/p21.ts"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",

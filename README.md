@@ -214,7 +214,7 @@ Rscript r/tests/cross-check.R /tmp/rr && STUDYSTUDIO_R_RECORD=/tmp/rr npx vitest
                                             # a record written by R, checked by the TypeScript code
 ```
 
-Every push to `main` runs the tests, builds `dist/` and deploys it to GitHub Pages (`.github/workflows/pages.yml`). Pushes and pull requests also run the R tests and the R-to-TypeScript check (`.github/workflows/r-run-record.yml`). `.github/workflows/strategus-eunomia.yml`, started by hand, runs a real Strategus study on Eunomia through `recordStrategusRun()` (a full run and a `skipCompletedTasks` re-run) and checks the record the same way.
+Every push to `main` runs the tests, builds `dist/` and deploys it to GitHub Pages (`.github/workflows/pages.yml`). Pushes and pull requests also run the R tests and the R-to-TypeScript check (`.github/workflows/r-run-record.yml`). `.github/workflows/strategus-eunomia.yml`, started by hand, runs a real Strategus study on Eunomia through `recordStrategusRun()` (a full run and a `skipCompletedTasks` re-run) and checks the record the same way. It then seals the results as a site StudyPack and exports them as the Export Hub does: define.xml v2.1 and v2.0 (built-in checks and the CDISC schemas), Dataset-JSON, the audit report and the draft reviewer's guide, which are uploaded with the run for review.
 
 ### Demo data reference (`samples/`)
 

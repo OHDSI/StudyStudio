@@ -1,11 +1,10 @@
-import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { crossCheckSites, loadStudyPack, siteVerdict } from '@/lib/network/aggregator'
 import { buildRegulatoryExport } from '@/lib/export/regulatory'
 import { buildDefineXml, DEFINE_XML_VERSIONS } from './defineXml'
+import { xmllint as lint } from './xmllint.testutil'
 import type { StudyConfig } from '@/types/studypack'
 
 /**
@@ -15,7 +14,6 @@ import type { StudyConfig } from '@/types/studypack'
  */
 const schemas = process.env.STUDYSTUDIO_DEFINE_XSD
 const samples = path.resolve(__dirname, '../../../samples')
-const xsd = { '2.1': 'define/2.1/define2-1-0.xsd', '2.0': 'define/2.0/define2-0-0.xsd' } as const
 
 describe.skipIf(!schemas)('define.xml against the CDISC schemas', () => {
   it.each(DEFINE_XML_VERSIONS)('Define-XML %s is schema-valid', async (version) => {
@@ -47,13 +45,4 @@ describe.skipIf(!schemas)('define.xml against the CDISC schemas', () => {
   })
 })
 
-function xmllint(version: keyof typeof xsd, xml: string): string {
-  const file = path.join(mkdtempSync(path.join(tmpdir(), 'define-xsd-')), `define-${version}.xml`)
-  writeFileSync(file, xml)
-  try {
-    return execFileSync('xmllint', ['--noout', '--schema', path.join(schemas!, xsd[version]), file], { encoding: 'utf8', stdio: 'pipe' })
-  } catch (e) {
-    const err = e as { stderr?: string; message: string }
-    throw new Error(`define.xml (v${version}) is not schema-valid:\n${err.stderr || err.message}`)
-  }
-}
+const xmllint = (version: (typeof DEFINE_XML_VERSIONS)[number], xml: string) => lint(schemas!, version, xml)

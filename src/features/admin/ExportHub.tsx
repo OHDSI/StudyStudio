@@ -5,7 +5,7 @@ import { useStudyStore } from '@/store/useStudyStore'
 import { addSignature } from '@/lib/security/signer'
 import { datasetFiles, DEFAULT_ADAM_CT_VERSION, type DatasetFormat } from '@/lib/cdisc/defineXml'
 import { AGENCIES, AGENCY_LABELS, AGENCY_NOTES, type Agency } from '@/lib/cdisc/validatorProfiles'
-import { buildHtmlReport, buildMarkdownReport, buildRegulatoryExport, datasetFormatLabel, listResultTables, reviewersGuideFor, type RegulatoryExport } from '@/lib/export/regulatory'
+import { buildHtmlReport, buildMarkdownReport, buildRegulatoryExport, datasetFormatLabel, listResultTables, PROFILE_LABELS, reviewersGuideFor, SUBMISSION_PROFILES, type RegulatoryExport, type SubmissionProfile } from '@/lib/export/regulatory'
 import { parseP21Report, reportMismatches, runLabel, type ValidatorRun } from '@/lib/cdisc/p21Report'
 import { DropZone, type DroppedFile } from '@/features/common/DropZone'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -21,6 +21,13 @@ import { download, formatBytes } from '@/lib/utils'
 import { safeId } from '@/lib/studypack/builder'
 import { DEFINE_XML_VERSIONS, type DefineXmlVersion } from '@/lib/cdisc/defineXml'
 import { DATASET_JSON_VERSIONS, type DatasetJsonVersion } from '@/lib/cdisc/datasetJson'
+
+const PROFILE_NOTES: Record<SubmissionProfile, string> = {
+  'aggregated-results':
+    'Recommended. The datasets are presented as what they are: aggregated results, not SDTM or ADaM data. define.xml, the datasets and a readable data definition go in misc/ as non-standard data; do not tag them as ADaM. The reviewer\'s guide says where the package belongs (FDA eCTD 5.3.5.4, PMDA misc folder) for you to confirm with the agency.',
+  'adam-other':
+    'Only if the agency asks for ADaM: the datasets are declared as non-standard "ADAM OTHER" datasets of an ADaM submission. Validators then report a missing ADSL (AD0001, Reject), which the reviewer\'s guide explains.',
+}
 
 const DEFINE_NOTES: Record<DefineXmlVersion, string> = {
   '2.1': 'Current CDISC release. OMOP datasets are flagged def:IsNonStandard="Yes".',
@@ -71,6 +78,7 @@ export function ExportHub() {
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string>()
   const [defineXmlVersion, setDefineXmlVersion] = React.useState<DefineXmlVersion>('2.1')
+  const [profile, setProfile] = React.useState<SubmissionProfile>('aggregated-results')
   const [datasetChoice, setDatasetChoice] = React.useState<DatasetChoice>('json-1.1')
   const datasetFormat: DatasetFormat = datasetChoice === 'xpt' ? 'xpt' : 'dataset-json'
   const datasetJsonVersion: DatasetJsonVersion = datasetChoice === 'json-1.0' ? '1.0' : '1.1'
@@ -101,7 +109,7 @@ export function ExportHub() {
     return { markdown: buildMarkdownReport(input), html: buildHtmlReport(input) }
   }, [studyId, studyTitle, config, cross, rows, log])
 
-  React.useEffect(() => setOut(undefined), [rows, config, defineXmlVersion, datasetChoice, ctVersion, agency, deselected])
+  React.useEffect(() => setOut(undefined), [rows, config, profile, defineXmlVersion, datasetChoice, ctVersion, agency, deselected])
 
   const generate = async () => {
     setBusy(true)
@@ -110,7 +118,7 @@ export function ExportHub() {
       if (regulatory && !locked) throw new Error('Lock the site dispositions (Multi-Site Aggregator) before generating the submission package')
       // The export is itself an audit-trail event (EMA-CS §6.2.1), recorded before the log is packaged.
       await logExport({
-        standards: { defineXml: defineXmlVersion, datasetJson: datasetJsonVersion, ...(datasetFormat === 'xpt' ? { datasetFormat } : {}), ...(defineXmlVersion === '2.1' ? { ctVersion } : {}), agency },
+        standards: { profile, defineXml: defineXmlVersion, datasetJson: datasetJsonVersion, ...(datasetFormat === 'xpt' ? { datasetFormat } : {}), ...(defineXmlVersion === '2.1' ? { ctVersion } : {}), agency },
         tables: selectedKeys,
         adoptedSites: adopted.map((r) => r.site.siteId),
       })
@@ -126,6 +134,7 @@ export function ExportHub() {
           defineXmlVersion,
           datasetJsonVersion,
           datasetFormat,
+          profile,
           ctVersion,
           agency,
           tables: selectedKeys,
@@ -207,6 +216,12 @@ export function ExportHub() {
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <div className="grid gap-3 md:grid-cols-2">
+            <Field label="Package type" className="md:col-span-2">
+              <Select value={profile} onChange={(e) => setProfile(e.target.value as SubmissionProfile)} aria-label="Package type">
+                {SUBMISSION_PROFILES.map((p) => <option key={p} value={p}>{PROFILE_LABELS[p]}</option>)}
+              </Select>
+              <span className="text-xs text-muted-foreground">{PROFILE_NOTES[profile]}</span>
+            </Field>
             <Field label="Define-XML version">
               <Select value={defineXmlVersion} onChange={(e) => setDefineXmlVersion(e.target.value as DefineXmlVersion)} aria-label="Define-XML version">
                 {DEFINE_XML_VERSIONS.map((v) => <option key={v} value={v}>Define-XML v{v}</option>)}
@@ -280,6 +295,7 @@ export function ExportHub() {
               <div className="flex flex-wrap items-center gap-2">
                 <Button size="sm" variant="success" onClick={() => download(out.zipName, out.zipBlob)}><Download /> {out.zipName} ({formatBytes(out.zipBlob.size)})</Button>
                 <Button size="sm" variant="outline" onClick={() => download('define.xml', out.defineXml, 'application/xml')}><Download /> define.xml (v{out.standards.defineXml})</Button>
+                {out.dataDefinitionHtml && <Button size="sm" variant="outline" onClick={() => download('data_definition.html', out.dataDefinitionHtml!, 'text/html')}><Download /> data_definition.html</Button>}
                 <span className="ml-2 text-xs text-muted-foreground">Reviewer's guide (draft, not in the ZIP):</span>
                 <Button size="sm" variant="outline" onClick={() => download(`${id}_adrg_draft.md`, guide!.markdown, 'text/markdown')}><FileText /> Markdown</Button>
                 <Button size="sm" variant="outline" onClick={() => download(`${id}_adrg_draft.html`, guide!.html, 'text/html')}><Download /> HTML</Button>

@@ -18,6 +18,7 @@ import { APP_VERSION, manifestEntries, safeId } from '@/lib/studypack/builder'
 import { parseAnalysisSpecification, type AnalysisSpecSummary } from '@/lib/strategus/spec'
 import { buildReviewersGuideHtml, buildReviewersGuideMarkdown, parseRenvLock, type ReviewersGuideInput } from './reviewersGuide'
 import type { ValidatorRun } from '@/lib/cdisc/p21Report'
+import { buildDataDefinitionHtml } from './dataDefinition'
 import { moduleOf, parseRdms, RDMS_FILE, tableNameOf, type Rdms } from '@/lib/strategus/results'
 import { PROTOCOL_PATHS } from '@/lib/strategus/protocol'
 import { RESULTS_DIR } from '@/lib/studypack/slots'
@@ -52,7 +53,25 @@ export interface ReportInput {
   etl?: SiteEtl[]
 }
 
+/**
+ * How the package presents the datasets.
+ * - aggregated-results (default): non-standard data, not SDTM or ADaM. define.xml, the datasets and a
+ *   human-readable data definition go under misc/ (PMDA's place for non-standard data); define.xml is a
+ *   reference data definition and is not to be tagged as an ADaM analysis data definition. No regulator
+ *   defines a format for aggregated network results, and validating them as ADaM reports a missing ADSL.
+ * - adam-other: the datasets are declared as non-standard ("ADAM OTHER") datasets of an ADaM submission,
+ *   at the package root, for when an agency asks for that.
+ */
+export const SUBMISSION_PROFILES = ['aggregated-results', 'adam-other'] as const
+export type SubmissionProfile = (typeof SUBMISSION_PROFILES)[number]
+export const PROFILE_LABELS: Record<SubmissionProfile, string> = {
+  'aggregated-results': 'Aggregated results (non-standard data)',
+  'adam-other': 'ADaM submission (non-standard ADAM OTHER datasets)',
+}
+
 export interface Standards {
+  /** Absent in exports made before profiles existed (= adam-other). */
+  profile?: SubmissionProfile
   defineXml: DefineXmlVersion
   /** Archive format of the datasets; absent = Dataset-JSON. */
   datasetFormat?: DatasetFormat
@@ -158,7 +177,7 @@ export const datasetFormatLabel = (s: Pick<Standards, 'datasetFormat' | 'dataset
 
 const standardsLine = (i: ReportInput) =>
   i.standards
-    ? `CDISC Define-XML v${i.standards.defineXml} / ${datasetFormatLabel(i.standards)}` +
+    ? `${PROFILE_LABELS[i.standards.profile ?? 'adam-other']}: CDISC Define-XML v${i.standards.defineXml} / ${datasetFormatLabel(i.standards)}` +
       `${i.standards.defineXml === '2.1' && i.standards.ctVersion ? ` / CDISC/NCI ADaM CT ${i.standards.ctVersion}` : ''}` +
       `${i.standards.agency ? ` / validator profile: ${AGENCY_LABELS[i.standards.agency]}` : ''}`
     : undefined
@@ -446,7 +465,7 @@ export interface RegulatoryExport {
   zipBlob: Blob
   zipName: string
   defineXml: string
-  /** Dataset-JSON text, or XPT bytes, per archive path (see datasetFiles). */
+  /** Dataset-JSON text, or XPT bytes, per path relative to define.xml (its def:leaf href; see datasetFiles). */
   datasets: Record<string, string | Uint8Array>
   tables: CombinedTable[]
   markdown: string
@@ -458,6 +477,10 @@ export interface RegulatoryExport {
   reviewersGuide: { markdown: string; html: string }
   /** What the guide was built from, to rebuild it with the reports of validator runs on this package. */
   reviewersGuideInput: ReviewersGuideInput
+  /** Folder of define.xml and the datasets inside the package: "misc/" for aggregated results, "" for ADaM. */
+  dataFolder: string
+  /** Human-readable data definition (aggregated results). */
+  dataDefinitionHtml?: string
 }
 
 export async function buildRegulatoryExport(params: {
@@ -474,6 +497,8 @@ export async function buildRegulatoryExport(params: {
   datasetJsonVersion?: DatasetJsonVersion
   /** Dataset-JSON (default) or SAS V5 transport files. */
   datasetFormat?: DatasetFormat
+  /** How the datasets are presented (default aggregated-results). */
+  profile?: SubmissionProfile
   /** "<Module>/<table>" keys to include; default all. */
   tables?: string[]
   now?: Date
@@ -493,7 +518,10 @@ export async function buildRegulatoryExport(params: {
   const defineXmlVersion = params.defineXmlVersion ?? '2.1'
   const ctVersion = params.ctVersion?.trim() || DEFAULT_ADAM_CT_VERSION
   if (defineXmlVersion === '2.1' && !/^\d{4}-\d{2}-\d{2}$/.test(ctVersion)) throw new Error(`CT version "${ctVersion}" is not a CDISC package date (YYYY-MM-DD)`)
+  const profile: SubmissionProfile = params.profile ?? 'aggregated-results'
+  const dataFolder = profile === 'aggregated-results' ? 'misc/' : ''
   const standards: Standards = {
+    profile,
     defineXml: defineXmlVersion,
     datasetJson: params.datasetJsonVersion ?? '1.1',
     ...(params.datasetFormat === 'xpt' ? { datasetFormat: 'xpt' as const } : {}),
@@ -595,17 +623,23 @@ export async function buildRegulatoryExport(params: {
     sourceSystemVersion: APP_VERSION,
     cohorts,
     resultTables: tables,
-    auditReportHref: 'audit_report.html',
+    auditReportHref: `${dataFolder ? '../' : ''}audit_report.html`,
     ctVersion,
     datasetFormat: params.datasetFormat,
     stylesheetHref: stylesheet?.name,
     now: params.now,
   })
 
+  // Dataset paths are relative to define.xml (its def:leaf hrefs); both live in dataFolder.
+  const dataDefinitionHtml =
+    profile === 'aggregated-results'
+      ? buildDataDefinitionHtml({ studyId: params.studyId, studyTitle: params.studyTitle, generatedAt, tables, datasetFormat: params.datasetFormat, formatLabel: datasetFormatLabel(standards) })
+      : undefined
   const content: { path: string; bytes: Uint8Array; role: FileRole }[] = [
-    { path: 'define.xml', bytes: enc.encode(defineXml), role: 'metadata' },
-    ...(stylesheet ? [{ path: stylesheet.name, bytes: enc.encode(stylesheet.text), role: 'metadata' as FileRole }] : []),
-    ...Object.entries(datasets).map(([path, d]) => ({ path, bytes: typeof d === 'string' ? enc.encode(d) : d, role: 'result' as FileRole })),
+    { path: `${dataFolder}define.xml`, bytes: enc.encode(defineXml), role: 'metadata' },
+    ...(dataDefinitionHtml ? [{ path: `${dataFolder}data_definition.html`, bytes: enc.encode(dataDefinitionHtml), role: 'metadata' as FileRole }] : []),
+    ...(stylesheet ? [{ path: `${dataFolder}${stylesheet.name}`, bytes: enc.encode(stylesheet.text), role: 'metadata' as FileRole }] : []),
+    ...Object.entries(datasets).map(([path, d]) => ({ path: `${dataFolder}${path}`, bytes: typeof d === 'string' ? enc.encode(d) : d, role: 'result' as FileRole })),
   ]
   for (const s of [...params.rows].sort((a, b) => (a.site.siteId < b.site.siteId ? -1 : a.site.siteId > b.site.siteId ? 1 : 0))) {
     for (const f of ['manifest.json', 'manifest.jws.json', 'audit_report.json']) {
@@ -665,7 +699,7 @@ export async function buildRegulatoryExport(params: {
     disposition: d?.entries,
   }
   const reviewersGuide = reviewersGuideFor(reviewersGuideInput)
-  return { zipBlob, zipName: `${safeId(params.studyId)}_regulatory_submission.zip`, defineXml, datasets, tables, markdown, html, manifest, standards, conformance, reviewersGuide, reviewersGuideInput }
+  return { zipBlob, zipName: `${safeId(params.studyId)}_regulatory_submission.zip`, defineXml, datasets, tables, markdown, html, manifest, standards, conformance, reviewersGuide, reviewersGuideInput, dataFolder, dataDefinitionHtml }
 }
 
 /** The draft reviewer's guide as Markdown and HTML, optionally with the reports of validator runs. */

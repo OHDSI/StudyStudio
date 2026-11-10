@@ -46,16 +46,35 @@ describe('network demo end-to-end', () => {
     expect(cm.columns.find((c: { name: string }) => c.name === 'TARGET_OUTCOMES').dataType).toBe('integer')
     expect(out.markdown).toContain('Define-XML v2.1 / Dataset-JSON v1.1')
 
+    // Default: aggregated results, not ADaM; define.xml, the datasets and the data definition under misc/.
     const zip = await JSZip.loadAsync(await out.zipBlob.arrayBuffer())
-    expect(Object.keys(zip.files)).toContain('ACEI_ANGIO_2026-submission/define.xml')
+    expect(out.standards.profile).toBe('aggregated-results')
+    expect(out.dataFolder).toBe('misc/')
+    for (const f of ['misc/define.xml', 'misc/data_definition.html', 'misc/datasets/cmresult.json', 'audit_report.html', 'sites/Site_A/manifest.json'])
+      expect(Object.keys(zip.files)).toContain(`ACEI_ANGIO_2026-submission/${f}`)
+    expect(Object.keys(zip.files)).not.toContain('ACEI_ANGIO_2026-submission/define.xml')
+    expect(out.defineXml).toContain('xlink:href="../audit_report.html"')
+    expect(out.dataDefinitionHtml).toContain('<h2>CMRESULT — cm_result (CohortMethodModule)</h2>')
+    expect(out.dataDefinitionHtml).toContain('<td><code>TARGET_OUTCOMES</code></td><td><code>TARGOUTC</code></td><td>integer</td>')
+    expect(out.markdown).toContain('Aggregated results (non-standard data): CDISC Define-XML v2.1')
+    // The ADaM profile keeps the previous layout and wording.
+    const adam = await buildRegulatoryExport({ studyId: config.studyId, studyTitle: config.studyTitle, config, cross, rows, profile: 'adam-other' })
+    const adamZip = await JSZip.loadAsync(await adam.zipBlob.arrayBuffer())
+    expect(Object.keys(adamZip.files)).toContain('ACEI_ANGIO_2026-submission/define.xml')
+    expect(Object.keys(adamZip.files).some((f) => f.includes('misc/') || f.endsWith('data_definition.html'))).toBe(false)
+    expect(adam.defineXml).toContain('xlink:href="audit_report.html"')
+    expect(adam.reviewersGuide.markdown).toContain("# Analysis Data Reviewer's Guide")
+    expect(adam.reviewersGuide.markdown).not.toContain('### 1.4 Placement in the Submission')
+    expect(adam.defineXml.replace(/\.\.\/audit_report/g, 'audit_report')).toBe(out.defineXml.replace(/\.\.\/audit_report/g, 'audit_report').replace(/CreationDateTime="[^"]+"/, adam.defineXml.match(/CreationDateTime="[^"]+"/)![0]))
+    expect((await loadStudyPack(adam.zipName, await adam.zipBlob.arrayBuffer())).integrity.status).toBe('verified')
 
     const xsl = { name: 'define2-1-0.xsl', text: '<?xml version="1.0"?><xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"/>' }
     const styled = await buildRegulatoryExport({ studyId: config.studyId, studyTitle: config.studyTitle, config, cross, rows, stylesheet: xsl })
     expect(styled.defineXml.split('\n')[1]).toBe('<?xml-stylesheet type="text/xsl" href="define2-1-0.xsl"?>')
     expect(XMLValidator.validate(styled.defineXml)).toBe(true)
     const styledZip = await JSZip.loadAsync(await styled.zipBlob.arrayBuffer())
-    expect(await styledZip.file('ACEI_ANGIO_2026-submission/define2-1-0.xsl')!.async('string')).toBe(xsl.text)
-    expect(styled.manifest.files.map((f) => f.path)).toContain('define2-1-0.xsl')
+    expect(await styledZip.file('ACEI_ANGIO_2026-submission/misc/define2-1-0.xsl')!.async('string')).toBe(xsl.text)
+    expect(styled.manifest.files.map((f) => f.path)).toContain('misc/define2-1-0.xsl')
     expect((await loadStudyPack(styled.zipName, await styled.zipBlob.arrayBuffer())).integrity.status).toBe('verified')
     const plain = await buildRegulatoryExport({ studyId: config.studyId, studyTitle: config.studyTitle, config, cross, rows, stylesheet: null })
     expect(plain.defineXml).not.toContain('xml-stylesheet')
@@ -72,6 +91,11 @@ describe('network demo end-to-end', () => {
 
     // Draft reviewer's guide: filled from the study, with the sponsor's parts marked; not sealed in the package.
     const g = out.reviewersGuide.markdown
+    expect(g).toContain("# Reviewer's Guide for Aggregated Results — ACEI_ANGIO_2026")
+    expect(g).toContain('The datasets are not SDTM or ADaM datasets and are therefore provided as non-standard data in the misc folder; no ADSL exists')
+    expect(g).toContain('| CDISC ADaMIG | 1.3 | Named in define.xml only')
+    expect(g).toContain('- **FDA:** as the data of a non-interventional database study report, eCTD 5.3.5.4')
+    expect(g).toContain('**[TO BE COMPLETED: confirm the eCTD section and file tagging with the review division]**')
     for (const h of ['## 1. Introduction', '### 1.2 Study Data Standards and Dictionary Inventory', '### 5.2 Analysis Datasets', '### 6.2 Issues Summary', '### 7.2 Analysis Datasets Programs'])
       expect(g).toContain(h)
     expect(g).toContain('| CMRESULT | cm_result (CohortMethodModule) | ADAM OTHER |')

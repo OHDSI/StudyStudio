@@ -250,7 +250,7 @@ src/features/{site,admin}/       screens
 ## Limitations
 - **CDISC validation:** the tests check that the Define-XML output is well-formed XML and that both outputs have the expected structure. This repository does **not** validate them against the official CDISC schemas (Define-XML XSD, Dataset-JSON JSON Schema), and they have **not** been run through Pinnacle 21. OMOP / Strategus tables are not SDTM/ADaM, so expect conformance-rule warnings.
 - **Define-XML v2.0:** non-standard datasets cannot be flagged, so its XSD does not check Origin Type terminology.
-- **Large results:** big Strategus outputs (e.g. covariate balance) are parsed on the main thread. Use the Export Hub table selection to keep submissions focused.
+- **Large results:** big Strategus outputs (e.g. covariate balance) are parsed on the main thread. Use the Export Hub table selection to keep submissions focused; the tables that copy the analysis specification (cohort definitions, analysis settings) are not selected by default.
 
 ## License
 Apache License 2.0. See [LICENSE](LICENSE).

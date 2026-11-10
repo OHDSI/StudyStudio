@@ -12,7 +12,7 @@ import { SLOT_BY_ID, type SlotId } from '@/lib/studypack/slots'
 import { DEFINE_XML_VERSIONS, type DefineXmlVersion } from '@/lib/cdisc/defineXml'
 import type { DatasetJson11 } from '@/lib/cdisc/datasetJson'
 import { xmllint } from '@/lib/cdisc/xmllint.testutil'
-import { buildRegulatoryExport, type RegulatoryExport, type SiteRow } from './regulatory'
+import { buildRegulatoryExport, listResultTables, type RegulatoryExport, type SiteRow } from './regulatory'
 
 /**
  * Builds the submission package (define.xml, Dataset-JSON, audit report) and the draft reviewer's guide
@@ -91,6 +91,8 @@ describe.skipIf(!out)('submission package from a real Strategus run on Eunomia',
     expect(site.integrity.status).toBe('verified')
     expect(rows[0].verdict.reasons).toEqual([])
     expect(rows[0].adopted).toBe(true)
+    // The Export Hub leaves out the copies of the specification by default; every table is exported below.
+    expect(listResultTables([site]).filter((t) => t.specification).map((t) => t.table)).toEqual(expect.arrayContaining(['cg_cohort_definition', 'cm_analysis']))
   })
 
   it.each(DEFINE_XML_VERSIONS)('turns every result table into a dataset described in define.xml %s', (version) => {

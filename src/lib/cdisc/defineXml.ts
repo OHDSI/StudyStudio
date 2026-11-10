@@ -204,7 +204,9 @@ export function buildDefineXml(input: DefineInput): string {
   const cohortTable = tables.find((t) => t.sourceTable === 'cg_cohort_count' && hasCohortId(t)) ?? tables.find(hasCohortId)
   const countCol = cohortTable?.columns.find((c) => c.name === 'COHORT_SUBJECTS')
   const vlOid = cohortTable && countCol ? `VL.${cohortTable.name}.${countCol.name}` : undefined
-  const lengthOf = (dataType: DefineDataType, length: number) => Math.min(dataType === 'text' ? 2000 : 32, Math.max(1, length))
+  // Text keeps the longest value: Define-XML and Dataset-JSON set no maximum, and a shorter Length would
+  // misdescribe the data (Strategus stores cohort SQL and analysis settings of several thousand characters).
+  const lengthOf = (dataType: DefineDataType, length: number) => (dataType === 'text' ? Math.max(1, length) : Math.min(32, Math.max(1, length)))
   const typeOf = (c: CombinedTable['columns'][number]): DefineDataType => (c.dataType === 'string' ? 'text' : c.dataType === 'integer' ? 'integer' : 'float')
 
   // Cohorts are described through value-level metadata on the cohort count (one where clause, method

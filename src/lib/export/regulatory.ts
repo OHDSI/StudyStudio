@@ -396,7 +396,22 @@ export interface ResultTableInfo {
   table: string
   sites: number
   rows: number
+  /** The table copies the analysis specification (see SPECIFICATION_TABLES) rather than holding results. */
+  specification: boolean
 }
+
+/**
+ * Strategus tables that store the study's own specification (cohort definitions with their JSON and SQL,
+ * analysis settings) rather than results. They are pinned and hash-verified as the analysis specification,
+ * so the Export Hub leaves them out of the datasets by default.
+ */
+export const SPECIFICATION_TABLES: ReadonlySet<string> = new Set([
+  'cg_cohort_definition',
+  'cg_cohort_subset_definition',
+  'cg_cohort_template_definition',
+  'cm_analysis',
+  'sccs_analysis',
+])
 
 const resultCsvs = (s: LoadedSitePack) =>
   Object.keys(s.files).filter((p) => p.startsWith(RESULTS_DIR + '/') && p.endsWith('.csv') && !p.endsWith('/' + RDMS_FILE))
@@ -410,7 +425,7 @@ export function listResultTables(sites: LoadedSitePack[]): ResultTableInfo[] {
     for (const p of resultCsvs(s)) {
       const rel = p.slice(RESULTS_DIR.length + 1)
       const key = `${moduleOf(rel)}/${tableNameOf(rel)}`
-      const info = map.get(key) ?? { key, module: moduleOf(rel), table: tableNameOf(rel), sites: 0, rows: 0 }
+      const info = map.get(key) ?? { key, module: moduleOf(rel), table: tableNameOf(rel), sites: 0, rows: 0, specification: SPECIFICATION_TABLES.has(tableNameOf(rel)) }
       info.sites++
       info.rows += countRows(s.files[p])
       map.set(key, info)

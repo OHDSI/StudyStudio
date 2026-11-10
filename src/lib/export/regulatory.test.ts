@@ -3,7 +3,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import JSZip from 'jszip'
 import { XMLValidator } from 'fast-xml-parser'
-import { crossCheckSites, loadStudyPack, siteVerdict } from '@/lib/network/aggregator'
+import { crossCheckSites, loadStudyPack, siteVerdict, type LoadedSitePack } from '@/lib/network/aggregator'
 import { buildMarkdownReport, buildRegulatoryExport, listResultTables } from './regulatory'
 import type { StudyConfig } from '@/types/studypack'
 
@@ -104,6 +104,18 @@ describe('network demo end-to-end', () => {
     expect(subset.conformance.expected.map((e) => e.p21)).toEqual(['AD0001', 'AD1024', 'AD1026', 'SD0061', 'AD9999'])
     expect(subset.defineXml).toContain('ns/def/v2.0')
     expect(JSON.parse(subset.datasets['datasets/cmresult.json']).datasetJSONVersion).toBe('1.0.0')
+  })
+})
+
+describe('result tables offered for export', () => {
+  it('marks the tables that copy the analysis specification', () => {
+    const csv = new TextEncoder().encode('a\n1\n')
+    const files = Object.fromEntries(
+      ['CohortGeneratorModule/cg_cohort_definition', 'CohortGeneratorModule/cg_cohort_count', 'CohortMethodModule/cm_analysis', 'CohortMethodModule/cm_result'].map((k) => [`results/${k}.csv`, csv]),
+    )
+    const tables = listResultTables([{ files } as unknown as LoadedSitePack])
+    expect(tables.filter((t) => t.specification).map((t) => t.table)).toEqual(['cg_cohort_definition', 'cm_analysis'])
+    expect(tables.find((t) => t.table === 'cm_result')).toMatchObject({ specification: false, rows: 1 })
   })
 })
 

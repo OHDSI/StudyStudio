@@ -50,8 +50,10 @@ export function ExportHub() {
   const [agency, setAgency] = React.useState<Agency>('OTHER')
   const adopted = rows.filter((r) => r.adopted)
   const tables = React.useMemo(() => listResultTables(adopted.map((r) => r.site)), [rows])
-  /** Deselected "<Module>/<table>" keys (default: everything selected). */
-  const [deselected, setDeselected] = React.useState<Set<string>>(new Set())
+  /** Deselected "<Module>/<table>" keys (default: every table except the copies of the specification). */
+  const specKeys = React.useMemo(() => tables.filter((t) => t.specification).map((t) => t.key), [tables])
+  const [deselected, setDeselected] = React.useState<Set<string>>(() => new Set(specKeys))
+  React.useEffect(() => setDeselected(new Set(specKeys)), [specKeys.join('\n')])
   const selectedKeys = tables.map((t) => t.key).filter((k) => !deselected.has(k))
   const toggle = (k: string) =>
     setDeselected((d) => {
@@ -205,9 +207,15 @@ export function ExportHub() {
                 Result tables — {selectedKeys.length} of {tables.length} selected
               </summary>
               <div className="mt-2 flex gap-2 text-xs">
+                <Button size="sm" variant="ghost" onClick={() => setDeselected(new Set(specKeys))}>Results only</Button>
                 <Button size="sm" variant="ghost" onClick={() => setDeselected(new Set())}>Select all</Button>
                 <Button size="sm" variant="ghost" onClick={() => setDeselected(new Set(tables.map((t) => t.key)))}>Select none</Button>
               </div>
+              {specKeys.length > 0 && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Tables marked <Badge variant="outline" className="text-[10px]">specification</Badge> copy the analysis specification (cohort definitions with their JSON and SQL, analysis settings), which is pinned and verified by SHA-256; they are not selected by default.
+                </p>
+              )}
               <Table>
                 <TableHeader>
                   <TableRow><TableHead /><TableHead>Module</TableHead><TableHead>Table</TableHead><TableHead>Sites</TableHead><TableHead>Rows</TableHead></TableRow>
@@ -217,7 +225,10 @@ export function ExportHub() {
                     <TableRow key={t.key} className="text-xs">
                       <TableCell><input type="checkbox" checked={!deselected.has(t.key)} onChange={() => toggle(t.key)} aria-label={`Include ${t.table}`} /></TableCell>
                       <TableCell>{t.module}</TableCell>
-                      <TableCell className="font-mono">{t.table}</TableCell>
+                      <TableCell className="font-mono">
+                        {t.table}
+                        {t.specification && <Badge variant="outline" className="ml-2 font-sans text-[10px]">specification</Badge>}
+                      </TableCell>
                       <TableCell>{t.sites}</TableCell>
                       <TableCell>{t.rows.toLocaleString()}</TableCell>
                     </TableRow>

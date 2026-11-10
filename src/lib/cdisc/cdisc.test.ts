@@ -2,8 +2,9 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { XMLParser, XMLValidator } from 'fast-xml-parser'
-import { buildDefineXml } from './defineXml'
-import { buildDatasetJson, buildDatasetJson10, combineSiteCsvs } from './datasetJson'
+import { buildDefineXml, datasetFiles } from './defineXml'
+import { buildDatasetJson, buildDatasetJson10, combineSiteCsvs, serializeDatasetJson } from './datasetJson'
+import { checkDatasetsAgainstDefine } from './defineRules'
 import { parseMappingSpec, parseScanReport } from './sources'
 import { parseAnalysisSpecification } from '@/lib/strategus/spec'
 import { auditResultFiles, collectRdms, readResultsZip } from '@/lib/strategus/results'
@@ -146,6 +147,18 @@ describe('Define-XML v2.0', () => {
     expect(xml).toContain('def:DefineVersion="2.0.0" def:StandardName="ADaM-IG" def:StandardVersion="1.3"')
     for (const v21 of ['def:Standards', 'def:IsNonStandard', 'def:Context', 'ns/def/v2.1']) expect(xml).not.toContain(v21)
     expect(definedAndReferenced(xml)).toEqual([])
+  })
+})
+
+describe('long text values', () => {
+  it('declares the full length of text longer than 2000 characters (cohort SQL, analysis settings)', () => {
+    const sql = 'SELECT ' + 'x'.repeat(15_000)
+    const t = combineSiteCsvs([{ siteId: 'A', csv: `cohort_definition_id,sql_command\n1,"${sql}"\n` }], { sourceTable: 'cg_cohort_definition', module: 'CohortGeneratorModule' })
+    const xml = buildDefineXml({ version: '2.1', studyId: 'S1', studyTitle: 'S', sourceSystemVersion: '0', cohorts: [], resultTables: [t] })
+    expect(xml).toContain(`Length="${sql.length}"`)
+    const path = datasetFiles([t]).get(t.name)!.path
+    const datasets = { [path]: serializeDatasetJson('1.1', t, { studyOID: 'STUDY.S1', metaDataVersionOID: 'MDV.S1.1', originator: 'o', sourceVersion: '0' }) }
+    expect(checkDatasetsAgainstDefine(xml, datasets)).toEqual([])
   })
 })
 

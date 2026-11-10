@@ -16,7 +16,8 @@ import { combineSiteCsvs, serializeDatasetJson, type CombinedTable, type Dataset
 import { parseMappingSpec, parseScanReport, type MappingSpec, type SourceTable } from '@/lib/cdisc/sources'
 import { APP_VERSION, manifestEntries, safeId } from '@/lib/studypack/builder'
 import { parseAnalysisSpecification, type AnalysisSpecSummary } from '@/lib/strategus/spec'
-import { buildReviewersGuideHtml, buildReviewersGuideMarkdown, parseRenvLock } from './reviewersGuide'
+import { buildReviewersGuideHtml, buildReviewersGuideMarkdown, parseRenvLock, type ReviewersGuideInput } from './reviewersGuide'
+import type { ValidatorRun } from '@/lib/cdisc/p21Report'
 import { moduleOf, parseRdms, RDMS_FILE, tableNameOf, type Rdms } from '@/lib/strategus/results'
 import { PROTOCOL_PATHS } from '@/lib/strategus/protocol'
 import { RESULTS_DIR } from '@/lib/studypack/slots'
@@ -409,12 +410,13 @@ export interface ResultTableInfo {
 
 /**
  * Strategus tables that store the study's own specification (cohort definitions with their JSON and SQL,
- * analysis settings) rather than results. They are pinned and hash-verified as the analysis specification,
+ * cohort subset operators, analysis settings) rather than results. They are pinned and hash-verified as the analysis specification,
  * so the Export Hub leaves them out of the datasets by default.
  */
 export const SPECIFICATION_TABLES: ReadonlySet<string> = new Set([
   'cg_cohort_definition',
   'cg_cohort_subset_definition',
+  'cg_cohort_subset_operator',
   'cg_cohort_template_definition',
   'cm_analysis',
   'sccs_analysis',
@@ -454,6 +456,8 @@ export interface RegulatoryExport {
   conformance: Conformance
   /** Draft Analysis Data Reviewer's Guide (not sealed in the package: it is meant to be completed). */
   reviewersGuide: { markdown: string; html: string }
+  /** What the guide was built from, to rebuild it with the reports of validator runs on this package. */
+  reviewersGuideInput: ReviewersGuideInput
 }
 
 export async function buildRegulatoryExport(params: {
@@ -645,7 +649,7 @@ export async function buildRegulatoryExport(params: {
   const zipBlob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' })
   const renvPath = PROTOCOL_PATHS.renvLock
   const renvSite = adopted.find((s) => s.fileHashes[renvPath] === params.cross.references[renvPath]?.hash) ?? adopted.find((s) => s.files[renvPath])
-  const guide = buildReviewersGuideMarkdown({
+  const reviewersGuideInput: ReviewersGuideInput = {
     studyId: params.studyId,
     studyTitle: params.studyTitle,
     config: params.config,
@@ -659,7 +663,13 @@ export async function buildRegulatoryExport(params: {
     renv: renvSite?.files[renvPath] ? parseRenvLock(dec.decode(renvSite.files[renvPath])) : undefined,
     etl,
     disposition: d?.entries,
-  })
-  const reviewersGuide = { markdown: guide, html: buildReviewersGuideHtml(guide, params.studyId) }
-  return { zipBlob, zipName: `${safeId(params.studyId)}_regulatory_submission.zip`, defineXml, datasets, tables, markdown, html, manifest, standards, conformance, reviewersGuide }
+  }
+  const reviewersGuide = reviewersGuideFor(reviewersGuideInput)
+  return { zipBlob, zipName: `${safeId(params.studyId)}_regulatory_submission.zip`, defineXml, datasets, tables, markdown, html, manifest, standards, conformance, reviewersGuide, reviewersGuideInput }
+}
+
+/** The draft reviewer's guide as Markdown and HTML, optionally with the reports of validator runs. */
+export function reviewersGuideFor(input: ReviewersGuideInput, validatorRuns?: ValidatorRun[]): { markdown: string; html: string } {
+  const markdown = buildReviewersGuideMarkdown(validatorRuns?.length ? { ...input, validatorRuns } : input)
+  return { markdown, html: buildReviewersGuideHtml(markdown, input.studyId) }
 }

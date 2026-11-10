@@ -141,6 +141,52 @@ describe('XPT submission package', () => {
   })
 })
 
+describe('reviewer\'s guide with validator reports', () => {
+  it('lists each validator run and what it reported, explaining the findings expected by design', async () => {
+    const { p21Workbook } = await import('@/lib/cdisc/p21Report.testutil')
+    const { parseP21Report } = await import('@/lib/cdisc/p21Report')
+    const { reviewersGuideFor } = await import('./regulatory')
+    const config = JSON.parse(readFileSync(path.join(samples, 'protocol/study_config.json'), 'utf8')) as StudyConfig
+    const dir = path.join(samples, 'network')
+    const sites = await Promise.all(readdirSync(dir).map((f) => loadStudyPack(f, readFileSync(path.join(dir, f)))))
+    const cross = crossCheckSites(sites, config.expectedHashes, config.protectedSections, [...Object.keys(config.expectedHashes), ...Object.keys(config.protectedSections)])
+    const rows = sites.map((s) => {
+      const verdict = siteVerdict(s, cross, config.studyId, sites)
+      return { site: s, verdict, adopted: verdict.recommended === 'adopt' }
+    })
+    const out = await buildRegulatoryExport({ studyId: config.studyId, studyTitle: config.studyTitle, config, cross, rows, datasetFormat: 'xpt' })
+    const define = parseP21Report('define.xlsx', p21Workbook({ engine: 'PMDA 2411.1', config: 'Define.xml (PMDA)', issues: [['DEFINE', 'DD0139', "Standard 'ADaM' is not referenced", 'Warning', 2]] }))
+    const data = parseP21Report(
+      'adam.xlsx',
+      p21Workbook({
+        engine: 'PMDA 2411.1',
+        config: 'ADaM-IG 1.3 (PMDA)',
+        datasets: ['CMRESULT', 'CGCOHCOU'],
+        problems: ['MedDRA not configured'],
+        issues: [
+          ['GLOBAL', 'AD0001', 'Missing ADSL dataset', 'Reject', 1],
+          ['CGCOHCOU', 'AD9999', 'Dataset CGCOHCOU not validated', 'Warning', 1],
+          ['CMRESULT', 'AD9999', 'Dataset CMRESULT not validated', 'Warning', 1],
+          ['CMRESULT', 'SD1324', 'Define.xml/dataset variable label mismatch', 'Error', 3],
+        ],
+      }),
+    )
+    const g = reviewersGuideFor(out.reviewersGuideInput, [define, data]).markdown
+    expect(g).toContain('| V1 | Pinnacle 21 (software 1.0.9) | PMDA 2411.1 | Define.xml (PMDA) | define.xml | 2026-03-27 | 2026-11-11T02:06:28+09:00 |')
+    expect(g).toContain('| V2 | Pinnacle 21 (software 1.0.9) | PMDA 2411.1 | ADaM-IG 1.3 (PMDA) | 2 dataset(s) with define.xml |')
+    expect(g).toContain('Installation notes reported by the validator: MedDRA not configured.')
+    expect(g).toMatch(/\| DD0139 \| V1 \| Standard 'ADaM' is not referenced \| Warning \| 2 \| The datasets are aggregated results/)
+    expect(g).toMatch(/\| AD0001 \| V2 \| Missing ADSL dataset \| Reject \| 1 \| By design the study collects no subject-level data/)
+    expect(g).toContain('| AD9999 | V2 | Dataset dataset not validated (2 datasets) | Warning | 2 |')
+    // A finding not expected by design is listed for the sponsor to explain.
+    expect(g).toContain('| SD1324 | V2 | Define.xml/dataset variable label mismatch | Error | 3 | **[TO BE COMPLETED: explanation]** |')
+    for (const todo of ['validator, version, engine', 'whether the validator was run', 'add every issue reported']) expect(g).not.toContain(todo)
+    expect(g).not.toContain('someone')
+    // Without reports the guide is the one built at export.
+    expect(reviewersGuideFor(out.reviewersGuideInput).markdown).toBe(out.reviewersGuide.markdown)
+  })
+})
+
 describe('result tables offered for export', () => {
   it('marks the tables that copy the analysis specification', () => {
     const csv = new TextEncoder().encode('a\n1\n')

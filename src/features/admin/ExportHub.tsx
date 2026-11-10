@@ -1,11 +1,13 @@
 import * as React from 'react'
-import { Download, FileCode, FileText, Loader2, Package, Printer, ScrollText } from 'lucide-react'
+import { Download, FileCode, FileText, Loader2, Package, Printer, ScrollText, Trash2 } from 'lucide-react'
 import { useNetworkAnalysis } from './useNetworkAnalysis'
 import { useStudyStore } from '@/store/useStudyStore'
 import { addSignature } from '@/lib/security/signer'
 import { datasetFiles, DEFAULT_ADAM_CT_VERSION, type DatasetFormat } from '@/lib/cdisc/defineXml'
 import { AGENCIES, AGENCY_LABELS, AGENCY_NOTES, type Agency } from '@/lib/cdisc/validatorProfiles'
-import { buildHtmlReport, buildMarkdownReport, buildRegulatoryExport, datasetFormatLabel, listResultTables, type RegulatoryExport } from '@/lib/export/regulatory'
+import { buildHtmlReport, buildMarkdownReport, buildRegulatoryExport, datasetFormatLabel, listResultTables, reviewersGuideFor, type RegulatoryExport } from '@/lib/export/regulatory'
+import { parseP21Report, reportMismatches, runLabel, type ValidatorRun } from '@/lib/cdisc/p21Report'
+import { DropZone, type DroppedFile } from '@/features/common/DropZone'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -46,6 +48,26 @@ export function ExportHub() {
   const logExport = useStudyStore((s) => s.logExport)
   const coordinator = useStudyStore((s) => s.signers.find((x) => x.signer.signer.role === 'coordinator')?.signer)
   const [out, setOut] = React.useState<RegulatoryExport>()
+  /** Reports of validator runs on the generated package; they complete the reviewer's guide. */
+  const [runs, setRuns] = React.useState<ValidatorRun[]>([])
+  const [runError, setRunError] = React.useState<string>()
+  React.useEffect(() => {
+    setRuns([])
+    setRunError(undefined)
+  }, [out])
+  const guide = React.useMemo(() => (out ? reviewersGuideFor(out.reviewersGuideInput, runs) : undefined), [out, runs])
+  const addReports = (files: DroppedFile[]) => {
+    const errors: string[] = []
+    const added: ValidatorRun[] = []
+    for (const f of files)
+      try {
+        added.push(parseP21Report(f.name.split('/').pop()!, f.bytes))
+      } catch (e) {
+        errors.push(e instanceof Error ? e.message : String(e))
+      }
+    setRuns((r) => [...r.filter((x) => !added.some((a) => a.file === x.file)), ...added])
+    setRunError(errors.length ? errors.join('; ') : undefined)
+  }
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string>()
   const [defineXmlVersion, setDefineXmlVersion] = React.useState<DefineXmlVersion>('2.1')
@@ -259,10 +281,11 @@ export function ExportHub() {
                 <Button size="sm" variant="success" onClick={() => download(out.zipName, out.zipBlob)}><Download /> {out.zipName} ({formatBytes(out.zipBlob.size)})</Button>
                 <Button size="sm" variant="outline" onClick={() => download('define.xml', out.defineXml, 'application/xml')}><Download /> define.xml (v{out.standards.defineXml})</Button>
                 <span className="ml-2 text-xs text-muted-foreground">Reviewer's guide (draft, not in the ZIP):</span>
-                <Button size="sm" variant="outline" onClick={() => download(`${id}_adrg_draft.md`, out.reviewersGuide.markdown, 'text/markdown')}><FileText /> Markdown</Button>
-                <Button size="sm" variant="outline" onClick={() => download(`${id}_adrg_draft.html`, out.reviewersGuide.html, 'text/html')}><Download /> HTML</Button>
-                <Button size="sm" variant="outline" onClick={() => printHtml(out.reviewersGuide.html)}><Printer /> PDF (print)</Button>
+                <Button size="sm" variant="outline" onClick={() => download(`${id}_adrg_draft.md`, guide!.markdown, 'text/markdown')}><FileText /> Markdown</Button>
+                <Button size="sm" variant="outline" onClick={() => download(`${id}_adrg_draft.html`, guide!.html, 'text/html')}><Download /> HTML</Button>
+                <Button size="sm" variant="outline" onClick={() => printHtml(guide!.html)}><Printer /> PDF (print)</Button>
               </div>
+              <ValidatorReports out={out} runs={runs} error={runError} onFiles={addReports} onRemove={(file) => setRuns((r) => r.filter((x) => x.file !== file))} />
               <Conformance out={out} agency={agency} />
               <Tabs defaultValue="define">
                 <TabsList>
@@ -275,7 +298,7 @@ export function ExportHub() {
                   <p className="mb-2 text-xs text-muted-foreground">
                     Analysis Data Reviewer's Guide filled from the study, structured after the PHUSE ADRG template. Complete the parts marked “TO BE COMPLETED”, review every statement, and add the issues of your validator run.
                   </p>
-                  <MarkdownPreview markdown={out.reviewersGuide.markdown} className="max-h-[560px] overflow-auto rounded-md border p-4" />
+                  <MarkdownPreview markdown={guide!.markdown} className="max-h-[560px] overflow-auto rounded-md border p-4" />
                 </TabsContent>
                 <TabsContent value="define">
                   <pre className="max-h-[560px] overflow-auto rounded-md bg-slate-950 p-3 text-[11px] text-slate-100">{out.defineXml}</pre>
@@ -333,6 +356,47 @@ export function ExportHub() {
 const SEVERITY_VARIANT = { Reject: 'destructive', Error: 'destructive', Warning: 'warning' } as const
 
 /** Result of the define.xml conformance checks, rated for the chosen agency, and the findings expected by design. */
+/** Pinnacle 21 reports of this package: summarized here and written into sections 6.1 / 6.2 of the reviewer's guide. */
+function ValidatorReports({ out, runs, error, onFiles, onRemove }: { out: RegulatoryExport; runs: ValidatorRun[]; error?: string; onFiles: (f: DroppedFile[]) => void; onRemove: (file: string) => void }) {
+  const sasNames = [...datasetFiles(out.tables, out.standards.datasetFormat).values()].map((f) => f.sasName)
+  return (
+    <div className="flex flex-col gap-2 rounded-md border p-3 text-sm">
+      <div className="font-medium">Validator reports</div>
+      <p className="text-xs text-muted-foreground">
+        Run your validator (e.g. Pinnacle 21 Community) on the downloaded package, then add its Excel reports here: sections 6.1 and 6.2 of the reviewer's guide then list each run (engine, configuration, what was validated, date) and the issues it reported, with the explanation of every finding expected by design. Reports are read in the browser; local paths in them are reduced to file names.
+      </p>
+      <DropZone compact multiple accept=".xlsx" onFiles={onFiles} title="Drop Pinnacle 21 reports (.xlsx)" />
+      {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+      {runs.length > 0 && (
+        <Table>
+          <TableHeader>
+            <TableRow><TableHead>Run</TableHead><TableHead>Validated</TableHead><TableHead>Issues</TableHead><TableHead>Notes</TableHead><TableHead /></TableRow>
+          </TableHeader>
+          <TableBody>
+            {runs.map((r, n) => {
+              const mismatches = reportMismatches(r, sasNames)
+              const unexpected = r.issues.filter((x) => !out.conformance.expected.some((e) => e.p21 === x.id))
+              return (
+                <TableRow key={r.file} className="text-xs">
+                  <TableCell>V{n + 1}: {runLabel(r)}<div className="text-muted-foreground">{r.file}</div></TableCell>
+                  <TableCell>{r.datasets.length ? `${r.datasets.length} dataset(s) + define.xml` : 'define.xml'}</TableCell>
+                  <TableCell>{r.issues.map((x) => `${x.id} (${x.severity})`).join(', ') || 'none'}</TableCell>
+                  <TableCell>
+                    {mismatches.map((m) => <div key={m} className="text-amber-700">Not this package? {m}</div>)}
+                    {unexpected.length > 0 && <div className="text-amber-700">To explain in 6.2: {unexpected.map((x) => x.id).join(', ')}</div>}
+                    {!mismatches.length && !unexpected.length && <Badge variant="success">as expected</Badge>}
+                  </TableCell>
+                  <TableCell><Button size="icon" variant="ghost" onClick={() => onRemove(r.file)} aria-label={`Remove ${r.file}`}><Trash2 /></Button></TableCell>
+                </TableRow>
+              )
+            })}
+          </TableBody>
+        </Table>
+      )}
+    </div>
+  )
+}
+
 function Conformance({ out, agency }: { out: RegulatoryExport; agency: Agency }) {
   const { issues, expected } = out.conformance
   const rating = (s: Partial<Record<'FDA' | 'PMDA', 'Reject' | 'Error' | 'Warning'>>) => {

@@ -149,7 +149,8 @@ describe.skipIf(!out)('submission package from a real Strategus run on Eunomia',
       d.rows.forEach((r, ri) =>
         r.forEach((v, ci) => {
           const want = t.rows[ri][ci]
-          expect(v, `${t.name}[${ri}].${t.columns[ci].name}`).toEqual(typeof want === 'string' ? want.trimEnd() || null : want)
+          // IBM doubles have no negative zero: -0 reads back as 0.
+          expect(v, `${t.name}[${ri}].${t.columns[ci].name}`).toEqual(typeof want === 'string' ? want.trimEnd() || null : want === 0 ? 0 : want)
         }),
       )
     }

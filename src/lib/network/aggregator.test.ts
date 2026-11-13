@@ -9,9 +9,9 @@ import { crossCheckSites, loadStudyPack, siteVerdict, validateManifest, type Loa
 
 const samples = path.resolve(__dirname, '../../../samples')
 const enc = new TextEncoder()
-const config = JSON.parse(readFileSync(path.join(samples, 'protocol/study_config.json'), 'utf8')) as StudyConfig
+const config = JSON.parse(readFileSync(path.join(samples, 'standard/protocol/study_config.json'), 'utf8')) as StudyConfig
 const network = async () => {
-  const dir = path.join(samples, 'network')
+  const dir = path.join(samples, 'standard/packs')
   const sites = await Promise.all(readdirSync(dir).map((f) => loadStudyPack(f, readFileSync(path.join(dir, f)))))
   return Object.fromEntries(sites.map((s) => [s.siteId, s])) as Record<string, LoadedSitePack>
 }
@@ -174,12 +174,12 @@ describe('regulatory demo set (samples/regulatory)', () => {
     const issuer = proto.signatureChecks!.filter((c) => c.valid).map((c) => c.kid)
     expect(issuer).toHaveLength(1)
 
-    const rb = new Uint8Array(readFileSync(path.join(reg, 'signer_roster.json')))
-    const status = await verifyRoster(rb, parseJws(JSON.parse(readFileSync(path.join(reg, 'signer_roster.jws.json'), 'utf8'))), issuer)
+    const rb = new Uint8Array(readFileSync(path.join(reg, 'roster/signer_roster.json')))
+    const status = await verifyRoster(rb, parseJws(JSON.parse(readFileSync(path.join(reg, 'roster/signer_roster.jws.json'), 'utf8'))), issuer)
     expect(status.trust).toBe('signed-by-issuer')
     const roster = parseRoster(JSON.parse(new TextDecoder().decode(rb)))
 
-    const dir = path.join(reg, 'network')
+    const dir = path.join(reg, 'packs')
     const sites = await Promise.all(readdirSync(dir).map((f) => loadStudyPack(f, readFileSync(path.join(dir, f)), 5, new Date('2026-11-05T00:00:00Z'))))
     const cfg = proto.config!
     const cross = crossCheckSites(sites, cfg.expectedHashes, cfg.protectedSections, [...Object.keys(cfg.expectedHashes), ...Object.keys(cfg.protectedSections)])

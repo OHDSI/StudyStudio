@@ -1,0 +1,29 @@
+{
+  "sourceDatabase": { "dbName": "hospital_ehr" },
+  "cdmDatabase": { "dbName": "OMOP CDM v5.4" },
+  "tableToTableMaps": [
+    { "source": { "name": "patients" }, "target": { "name": "person" }, "logic": "One row per patient" },
+    { "source": { "name": "diagnoses" }, "target": { "name": "condition_occurrence" } }
+  ],
+  "tableToFieldMaps": [
+    {
+      "key": { "source": { "name": "patients" }, "target": { "name": "person" } },
+      "value": {
+        "fieldToFieldMaps": [
+          { "source": { "name": "patient_id", "table": { "name": "patients" } }, "target": { "name": "person_id", "table": { "name": "person" } }, "logic": "Hashed surrogate key" },
+          { "source": { "name": "sex", "table": { "name": "patients" } }, "target": { "name": "gender_concept_id", "table": { "name": "person" } }, "logic": "M→8507, F→8532" },
+          { "source": { "name": "birth_year", "table": { "name": "patients" } }, "target": { "name": "year_of_birth", "table": { "name": "person" } } }
+        ]
+      }
+    },
+    {
+      "key": { "source": { "name": "diagnoses" }, "target": { "name": "condition_occurrence" } },
+      "value": {
+        "fieldToFieldMaps": [
+          { "source": { "name": "icd10", "table": { "name": "diagnoses" } }, "target": { "name": "condition_concept_id", "table": { "name": "condition_occurrence" } }, "logic": "ICD10 → SNOMED via CONCEPT_RELATIONSHIP 'Maps to'" },
+          { "source": { "name": "dx_date", "table": { "name": "diagnoses" } }, "target": { "name": "condition_start_date", "table": { "name": "condition_occurrence" } } }
+        ]
+      }
+    }
+  ]
+}

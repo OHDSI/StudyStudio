@@ -11,8 +11,8 @@ const samples = path.resolve(__dirname, '../../../samples')
 
 describe('network demo end-to-end', () => {
   it('adopts the clean sites and exports a verifiable submission package', async () => {
-    const config = JSON.parse(readFileSync(path.join(samples, 'protocol/study_config.json'), 'utf8')) as StudyConfig
-    const dir = path.join(samples, 'network')
+    const config = JSON.parse(readFileSync(path.join(samples, 'standard/protocol/study_config.json'), 'utf8')) as StudyConfig
+    const dir = path.join(samples, 'standard/packs')
     const sites = await Promise.all(readdirSync(dir).map((f) => loadStudyPack(f, readFileSync(path.join(dir, f)))))
     const paths = [...Object.keys(config.expectedHashes), ...Object.keys(config.protectedSections)]
     const cross = crossCheckSites(sites, config.expectedHashes, config.protectedSections, paths)
@@ -135,8 +135,8 @@ describe('XPT submission package', () => {
   it('writes the datasets as SAS V5 transport files described by SAS names in define.xml', async () => {
     const { readXpt } = await import('@/lib/cdisc/xpt')
     const { checkDatasetsAgainstDefine } = await import('@/lib/cdisc/defineRules')
-    const config = JSON.parse(readFileSync(path.join(samples, 'protocol/study_config.json'), 'utf8')) as StudyConfig
-    const dir = path.join(samples, 'network')
+    const config = JSON.parse(readFileSync(path.join(samples, 'standard/protocol/study_config.json'), 'utf8')) as StudyConfig
+    const dir = path.join(samples, 'standard/packs')
     const sites = await Promise.all(readdirSync(dir).map((f) => loadStudyPack(f, readFileSync(path.join(dir, f)))))
     const cross = crossCheckSites(sites, config.expectedHashes, config.protectedSections, [...Object.keys(config.expectedHashes), ...Object.keys(config.protectedSections)])
     const rows = sites.map((s) => {
@@ -190,8 +190,8 @@ describe('reviewer\'s guide with validator reports', () => {
     const { p21Workbook } = await import('@/lib/cdisc/p21Report.testutil')
     const { parseP21Report } = await import('@/lib/cdisc/p21Report')
     const { reviewersGuideFor } = await import('./regulatory')
-    const config = JSON.parse(readFileSync(path.join(samples, 'protocol/study_config.json'), 'utf8')) as StudyConfig
-    const dir = path.join(samples, 'network')
+    const config = JSON.parse(readFileSync(path.join(samples, 'standard/protocol/study_config.json'), 'utf8')) as StudyConfig
+    const dir = path.join(samples, 'standard/packs')
     const sites = await Promise.all(readdirSync(dir).map((f) => loadStudyPack(f, readFileSync(path.join(dir, f)))))
     const cross = crossCheckSites(sites, config.expectedHashes, config.protectedSections, [...Object.keys(config.expectedHashes), ...Object.keys(config.protectedSections)])
     const rows = sites.map((s) => {
@@ -245,8 +245,8 @@ describe('result tables offered for export', () => {
 
 describe('deterministic export', () => {
   it('produces byte-identical define.xml and Dataset-JSON for the same packs, whatever the drop order', async () => {
-    const config = JSON.parse(readFileSync(path.join(samples, 'protocol/study_config.json'), 'utf8')) as StudyConfig
-    const dir = path.join(samples, 'network')
+    const config = JSON.parse(readFileSync(path.join(samples, 'standard/protocol/study_config.json'), 'utf8')) as StudyConfig
+    const dir = path.join(samples, 'standard/packs')
     const sites = await Promise.all(readdirSync(dir).map((f) => loadStudyPack(f, readFileSync(path.join(dir, f)))))
     const paths = [...Object.keys(config.expectedHashes), ...Object.keys(config.protectedSections)]
     const build = (order: typeof sites, now: Date) => {
@@ -272,8 +272,8 @@ describe('deterministic export', () => {
 describe('disposition audit trail in the submission', () => {
   it('records decisions with reasons and ships the chained log with the package', async () => {
     const { DispositionLog } = await import('@/lib/network/dispositionLog')
-    const config = JSON.parse(readFileSync(path.join(samples, 'protocol/study_config.json'), 'utf8')) as StudyConfig
-    const dir = path.join(samples, 'network')
+    const config = JSON.parse(readFileSync(path.join(samples, 'standard/protocol/study_config.json'), 'utf8')) as StudyConfig
+    const dir = path.join(samples, 'standard/packs')
     const sites = await Promise.all(readdirSync(dir).map((f) => loadStudyPack(f, readFileSync(path.join(dir, f)))))
     const cross = crossCheckSites(sites, config.expectedHashes, config.protectedSections, [...Object.keys(config.expectedHashes), ...Object.keys(config.protectedSections)])
     const log = new DispositionLog()

@@ -13,8 +13,8 @@ import { checkDatasetsAgainstDefine, checkDefineXml } from './defineRules'
 const samples = path.resolve(__dirname, '../../../samples')
 
 async function networkExport(version: (typeof DEFINE_XML_VERSIONS)[number], datasetJsonVersion: '1.1' | '1.0' = '1.1') {
-  const config = JSON.parse(readFileSync(path.join(samples, 'protocol/study_config.json'), 'utf8')) as StudyConfig
-  const dir = path.join(samples, 'network')
+  const config = JSON.parse(readFileSync(path.join(samples, 'standard/protocol/study_config.json'), 'utf8')) as StudyConfig
+  const dir = path.join(samples, 'standard/packs')
   const sites = await Promise.all(readdirSync(dir).map((f) => loadStudyPack(f, readFileSync(path.join(dir, f)))))
   const cross = crossCheckSites(sites, config.expectedHashes, config.protectedSections, [...Object.keys(config.expectedHashes), ...Object.keys(config.protectedSections)])
   const rows = sites.map((s) => {
@@ -33,7 +33,7 @@ describe('define.xml conformance', () => {
 })
 
 async function inputs(): Promise<DefineInput> {
-  const files = await readResultsZip(readFileSync(path.join(samples, 'site/strategus_results_Site_A.zip')))
+  const files = await readResultsZip(readFileSync(path.join(samples, 'site-inputs/clean/strategus_results_Site_A.zip')))
   const rdms = collectRdms(files)
   const dec = new TextDecoder()
   const resultTables = files

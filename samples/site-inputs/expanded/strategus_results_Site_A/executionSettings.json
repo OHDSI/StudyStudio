@@ -1,0 +1,15 @@
+{
+  "workDatabaseSchema": "scratch",
+  "cdmDatabaseSchema": "cdm",
+  "cohortTableNames": {
+    "cohortTable": "acei_angio_2026",
+    "attr_class": "CohortTableNames"
+  },
+  "workFolder": "~/acei_angio_2026/strategusInternals/MY_DATABASE",
+  "resultsFolder": "~/acei_angio_2026/results/MY_DATABASE",
+  "minCellCount": 5,
+  "attr_class": [
+    "CdmExecutionSettings",
+    "ExecutionSettings"
+  ]
+}

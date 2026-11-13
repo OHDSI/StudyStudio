@@ -38,28 +38,26 @@ Everything under `samples/` is synthetic. Switch roles with **Site Mode / Admin 
 1. **Admin Mode → Protocol Issuer**.
 2. Drop `samples/study-repo.zip` (or the files in `samples/study-repo/`).
 3. Review the analysis specification summary and fill in the study metadata.
-4. Issue the protocol. You get `<studyId>_protocol.zip` and `study_config.json`. Ready-made copies are in `samples/protocol/`.
+4. Issue the protocol. You get `<studyId>_protocol.zip` and `study_config.json`. Ready-made copies are in `samples/standard/protocol/`.
 
    The demo uses **Standard** assurance. Choosing **Regulatory** requires a coordinator signing key (**Create a signing key** in the same card).
 
 ### 2. Site: build a StudyPack
 1. **Site Mode**, then enter a **Site ID** (e.g. `Site_A`).
-2. **Step 1:** drop `samples/protocol/ACEI_ANGIO_2026_protocol.zip`. The spec, `ExecuteAnalyses.R` and `renv.lock` are filled in for you.
-3. **Step 2:** drop the files in `samples/site/`. They are assigned to slots by file name. For the Strategus results, use either:
-   - `strategus_results_Site_A.zip` (the drop zone), or
-   - the `strategus_results_Site_A/` folder (**Choose results folder…**).
+2. **Step 1:** drop `samples/standard/protocol/ACEI_ANGIO_2026_protocol.zip`. The spec, `ExecuteAnalyses.R` and `renv.lock` are filled in for you.
+3. **Step 2:** drop the whole `samples/site-inputs/clean/` folder (or all the files in it) on **Drop multiple files at once**. The files are assigned to slots by file name and `strategus_results_Site_A.zip` goes to the Strategus results. To try **Choose results folder…** instead, use `samples/site-inputs/expanded/strategus_results_Site_A/`.
    `run_record.json` and `executionSettings.json` inside the results folder (or a ZIP of it) are picked up too. `Strategus::zipResults()` keeps only the CSVs, so with its ZIP, drop those two files separately. `strategus-log.txt` goes into the log slot; credentials, hosts and user names in it are redacted by pattern before packing (check the redacted log before sending it).
 4. Review **Data quality & provenance evidence** (DQD gate, CDM / vocabulary versions, execution log, run record, time order).
 5. **Step 3:** **Download StudyPack**. If anything was masked or redacted, a `*.retention.json` receipt is also available (**Save retention receipt**; saved automatically in regulatory studies): keep it at the site and do not send it.
 
-To see the safety lock, use `samples/site/with_violations/` instead of the matching files in `samples/site/`: the results ZIP or folder, plus its `executionSettings.json`. Then:
+To see the safety lock, drop `samples/site-inputs/small-cells/` instead of `clean/`: the same files, but the results were exported uncensored and its `executionSettings.json` records `minCellCount: 0`. Then:
 - The audit finds small cells and blocks the download.
 - A warning says the results were exported with a lower `minCellCount` (0) than the protocol requires (5).
 - **One-click auto-masking** fixes the cells (`-5` by default), and the download unlocks.
 
 ### 3. Coordinator: verify and export
 1. **Admin Mode → Multi-Site Aggregator**. Optionally enter who you are (required in regulatory studies; every receipt and decision is attributed to that person).
-2. Drop the four packs in `samples/network/`. Optionally drop `samples/protocol/study_config.json` as well; without it, the majority hash is used as the reference.
+2. Drop the four packs in `samples/standard/packs/`. Optionally drop `samples/standard/protocol/study_config.json` as well; without it, the majority hash is used as the reference.
 3. Expected result:
 
    | Pack | Result | Why |
@@ -79,8 +77,8 @@ To see the safety lock, use `samples/site/with_violations/` instead of the match
 
 ### 4. Regulatory walkthrough (`samples/regulatory/`)
 The same study issued with **regulatory** assurance. All demo keys use the passphrase `demo-passphrase-not-secret` (demo only — never reuse these keys).
-1. **Site Mode:** drop `regulatory/protocol/ACEI_ANGIO_2026_protocol.zip`; the coordinator signature is verified. Load the files from `samples/site/` as above, then unlock `regulatory/keys/site_a_operator.key.json` in **Electronic signature** and download the signed StudyPack.
-2. **Admin Mode → Multi-Site Aggregator:** drop `regulatory/protocol/ACEI_ANGIO_2026_protocol.zip` as the reference, then `regulatory/signer_roster.json` together with `signer_roster.jws.json` (signed by the protocol issuer), enter your name, and drop the four packs in `regulatory/network/`:
+1. **Site Mode:** drop `regulatory/protocol/ACEI_ANGIO_2026_protocol.zip`; the coordinator signature is verified. Drop `samples/site-inputs/clean/` as above, then unlock `regulatory/keys/site_a_operator.key.json` in **Electronic signature** and download the signed StudyPack.
+2. **Admin Mode → Multi-Site Aggregator:** drop `regulatory/protocol/ACEI_ANGIO_2026_protocol.zip` as the reference, then `regulatory/roster/signer_roster.json` together with `signer_roster.jws.json` (signed by the protocol issuer), enter your name, and drop the four packs in `regulatory/packs/`:
 
    | Pack | Result | Why |
    |---|---|---|
@@ -91,7 +89,7 @@ The same study issued with **regulatory** assurance. All demo keys use the passp
 
 3. Record the recommendations, lock, and export. In a regulatory study the export stays disabled until the dispositions are locked.
 
-To see the data-quality gate stop a site, use `regulatory/site/dqd_results_structural_failure.json` instead of `site/dqd_results.json` in step 1: a required field fails on a table the study uses, and the StudyPack cannot be sealed.
+To see the data-quality gate stop a site, drop `samples/site-inputs/dqd-failure/` instead of `clean/` in step 1 (only its `dqd_results.json` differs): a required field fails on a table the study uses, and the StudyPack cannot be sealed.
 
 These gates are enforced by the library (`sealRefusals`, `buildRegulatoryExport`), not only by disabled buttons, so no code path in this tool produces a pack or submission that breaks them. A ZIP assembled by hand is caught by the coordinator's verification, not by these gates.
 
@@ -218,16 +216,18 @@ Every push to `main` runs the tests, builds `dist/` and deploys it to GitHub Pag
 
 ### Demo data reference (`samples/`)
 
+[`samples/README.md`](samples/README.md) lists what goes where. In short:
+
 | Path | Contents |
 |---|---|
 | `study-repo/`, `study-repo.zip` | Strategus study repository (template layout) for Protocol Issuer |
-| `protocol/` | Issued protocol: `study_config.json`, `ACEI_ANGIO_2026_protocol.zip` |
-| `site/` | Clean Site Mode inputs, including DQD results and a Strategus log. Results come as both a ZIP and an expanded folder, each with `executionSettings.json` and `run_record.json` |
-| `site/with_violations/` | Uncensored results (ZIP and folder) plus `executionSettings.json` with `minCellCount: 0` |
-| `network/` | Four StudyPacks: Site_A and Site_B clean, Site_C tampered, Site_D with edited protected code |
-| `regulatory/` | Regulatory-assurance set: signed protocol, demo keys (`keys/`, passphrase `demo-passphrase-not-secret`), signed signer roster, four signed packs |
-| `templates/` | Source files used by `npm run samples` |
-| `atlas_cohorts.json` | ATLAS cohort definitions the sample analysis specification is generated from (`npm run samples`) |
+| `site-inputs/clean/` | Everything Site Mode step 2 takes: DQD results, ETL files, a Strategus log, `executionSettings.json` and the results ZIP (with `run_record.json`). Drop the whole folder |
+| `site-inputs/small-cells/` | The same set with uncensored results and `minCellCount: 0` |
+| `site-inputs/dqd-failure/` | The same set with a structural DQD failure (blocks a regulatory pack) |
+| `site-inputs/expanded/` | The clean and small-cells results as expanded results folders, for **Choose results folder…** |
+| `standard/protocol/`, `standard/packs/` | Standard assurance: issued protocol, and four StudyPacks (Site_A and Site_B clean, Site_C tampered, Site_D with edited protected code) |
+| `regulatory/protocol/`, `regulatory/roster/`, `regulatory/packs/`, `regulatory/keys/` | Regulatory assurance: signed protocol, signed signer roster, four signed packs, demo keys (passphrase `demo-passphrase-not-secret`) |
+| `_source/` | Inputs of `npm run samples`: ATLAS cohort definitions, templates, site ETL files |
 
 The sample `renv.lock` and result values are illustrative. They are not a tested HADES release set.
 

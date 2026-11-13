@@ -1,15 +1,21 @@
 /**
- * Generates demo artifacts under samples/ (run: npm run samples).
+ * Generates demo artifacts under samples/ (run: npm run samples). See samples/README.md.
  *
- *   samples/study-repo/        a Strategus study repository (StrategusStudyRepoTemplate layout, synthetic)
- *   samples/study-repo.zip     the same, as GitHub "Download ZIP" would produce it
- *   samples/protocol/          study_config.json + <studyId>_protocol.zip issued by the coordinator
- *   samples/site/              Site Mode inputs: Strategus results as ZIP and as an expanded folder,
- *                              plus with_violations/ (uncensored export + executionSettings.json with minCellCount 0)
- *   samples/network/           four site StudyPacks for the Multi-Site Aggregator:
- *                              Site_A, Site_B clean (different INPUTS blocks — still a protocol match),
- *                              Site_C tampered after sealing, Site_D edited code below the protected marker
+ *   samples/study-repo/, study-repo.zip   a Strategus study repository (StrategusStudyRepoTemplate layout, synthetic),
+ *                                         as a folder and as GitHub "Download ZIP" would produce it
+ *   samples/site-inputs/<scenario>/       everything Site Mode step 2 takes (results ZIP, executionSettings.json, DQD,
+ *                                         log, ETL files), one complete set per scenario:
+ *                                         clean/, small-cells/ (uncensored, minCellCount 0),
+ *                                         dqd-failure/ (structural DQD failure: blocks a regulatory pack)
+ *   samples/site-inputs/expanded/         the clean and small-cells results as expanded results folders
+ *   samples/standard/protocol/            study_config.json + <studyId>_protocol.zip issued by the coordinator
+ *   samples/standard/packs/               four site StudyPacks for the Multi-Site Aggregator:
+ *                                         Site_A, Site_B clean (different INPUTS blocks — still a protocol match),
+ *                                         Site_C tampered after sealing, Site_D edited code below the protected marker
+ *   samples/regulatory/                   the same study with regulatory assurance: signed protocol, demo keys,
+ *                                         signed signer roster, four signed packs
  *
+ * Inputs: samples/_source/ (ATLAS cohort definitions, templates, site ETL files) and r/recordStrategusRun.R.
  * All data is synthetic. The analysis specification mirrors the structure written by
  * ParallelLogger::saveSettingsToJson() for a Strategus study; result tables and their
  * resultsDataModelSpecification.csv follow the HADES results data model column names.
@@ -59,7 +65,7 @@ const DEMO_PASSPHRASE = 'demo-passphrase-not-secret'
 // Analysis specification (synthetic, Strategus/ParallelLogger JSON structure)
 // ---------------------------------------------------------------------------
 function analysisSpecification(): string {
-  const cohorts = parseCirceText(readFileSync(path.join(root, 'atlas_cohorts.json'), 'utf8'))
+  const cohorts = parseCirceText(readFileSync(path.join(root, '_source/atlas_cohorts.json'), 'utf8'))
   const nc = [
     { cohortId: 2001, outcomeConceptId: 4299544, cohortName: 'Acanthosis nigricans' },
     { cohortId: 2002, outcomeConceptId: 376707, cohortName: 'Acute conjunctivitis' },
@@ -397,7 +403,7 @@ async function runRecord(results: Record<string, string | Uint8Array>, inputs: {
 }
 
 async function main() {
-  for (const d of ['study-repo', 'protocol', 'network']) rmSync(path.join(root, d), { recursive: true, force: true })
+  for (const d of ['study-repo', 'standard/protocol', 'standard/packs']) rmSync(path.join(root, d), { recursive: true, force: true })
 
   // ---- ScanReport --------------------------------------------------------
   const wb = XLSX.utils.book_new()
@@ -424,18 +430,17 @@ async function main() {
     'patients',
   )
   const scan = new Uint8Array(XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer)
-  out('site/ScanReport_sanitized.xlsx', scan)
 
   // ---- Study repository (coordinator) -------------------------------------
   const specText = analysisSpecification()
   // The run-record function is included from r/recordStrategusRun.R, so the sample always carries the current one.
-  const executeText = readFileSync(path.join(root, 'templates/ExecuteAnalyses.R'), 'utf8').replace(
+  const executeText = readFileSync(path.join(root, '_source/templates/ExecuteAnalyses.R'), 'utf8').replace(
     '# @include r/recordStrategusRun.R\n',
     readFileSync(path.join(root, '../r/recordStrategusRun.R'), 'utf8'),
   )
-  if (executeText.includes('@include')) throw new Error('templates/ExecuteAnalyses.R: unresolved @include')
-  const renvText = readFileSync(path.join(root, 'templates/renv.lock'), 'utf8')
-  const configYml = readFileSync(path.join(root, 'templates/config.yml'), 'utf8')
+  if (executeText.includes('@include')) throw new Error('_source/templates/ExecuteAnalyses.R: unresolved @include')
+  const renvText = readFileSync(path.join(root, '_source/templates/renv.lock'), 'utf8')
+  const configYml = readFileSync(path.join(root, '_source/templates/config.yml'), 'utf8')
   const repoFiles: Record<string, string> = {
     'inst/analysisSpecifications.json': specText,
     'ExecuteAnalyses.R': executeText,
@@ -458,34 +463,54 @@ async function main() {
     minCellCount: MIN,
     now,
   })
-  out('protocol/study_config.json', protocol.configBytes)
-  out(`protocol/${STUDY}_protocol.zip`, new Uint8Array(await (await protocolZip(protocol)).arrayBuffer()))
+  out('standard/protocol/study_config.json', protocol.configBytes)
+  out(`standard/protocol/${STUDY}_protocol.zip`, new Uint8Array(await (await protocolZip(protocol)).arrayBuffer()))
 
   // ---- Site Mode inputs -----------------------------------------------------
-  // Each results set is written twice: as the Strategus::zipResults() ZIP and as the expanded
-  // results/<databaseName> folder written by Strategus::execute() (for "Choose results folder…").
-  const writeResults = async (dir: string, name: string, files: Record<string, string>) => {
-    rmSync(path.join(root, dir, name), { recursive: true, force: true })
-    for (const [p, t] of Object.entries(files)) out(`${dir}/${name}/${p}`, t)
-    out(`${dir}/${name}.zip`, await zipOf(files))
-  }
-  rmSync(path.join(root, 'site/strategus_results_Site_A_with_violations.zip'), { force: true }) // old location
-  out('site/executionSettings.json', executionSettings(MIN))
-  out('site/dqd_results.json', dqdResults('Site_A'))
-  out('site/strategus-log.txt', strategusLog('Site_A'))
+  // Each scenario folder under site-inputs/ holds everything Site Mode step 2 takes, so the whole folder can be
+  // dropped at once. The results come as the Strategus::zipResults() ZIP; the same results as the expanded
+  // results/<databaseName> folder written by Strategus::execute() (for "Choose results folder…") are in
+  // site-inputs/expanded/, kept apart because a dropped folder is read recursively.
+  rmSync(path.join(root, 'site-inputs'), { recursive: true, force: true })
+  const etlFile = (p: string) => readFileSync(path.join(root, '_source/site', p))
   // What ExecuteAnalyses.R leaves in results/<databaseName>: module folders, executionSettings.json, run_record.json.
   const resultsFolder = async (files: Record<string, string>, min: number, execute = executeText) => {
     const withSettings = { ...files, 'executionSettings.json': executionSettings(min) }
     return { ...withSettings, 'run_record.json': await runRecord(withSettings, { spec: specText, execute, renv: renvText }) }
   }
-  await writeResults('site', 'strategus_results_Site_A', await resultsFolder(strategusResults('Site_A', 1, MIN), MIN))
+  const writeSiteInputs = async (dir: string, o: { resultsName: string; results: Record<string, string>; min: number; dqd: string; expanded: boolean }) => {
+    if (o.expanded) for (const [p, t] of Object.entries(o.results)) out(`site-inputs/expanded/${o.resultsName}/${p}`, t)
+    const d = `site-inputs/${dir}`
+    out(`${d}/${o.resultsName}.zip`, await zipOf(o.results))
+    out(`${d}/executionSettings.json`, executionSettings(o.min))
+    out(`${d}/dqd_results.json`, o.dqd)
+    out(`${d}/strategus-log.txt`, strategusLog('Site_A'))
+    out(`${d}/ScanReport_sanitized.xlsx`, scan)
+    for (const f of ['mapping_specification.json', 'vocabulary_version.json']) out(`${d}/${f}`, etlFile(f))
+  }
+  const cleanResults = await resultsFolder(strategusResults('Site_A', 1, MIN), MIN)
+  await writeSiteInputs('clean', { resultsName: 'strategus_results_Site_A', results: cleanResults, min: MIN, dqd: dqdResults('Site_A'), expanded: true })
   // Exported with minCellCount = 0 (no censoring) → small cells that OHDSI Study Studio must block. The matching
   // executionSettings.json records 0, so the "exported below the protocol's minCellCount" warning fires too.
-  out('site/with_violations/executionSettings.json', executionSettings(0))
-  await writeResults('site/with_violations', 'strategus_results_Site_A_with_violations', await resultsFolder(strategusResults('Site_A', 1, 0), 0))
+  await writeSiteInputs('small-cells', {
+    resultsName: 'strategus_results_Site_A_with_violations',
+    results: await resultsFolder(strategusResults('Site_A', 1, 0), 0),
+    min: 0,
+    dqd: dqdResults('Site_A'),
+    expanded: true,
+  })
+  // A required field fails on a table the study uses: a regulatory pack cannot be sealed. Only dqd_results.json
+  // differs from clean/, so the expanded results folder is not written again.
+  await writeSiteInputs('dqd-failure', {
+    resultsName: 'strategus_results_Site_A',
+    results: cleanResults,
+    min: MIN,
+    dqd: dqdResults('Site_A', { structuralFailure: true }),
+    expanded: false,
+  })
 
   // ---- Network demo packs -----------------------------------------------------
-  const siteFile = (p: string) => new Uint8Array(readFileSync(path.join(root, 'site', p)))
+  const siteFile = (p: string) => new Uint8Array(etlFile(p))
   const inputsFor = (siteId: string) =>
     executeText.replace('databaseName       <- "MY_DATABASE"', `databaseName       <- "${siteId}"`).replace('cdmDatabaseSchema  <- "cdm"', `cdmDatabaseSchema  <- "${siteId.toLowerCase()}_cdm"`)
   interface PackOptions {
@@ -558,26 +583,26 @@ async function main() {
 
   for (const [site, scale] of [['Site_A', 1], ['Site_B', 0.7]] as const) {
     const p = await makePack(site, scale)
-    out(`network/${p.name}`, p.bytes)
+    out(`standard/packs/${p.name}`, p.bytes)
   }
   // Tampered: a result edited after the manifest was sealed.
   const tampered = await makePack('Site_C', 1.3)
   const zip = await JSZip.loadAsync(tampered.bytes)
   const target = Object.keys(zip.files).find((p) => p.endsWith('results/CohortMethodModule/cm_result.csv'))!
   zip.file(target, (await zip.file(target)!.async('string')).replace(',3.12,', ',1.12,'))
-  out(`network/${tampered.name}`, await zip.generateAsync({ type: 'uint8array' }))
+  out(`standard/packs/${tampered.name}`, await zip.generateAsync({ type: 'uint8array' }))
   // Divergent: code below the protected marker edited (runs only some modules).
   const divergent = await makePack(
     'Site_D',
     0.9,
     inputsFor('Site_D').replace('  minCellCount = minCellCount\n)', '  minCellCount = minCellCount,\n  modulesToExecute = c("CohortGeneratorModule", "CohortMethodModule")\n)'),
   )
-  out(`network/${divergent.name}`, divergent.bytes)
+  out(`standard/packs/${divergent.name}`, divergent.bytes)
 
   // ---- Regulatory demo set ---------------------------------------------------
   // Keys are created once and reused, so re-running the generator keeps the same identities.
   // DEMO ONLY: the passphrase is public. Never reuse these keys.
-  for (const d of ['regulatory/protocol', 'regulatory/network']) rmSync(path.join(root, d), { recursive: true, force: true })
+  for (const d of ['regulatory/protocol', 'regulatory/packs']) rmSync(path.join(root, d), { recursive: true, force: true })
   const demoKey = async (file: string, signer: SignerInfo): Promise<UnlockedSigner> => {
     const keyPath = path.join(root, 'regulatory/keys', `${file}.key.json`)
     let kf = existsSync(keyPath) ? parseKeyFile(JSON.parse(readFileSync(keyPath, 'utf8'))) : undefined
@@ -630,8 +655,8 @@ async function main() {
     signers: [enrolled(coord), enrolled(opA, 'Site_A'), enrolled(piA, 'Site_A'), enrolled(opB, 'Site_B'), { ...enrolled(opD, 'Site_D'), revokedAt: '2026-11-04T00:00:00.000Z' }],
   }
   const rb = rosterBytes(roster)
-  out('regulatory/signer_roster.json', rb)
-  out('regulatory/signer_roster.jws.json', JSON.stringify(await addSignature(undefined, rb, coord, 'roster-approved', new Date('2026-10-26T00:00:00Z')), null, 2) + '\n')
+  out('regulatory/roster/signer_roster.json', rb)
+  out('regulatory/roster/signer_roster.jws.json', JSON.stringify(await addSignature(undefined, rb, coord, 'roster-approved', new Date('2026-10-26T00:00:00Z')), null, 2) + '\n')
 
   const sealedBy = (...s: UnlockedSigner[]) => s.map((signer) => ({ signer, meaning: (signer.signer.role === 'site-pi' ? 'approved-for-release' : 'sealed') as SignatureMeaning }))
   const regPacks = [
@@ -640,9 +665,7 @@ async function main() {
     await makePack('Site_C', 1.3, undefined, { protocol: regProtocol, signers: sealedBy(opC) }),
     await makePack('Site_D', 0.9, undefined, { protocol: regProtocol, signers: sealedBy(opD) }),
   ]
-  for (const p of regPacks) out(`regulatory/network/${p.name}`, p.bytes)
-  // Site Mode demo of the data-quality gate: with this DQD file a regulatory pack cannot be sealed.
-  out('regulatory/site/dqd_results_structural_failure.json', dqdResults('Site_A', { structuralFailure: true }))
+  for (const p of regPacks) out(`regulatory/packs/${p.name}`, p.bytes)
 
   console.log(`samples written to ${root}`)
 }

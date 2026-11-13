@@ -14,7 +14,7 @@ source("r/recordStrategusRun.R")
 out <- args[1]
 unlink(out, recursive = TRUE)
 dir.create(out, recursive = TRUE)
-sample <- "samples/site/strategus_results_Site_A"
+sample <- "samples/site-inputs/expanded/strategus_results_Site_A"
 files <- setdiff(list.files(sample, recursive = TRUE), "run_record.json")
 
 recordStrategusRun(

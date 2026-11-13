@@ -13,12 +13,12 @@ const samples = path.resolve(__dirname, '../../../samples')
 
 describe('sources', () => {
   it('parses Rabbit-In-A-Hat style mappings', () => {
-    const m = parseMappingSpec(JSON.parse(readFileSync(path.join(samples, 'site/mapping_specification.json'), 'utf8')))
+    const m = parseMappingSpec(JSON.parse(readFileSync(path.join(samples, 'site-inputs/clean/mapping_specification.json'), 'utf8')))
     expect(m.fieldMaps).toHaveLength(5)
     expect(m.tableMaps.map((t) => t.targetTable)).toEqual(['person', 'condition_occurrence'])
   })
   it('parses ScanReport Field Overview', () => {
-    const t = parseScanReport(readFileSync(path.join(samples, 'site/ScanReport_sanitized.xlsx')))
+    const t = parseScanReport(readFileSync(path.join(samples, 'site-inputs/clean/ScanReport_sanitized.xlsx')))
     expect(t.map((x) => x.name)).toEqual(['patients', 'diagnoses'])
     expect(t[0].fields[2]).toMatchObject({ name: 'birth_year', type: 'int' })
   })
@@ -27,7 +27,7 @@ describe('sources', () => {
 const spec = () => parseAnalysisSpecification(readFileSync(path.join(samples, 'study-repo/inst/analysisSpecifications.json'), 'utf8'))
 
 async function resultTables() {
-  const files = await readResultsZip(readFileSync(path.join(samples, 'site/strategus_results_Site_A.zip')))
+  const files = await readResultsZip(readFileSync(path.join(samples, 'site-inputs/clean/strategus_results_Site_A.zip')))
   const rdms = collectRdms(files)
   const dec = new TextDecoder()
   return files
@@ -164,7 +164,7 @@ describe('long text values', () => {
 
 describe('results re-audit used by the export', () => {
   it('passes the clean sample', async () => {
-    const audits = auditResultFiles(await readResultsZip(readFileSync(path.join(samples, 'site/strategus_results_Site_A.zip'))), { minCellCount: 5 })
+    const audits = auditResultFiles(await readResultsZip(readFileSync(path.join(samples, 'site-inputs/clean/strategus_results_Site_A.zip'))), { minCellCount: 5 })
     expect([...audits.values()].every((a) => a.passed)).toBe(true)
   })
 })

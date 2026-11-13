@@ -32,7 +32,7 @@ function siteFromFolder(folder: string) {
   }
   return files
 }
-const clean = () => siteFromFolder(path.join(samples, 'site/strategus_results_Site_A'))
+const clean = () => siteFromFolder(path.join(samples, 'site-inputs/expanded/strategus_results_Site_A'))
 const renvLockText = () => readFileSync(path.join(samples, 'study-repo/renv.lock'), 'utf8')
 
 async function check(files: Record<string, Uint8Array>, opts: { regulatory?: boolean; originals?: Record<string, Uint8Array>; declaredModified?: string[] } = {}) {
@@ -161,7 +161,7 @@ describe('run record', () => {
   })
 
   it('checks masked results against their originals at the site, and withholds their hashes in the pack', async () => {
-    const folder = path.join(samples, 'site/with_violations/strategus_results_Site_A_with_violations')
+    const folder = path.join(samples, 'site-inputs/expanded/strategus_results_Site_A_with_violations')
     const site = siteFromFolder(folder)
     // Mask like the app does, keeping the originals in memory.
     const resultList = Object.entries(site).filter(([p]) => p.startsWith('results/')).map(([p, b]) => ({ path: p.slice(8), bytes: b }))

@@ -17,8 +17,8 @@ const samples = path.resolve(__dirname, '../../../samples')
 
 describe.skipIf(!schemas)('define.xml against the CDISC schemas', () => {
   it.each(DEFINE_XML_VERSIONS)('Define-XML %s is schema-valid', async (version) => {
-    const config = JSON.parse(readFileSync(path.join(samples, 'protocol/study_config.json'), 'utf8')) as StudyConfig
-    const dir = path.join(samples, 'network')
+    const config = JSON.parse(readFileSync(path.join(samples, 'standard/protocol/study_config.json'), 'utf8')) as StudyConfig
+    const dir = path.join(samples, 'standard/packs')
     const sites = await Promise.all(readdirSync(dir).map((f) => loadStudyPack(f, readFileSync(path.join(dir, f)))))
     const cross = crossCheckSites(sites, config.expectedHashes, config.protectedSections, [...Object.keys(config.expectedHashes), ...Object.keys(config.protectedSections)])
     const rows = sites.map((s) => {

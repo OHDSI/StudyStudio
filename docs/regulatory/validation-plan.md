@@ -136,7 +136,7 @@ Acceptance: hash matches; browser is a supported version (‹list›).
 ### 7.2 Operational qualification (OQ)
 1. **Automated suite** (tool maintainer, per release): `npm ci && npm test` on the tagged release, with JUnit
    output kept as evidence (`npx vitest run --reporter=junit --outputFile=oq-results.xml`). Acceptance: all tests pass.
-2. **Scripted UI scenarios** on the released `index.html` with `samples/regulatory/` (demo passphrase `demo-passphrase-not-secret`):
+2. **Scripted UI scenarios** on the released `index.html` with `samples/regulatory/` and `samples/site-inputs/` (demo passphrase `demo-passphrase-not-secret`):
 
 | ID | Scenario | Expected result |
 |---|---|---|
@@ -147,7 +147,7 @@ Acceptance: hash matches; browser is a supported version (‹list›).
 | OQ-UI-5 | Coordinator: load roster + signature | "Signed by … (protocol issuer key)" |
 | OQ-UI-6 | Coordinator: enroll or revoke a signer | Roster signature no longer applies until re-signed |
 | OQ-UI-7 | Coordinator: load the four regulatory demo packs | Site_A, Site_B adopt; Site_C exclude (not enrolled); Site_D exclude (key revoked before receipt) |
-| OQ-UI-7b | Site: use `regulatory/site/dqd_results_structural_failure.json` | Packaging blocked by the data-quality gate |
+| OQ-UI-7b | Site: drop `site-inputs/dqd-failure/` | Packaging blocked by the data-quality gate |
 | OQ-UI-7c | Site: load the `with_violations` results (with their `run_record.json`) and mask | Run record shows every result as written; the sealed `evidence/run_record.json` withholds the masked files' hashes |
 | OQ-UI-7d | Site: before running `ExecuteAnalyses.R`, put a CSV from an earlier run that this run does not rewrite into the results folder; run, then load the folder | Run record reports the file as not written by the last run; packaging blocked |
 | OQ-UI-8 | Coordinator: generate the submission before locking | Blocked |

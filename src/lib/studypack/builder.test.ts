@@ -39,7 +39,7 @@ describe('sealRefusals: the library refuses to seal what the UI would block', ()
     const reg = path.join(samples, 'regulatory')
     const config = JSON.parse(readFileSync(path.join(reg, 'protocol/study_config.json'), 'utf8')) as StudyConfig
     const signer = await unlockKeyFile(await createKeyFile({ name: 'Op', organization: 'A', role: 'operator' }, 'long enough passphrase', { iterations: 1000 }), 'long enough passphrase')
-    const evidence = evaluateEvidence({ config, files: { 'evidence/dqd_results.json': new Uint8Array(readFileSync(path.join(reg, 'site/dqd_results_structural_failure.json'))) } })
+    const evidence = evaluateEvidence({ config, files: { 'evidence/dqd_results.json': new Uint8Array(readFileSync(path.join(samples, 'site-inputs/dqd-failure/dqd_results.json'))) } })
     const reasons = sealRefusals({
       ...base,
       assurance: 'regulatory',

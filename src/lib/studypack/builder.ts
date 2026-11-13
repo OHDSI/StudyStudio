@@ -15,7 +15,7 @@ import { addSignature, type DetachedJws, type SignatureMeaning, type UnlockedSig
 import { judgeEvidence, type SiteEvidence } from './evidence'
 import { GENERATED_PATHS } from './slots'
 import { redactRunRecord, RUN_RECORD_PACK_PATH, type RunRecordReport } from '@/lib/strategus/runRecord'
-import { PACK_VERSION, type AssuranceLevel, type FileRole, type GateSeverity, type ManifestFileEntry, type RoleMode, type SourcedTime, type StudyPackManifest } from '@/types/studypack'
+import { PACK_VERSION, type AssuranceLevel, type FileRole, type FrameworkName, type GateSeverity, type ManifestFileEntry, type RoleMode, type SourcedTime, type StudyPackManifest } from '@/types/studypack'
 
 export const APP_NAME = 'OHDSI Study Studio'
 export const APP_VERSION = '0.1.0'
@@ -64,6 +64,8 @@ export interface BuildPackParams {
   protocolChecks?: ProtocolCheck[]
   now?: Date
   assurance?: AssuranceLevel
+  /** How the results were produced (absent = Strategus). */
+  framework?: FrameworkName
   /** study_config.json exactly as received, and the coordinator's signature over it, if any. */
   protocolBytes?: Uint8Array
   protocolSignatureBytes?: Uint8Array
@@ -258,7 +260,7 @@ function buildRoCrate(p: BuildPackParams, generatedAt: string, entries: { path: 
         '@type': 'Dataset',
         identifier: p.studyId,
         name: p.studyTitle || p.studyId,
-        description: `StudyPack for study ${p.studyId} produced at site ${p.siteId} (OMOP CDM ${p.cdmVersion}, OHDSI Strategus).`,
+        description: `StudyPack for study ${p.studyId} produced at site ${p.siteId} (OMOP CDM ${p.cdmVersion}, ${p.framework === 'R script' ? 'R script' : 'OHDSI Strategus'}).`,
         datePublished: generatedAt,
         sourceOrganization: { '@id': `#site-${safeId(p.siteId)}` },
         ...(people.length ? { author: people.map((x) => ({ '@id': x['@id'] })) } : {}),

@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Download, FileCode, FileText, Loader2, Package, Printer, ScrollText, Trash2 } from 'lucide-react'
+import { Download, FileCode, FileText, Loader2, Package, Printer, ScrollText, Sheet, Trash2 } from 'lucide-react'
 import { useNetworkAnalysis } from './useNetworkAnalysis'
 import { useStudyStore } from '@/store/useStudyStore'
 import { addSignature } from '@/lib/security/signer'
@@ -20,6 +20,8 @@ import { Hash } from '@/features/common/Hash'
 import { MarkdownPreview } from '@/features/common/MarkdownPreview'
 import { download, formatBytes } from '@/lib/utils'
 import { safeId } from '@/lib/studypack/builder'
+import { mergeSiteResults } from '@/lib/network/mergeResults'
+import { isRScriptStudy } from '@/types/studypack'
 import { DEFINE_XML_VERSIONS, type DefineXmlVersion } from '@/lib/cdisc/defineXml'
 import { DATASET_JSON_VERSIONS, type DatasetJsonVersion } from '@/lib/cdisc/datasetJson'
 
@@ -104,6 +106,8 @@ export function ExportHub() {
   const studyId = config?.studyId ?? sites.find((s) => s.studyId)?.studyId ?? 'STUDY'
   const studyTitle = config?.studyTitle ?? studyId
   const id = safeId(studyId)
+  const rScript = isRScriptStudy(config ?? sites.find((s) => s.sealedProtocol)?.sealedProtocol)
+  const merged = React.useMemo(() => mergeSiteResults(adopted.map((r) => r.site)), [rows])
 
   // The network audit report depends only on the verification state, not on the submission standards.
   const report = React.useMemo(() => {
@@ -164,9 +168,11 @@ export function ExportHub() {
     <div className="flex flex-col gap-4">
       <Card>
         <CardHeader>
-          <CardTitle><ScrollText className="size-5" /> Export Hub (Regulatory)</CardTitle>
+          <CardTitle><ScrollText className="size-5" /> {rScript ? 'Export Hub' : 'Export Hub (Regulatory)'}</CardTitle>
           <CardDescription>
-            Review the cross-site audit report at any time, and export CDISC Define-XML and Dataset-JSON for the adopted sites.
+            {rScript
+              ? 'Review the cross-site audit report at any time, and download the adopted sites\' results merged into one CSV per table.'
+              : 'Review the cross-site audit report at any time, and export CDISC Define-XML and Dataset-JSON for the adopted sites.'}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
@@ -219,6 +225,35 @@ export function ExportHub() {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle><Sheet className="size-5" /> Merged results</CardTitle>
+          <CardDescription>
+            The adopted sites' result tables, stacked into one CSV per table with a leading <code>site_id</code> column. Values are copied as sealed (masked cells stay masked).
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2">
+          {merged.length === 0 ? (
+            <div className="text-sm text-muted-foreground">No adopted site yet.</div>
+          ) : (
+            <Table>
+              <TableBody>
+                {merged.map((m) => (
+                  <TableRow key={m.path} className="text-xs">
+                    <TableCell className="font-mono">{m.path.replace(/^_root\//, '')}</TableCell>
+                    <TableCell className="text-muted-foreground">{m.sites.length} site(s) · {m.rows.toLocaleString()} row(s)</TableCell>
+                    <TableCell className="text-right">
+                      <Button size="sm" variant="outline" onClick={() => download(`${id}_${m.fileName}`, m.csv, 'text/csv')}><Download /> CSV</Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {!rScript && (
       <Card>
         <CardHeader>
           <CardTitle><Package className="size-5" /> Submission package</CardTitle>
@@ -389,6 +424,7 @@ export function ExportHub() {
           )}
         </CardContent>
       </Card>
+      )}
     </div>
   )
 }

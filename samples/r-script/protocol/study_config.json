@@ -1,0 +1,21 @@
+{
+  "configVersion": "1.0.0",
+  "studyId": "FACT_REL_2026",
+  "studyTitle": "Which domains does FACT_RELATIONSHIP link? (synthetic demo)",
+  "description": "Share of fact_relationship rows per domain pair at each site. Relative values only; synthetic data.",
+  "cdmVersion": "5.4",
+  "issuedAt": "2026-11-01T09:00:00.000Z",
+  "minCellCount": 5,
+  "framework": {
+    "name": "R script",
+    "modules": []
+  },
+  "cohorts": [],
+  "expectedHashes": {},
+  "protectedSections": {
+    "code/ExecuteAnalyses.R": {
+      "marker": "# --- script starts here ----",
+      "sha256": "74fd8c3cf3847fd6cbbef24deaad3195dd504c73d909203d53bf348f7f00c5a3"
+    }
+  }
+}

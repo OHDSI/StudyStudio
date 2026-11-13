@@ -10,7 +10,7 @@ import type { SiteAuditReport } from '@/lib/studypack/builder'
 import { auditResultFiles, summarizeResultsAudit, type ResultsAuditSummary } from '@/lib/strategus/results'
 import { executionSettingsMinCellCount, PROTECTED_MARKER, protectedSectionHash } from '@/lib/strategus/executeScript'
 import { PROTOCOL_PATHS } from '@/lib/strategus/protocol'
-import type { ProtectedSection, StudyConfig, StudyPackManifest } from '@/types/studypack'
+import { isRScriptStudy, type ProtectedSection, type StudyConfig, type StudyPackManifest } from '@/types/studypack'
 import { summarizeDqd, type DqdSummary } from './dqd'
 import { parseJws, verifyDetachedJws, type DetachedJws, type SignatureCheck } from '@/lib/security/signer'
 import { judgeEvidence, type SiteEvidence } from '@/lib/studypack/evidence'
@@ -19,6 +19,17 @@ import { judgeEvidence, type SiteEvidence } from '@/lib/studypack/evidence'
 export const PROTOCOL_KEY_PATHS = [PROTOCOL_PATHS.analysisSpecifications, PROTOCOL_PATHS.executeAnalyses, PROTOCOL_PATHS.renvLock] as const
 /** Files that may carry a site-editable block; compared on the section below the marker when it is present. */
 export const SECTION_PATHS: Record<string, string> = { [PROTOCOL_PATHS.executeAnalyses]: PROTECTED_MARKER }
+
+/**
+ * The paths to compare across sites: everything the protocol pins, plus the Strategus key artifacts.
+ * An R script study pins only its script (and renv.lock when present).
+ */
+export function protocolKeyPaths(config: StudyConfig | undefined, sites: LoadedSitePack[]): string[] {
+  const pinned = [...Object.keys(config?.expectedHashes ?? {}), ...Object.keys(config?.protectedSections ?? {})]
+  const rScript = isRScriptStudy(config ?? sites.find((s) => s.sealedProtocol)?.sealedProtocol)
+  const base = rScript ? [PROTOCOL_PATHS.executeAnalyses, ...(sites.some((s) => s.files[PROTOCOL_PATHS.renvLock]) ? [PROTOCOL_PATHS.renvLock] : [])] : PROTOCOL_KEY_PATHS
+  return [...new Set([...base, ...pinned])]
+}
 
 export type IntegrityStatus = 'verified' | 'tampered' | 'invalid'
 
@@ -96,7 +107,11 @@ function parseJson<T>(bytes?: Uint8Array): T | undefined {
   }
 }
 
-export async function loadStudyPack(fileName: string, data: ArrayBuffer | Uint8Array, minCellCount = 5, now = new Date()): Promise<LoadedSitePack> {
+/**
+ * @param markers Protected-section markers by path, from the coordinator's protocol. Without them the
+ *   markers of the protocol sealed in the pack are used, then the Strategus template marker.
+ */
+export async function loadStudyPack(fileName: string, data: ArrayBuffer | Uint8Array, minCellCount = 5, now = new Date(), markers?: Record<string, string>): Promise<LoadedSitePack> {
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data)
   const zipSha256 = await sha256Hex(bytes)
   const errors: string[] = []
@@ -143,8 +158,10 @@ export async function loadStudyPack(fileName: string, data: ArrayBuffer | Uint8A
 
   const fileHashes: Record<string, string> = {}
   await Promise.all(Object.entries(files).map(async ([p, b]) => (fileHashes[p] = await sha256Hex(b))))
+  const sealedProtocol = parseJson<StudyConfig>(files[GENERATED_PATHS.protocol])
+  const sealedMarkers = Object.fromEntries(Object.entries(sealedProtocol?.protectedSections ?? {}).map(([p, s]) => [p, s.marker]))
   const sectionHashes: Record<string, string> = {}
-  for (const [p, marker] of Object.entries(SECTION_PATHS)) {
+  for (const [p, marker] of Object.entries({ ...SECTION_PATHS, ...sealedMarkers, ...markers })) {
     if (!files[p]) continue
     const h = await protectedSectionHash(dec.decode(files[p]), marker)
     if (h) sectionHashes[p] = h
@@ -207,7 +224,7 @@ export async function loadStudyPack(fileName: string, data: ArrayBuffer | Uint8A
     receivedAt: now.toISOString(),
     signature,
     signatureChecks,
-    sealedProtocol: parseJson<StudyConfig>(files[GENERATED_PATHS.protocol]),
+    sealedProtocol,
   }
 }
 
@@ -295,7 +312,7 @@ export function siteVerdict(site: LoadedSitePack, cross: CrossSiteResult, expect
     if (r.status === 'mismatch') add('PROTOCOL_DEVIATION', `${name} ${cross.references[p]?.kind === 'section' ? 'protected section' : 'definition'} mismatch`)
     if (r.status === 'missing') add('PROTOCOL_DEVIATION', `${name} missing`)
   }
-  if (!site.reAudit) add('INTEGRITY', 'No Strategus results')
+  if (!site.reAudit) add('INTEGRITY', isRScriptStudy(cfg ?? site.sealedProtocol) ? 'No results' : 'No Strategus results')
   else if (!site.reAudit.passed) add('PRIVACY', `${site.reAudit.smallCellCount + site.reAudit.identifierCount} small-cell/identifier finding(s) in ${site.reAudit.failing.length} result file(s)`)
 
   const sigs = ctx.signatures ?? site.signatureChecks

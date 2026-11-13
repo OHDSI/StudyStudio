@@ -93,6 +93,21 @@ To see the data-quality gate stop a site, drop `samples/site-inputs/dqd-failure/
 
 These gates are enforced by the library (`sealRefusals`, `buildRegulatoryExport`), not only by disabled buttons, so no code path in this tool produces a pack or submission that breaks them. A ZIP assembled by hand is caught by the coordinator's verification, not by these gates.
 
+### 5. R script study (`samples/r-script/`)
+A lightweight network study without Strategus: one `CodeToRun.R` that writes one aggregated CSV (here, the share of `FACT_RELATIONSHIP` rows per domain pair, after the question in [this forum thread](https://forums.ohdsi.org/t/26074)). Nothing in the script has to change for OHDSI Study Studio.
+1. **Admin Mode → Protocol Issuer:** drop `r-script/study-repo/CodeToRun.R` (or the repository ZIP). With no analysis specification it is taken as an **R script study**. The script is pinned below the comment line that separates the site settings from the analysis (`# --- script starts here ----` is suggested; pick another line, or the whole file). Only standard assurance is offered.
+2. **Site Mode:** drop `r-script/protocol/FACT_REL_2026_protocol.zip`, then the CSV in `r-script/site-inputs/`. Only the script and the results are asked for. The CSV holds percentages only, so the audit says that small cells could not be checked here.
+3. **Admin Mode → Multi-Site Aggregator:** drop `r-script/protocol/study_config.json` and the four packs in `r-script/packs/`:
+
+   | Pack | Result | Why |
+   |---|---|---|
+   | Site_A | ✅ adopt | clean (PostgreSQL) |
+   | Site_B | ✅ adopt | clean (SQL Server, other schema: only the settings above the marker differ) |
+   | Site_C | ❌ exclude | the query below the marker was changed |
+   | Site_D | ❌ exclude | a result was changed after sealing |
+
+4. **Export Hub → Merged results:** one CSV per result table, with the adopted sites' rows stacked under a `site_id` column. The CDISC submission package is for Strategus studies and is not shown.
+
 ## How it fits with OHDSI Strategus
 
 OHDSI Study Studio does **not** write or run analysis code. Analyses are designed and executed with OHDSI **Strategus** (HADES). OHDSI Study Studio handles everything around that run:
@@ -105,7 +120,7 @@ OHDSI Study Studio does **not** write or run analysis code. Analyses are designe
 | Site | 🏥 Site Mode | Adds DQD / ETL artifacts and the results. Audits, masks and seals them into `[siteId]_[studyId].studypack.zip` |
 | Coordinator | 🌐 Aggregator / Export Hub | Verifies the packs, adopts or excludes sites, exports the audit report and CDISC files |
 
-The [StrategusStudyRepoTemplate](https://github.com/ohdsi-studies/StrategusStudyRepoTemplate) layout is recognised but not required. R analyses that do not run through `Strategus::execute()` (for example a script that calls CohortMethod directly) are not supported: results are read as Strategus module folders. A StudyPack is an offline alternative to SFTP upload for sites that cannot reach the internet.
+The [StrategusStudyRepoTemplate](https://github.com/ohdsi-studies/StrategusStudyRepoTemplate) layout is recognised but not required. A repository with no analysis specification is an **R script study**: one script (e.g. `CodeToRun.R`) that writes aggregated CSVs is pinned and its results are audited, sealed, verified and merged the same way, with standard assurance only (there is no run record, data-quality gate or Strategus log to check). A StudyPack is an offline alternative to SFTP upload for sites that cannot reach the internet.
 
 ## What gets checked
 
@@ -115,7 +130,7 @@ The [StrategusStudyRepoTemplate](https://github.com/ohdsi-studies/StrategusStudy
 |---|---|
 | `definitions/analysisSpecifications.json` | SHA-256 of the whole file |
 | `code/renv.lock` | SHA-256 of the whole file |
-| `code/ExecuteAnalyses.R` | SHA-256 of the code **below** `DO NOT MODIFY BELOW THIS POINT`, so sites can still edit their INPUTS. Without the marker, the whole file is pinned. Any `.R` script that calls `Strategus::execute()` is accepted |
+| `code/ExecuteAnalyses.R` | SHA-256 of the code **below** `DO NOT MODIFY BELOW THIS POINT`, so sites can still edit their INPUTS. Without the marker, the whole file is pinned. Any `.R` script that calls `Strategus::execute()` is accepted. In an R script study this path holds the study script, pinned below the comment line the coordinator chose (or whole) |
 
 Every file in a pack is also listed with its SHA-256 in `manifest.json`, so a change after sealing is detected unless the manifest is rewritten too. A signature over `manifest.json` closes that gap.
 
@@ -227,6 +242,7 @@ Every push to `main` runs the tests, builds `dist/` and deploys it to GitHub Pag
 | `site-inputs/expanded/` | The clean and small-cells results as expanded results folders, for **Choose results folder…** |
 | `standard/protocol/`, `standard/packs/` | Standard assurance: issued protocol, and four StudyPacks (Site_A and Site_B clean, Site_C tampered, Site_D with edited protected code) |
 | `regulatory/protocol/`, `regulatory/roster/`, `regulatory/packs/`, `regulatory/keys/` | Regulatory assurance: signed protocol, signed signer roster, four signed packs, demo keys (passphrase `demo-passphrase-not-secret`) |
+| `r-script/` | An R script study: `study-repo/CodeToRun.R`, its protocol, a site's result CSV, and four packs (Site_A and Site_B clean, Site_C with an edited query, Site_D tampered). `npm run samples -- r-script` regenerates only this set |
 | `_source/` | Inputs of `npm run samples`: ATLAS cohort definitions, templates, site ETL files |
 
 The sample `renv.lock` and result values are illustrative. They are not a tested HADES release set.

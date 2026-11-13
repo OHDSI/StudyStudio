@@ -1,9 +1,9 @@
 import * as React from 'react'
 import { BookOpen, Download, FileCode2, FolderGit2, Loader2, Stamp } from 'lucide-react'
 import { useStudyStore } from '@/store/useStudyStore'
-import { issueProtocol, locateStudyRepo, protocolZip, PROTOCOL_PATHS, unzipRepo, type RepoFile } from '@/lib/strategus/protocol'
+import { issueProtocol, locateStudyRepo, protocolZip, PROTOCOL_PATHS, repoErrors, unzipRepo, type RepoFile } from '@/lib/strategus/protocol'
 import { parseAnalysisSpecification, type AnalysisSpecSummary } from '@/lib/strategus/spec'
-import { protectedSection, inputMinCellCount, PROTECTED_MARKER } from '@/lib/strategus/executeScript'
+import { commentLines, protectedSection, inputMinCellCount, PROTECTED_MARKER, suggestMarker } from '@/lib/strategus/executeScript'
 import { describeCohort } from '@/lib/codegen/circe'
 import { safeId } from '@/lib/studypack/builder'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -44,7 +44,12 @@ export function ProtocolIssuer() {
     }
   }, [repo])
   const spec = summary.spec
-  const hasMarker = repo?.executeText ? protectedSection(repo.executeText) !== undefined : false
+  const rScript = repo?.kind === 'R script'
+  /** R script studies: the comment line the script is pinned below ('' = whole file); undefined = suggested. */
+  const [markerChoice, setMarkerChoice] = React.useState<string>()
+  const suggested = rScript && repo?.executeText ? suggestMarker(repo.executeText) : undefined
+  const marker = rScript ? (markerChoice === undefined ? suggested : markerChoice || undefined) : PROTECTED_MARKER
+  const hasMarker = repo?.executeText && marker ? protectedSection(repo.executeText, marker) !== undefined : false
   const scriptMin = repo?.executeText ? inputMinCellCount(repo.executeText) : undefined
 
   const onFiles = async (files: DroppedFile[]) => {
@@ -56,18 +61,21 @@ export function ProtocolIssuer() {
     }
     // Merge with already-loaded artifacts so the repo can be assembled from several drops.
     const merged = locateStudyRepo(list)
+    const specText = merged.specText ?? repo?.specText
     const next = {
-      specText: merged.specText ?? repo?.specText,
+      // A specification from any drop makes it a Strategus study.
+      kind: specText ? ('Strategus' as const) : merged.executeText ? merged.kind : repo?.kind,
+      specText,
       executeText: merged.executeText ?? repo?.executeText,
       renvText: merged.renvText ?? repo?.renvText,
       studyName: merged.studyName ?? repo?.studyName,
       sources: { ...repo?.sources, ...Object.fromEntries(Object.entries(merged.sources).filter(([, v]) => v)) },
       errors: [] as string[],
     }
-    if (!next.specText) next.errors.push('analysisSpecifications.json not found (expected inst/analysisSpecifications.json)')
-    if (!next.executeText) next.errors.push('No execution script found (ExecuteAnalyses.R or an .R file calling Strategus::execute())')
-    if (!next.renvText) next.errors.push('renv.lock not found')
+    next.errors = repoErrors(next)
+    setMarkerChoice(undefined)
     setRepo(next)
+    if (next.kind === 'R script') setMeta((m) => ({ ...m, assurance: 'standard' }))
     if (next.studyName && !meta.studyId) setMeta((m) => ({ ...m, studyId: next.studyName!, studyTitle: m.studyTitle || next.studyName! }))
   }
 
@@ -76,7 +84,7 @@ export function ProtocolIssuer() {
     setBusy(true)
     setError(undefined)
     try {
-      const p = await issueProtocol(repo, { ...meta, studyId: meta.studyId.trim(), studyTitle: meta.studyTitle.trim(), signer: coordinator })
+      const p = await issueProtocol(repo, { ...meta, studyId: meta.studyId.trim(), studyTitle: meta.studyTitle.trim(), signer: coordinator, ...(rScript ? { marker: marker ?? null } : {}) })
       setIssued(p)
       const signatureChecks = p.signature ? await verifyDetachedJws(p.signature, p.configBytes) : undefined
       await setConfig(p.config, undefined, { config: p.config, configBytes: p.configBytes, signatureChecks, files: {}, errors: [] })
@@ -101,12 +109,13 @@ export function ProtocolIssuer() {
       <div className="flex flex-col gap-4 lg:col-span-3">
         <Card>
           <CardHeader>
-            <CardTitle><FolderGit2 className="size-5" /> 1. Strategus study repository</CardTitle>
+            <CardTitle><FolderGit2 className="size-5" /> 1. Study repository</CardTitle>
             <CardDescription>
               Design the study in R with the OHDSI{' '}
               <a className="underline" href={TEMPLATE_URL} target="_blank" rel="noreferrer">StrategusStudyRepoTemplate</a>{' '}
               or your own Strategus layout, then drop the repository ZIP (GitHub “Download ZIP”) or its files here: the analysis specification JSON,
               the R script that calls <code>Strategus::execute()</code> (e.g. <code>ExecuteAnalyses.R</code>), <code>renv.lock</code> (and optionally <code>config.yml</code>).
+              A repository without an analysis specification is taken as an <strong>R script study</strong>: one script (e.g. <code>CodeToRun.R</code>) that writes aggregated CSVs, with <code>renv.lock</code> optional.
               OHDSI Study Studio does not generate analysis code — it pins and distributes these artifacts.
             </CardDescription>
           </CardHeader>
@@ -115,15 +124,18 @@ export function ProtocolIssuer() {
             {repo && (
               <Table>
                 <TableBody>
-                  {(Object.keys(PROTOCOL_PATHS) as (keyof typeof PROTOCOL_PATHS)[]).map((k) => (
+                  {(Object.keys(PROTOCOL_PATHS) as (keyof typeof PROTOCOL_PATHS)[]).filter((k) => !rScript || k !== 'analysisSpecifications').map((k) => (
                     <TableRow key={k} className="text-xs">
                       <TableCell className="font-mono">{PROTOCOL_PATHS[k]}</TableCell>
-                      <TableCell>{repo.sources[k] ? <span className="text-muted-foreground">from {repo.sources[k]}</span> : <Badge variant="destructive">missing</Badge>}</TableCell>
+                      <TableCell>
+                        {repo.sources[k] ? <span className="text-muted-foreground">from {repo.sources[k]}</span> : rScript ? <Badge variant="outline">optional</Badge> : <Badge variant="destructive">missing</Badge>}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
             )}
+            {rScript && <Badge variant="secondary" className="w-fit">R script study · standard assurance</Badge>}
             {repo && (
               <Button variant="ghost" size="sm" className="w-fit" onClick={() => setRepo(undefined)}>Clear</Button>
             )}
@@ -204,7 +216,7 @@ export function ProtocolIssuer() {
             <Field label="Assurance level">
               <Select value={meta.assurance} onChange={(e) => setMeta({ ...meta, assurance: e.target.value as AssuranceLevel })}>
                 <option value="standard">Standard (academic network study)</option>
-                <option value="regulatory">Regulatory (stricter controls, for submission use)</option>
+                <option value="regulatory" disabled={rScript}>Regulatory (stricter controls, for submission use){rScript ? ' — Strategus studies only' : ''}</option>
               </Select>
             </Field>
             <Field label="Required vocabulary version (optional)" className="md:col-span-2">
@@ -231,11 +243,26 @@ export function ProtocolIssuer() {
           <CardHeader>
             <CardTitle><Stamp className="size-5" /> 4. Issue protocol</CardTitle>
             <CardDescription>
-              Pins analysisSpecifications.json and renv.lock (whole-file SHA-256). The execution script is pinned below “{PROTECTED_MARKER}” when that marker is present (sites still fill in their INPUTS block), otherwise as a whole file.
+              {rScript
+                ? 'Pins the R script below the chosen line (sites still edit their connection settings above it), or as a whole file, and renv.lock when present.'
+                : <>Pins analysisSpecifications.json and renv.lock (whole-file SHA-256). The execution script is pinned below “{PROTECTED_MARKER}” when that marker is present (sites still fill in their INPUTS block), otherwise as a whole file.</>}
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
-            {repo?.executeText && (
+            {rScript && repo?.executeText && (
+              <Field label="Pin the script below this line">
+                <Select value={marker ?? ''} onChange={(e) => setMarkerChoice(e.target.value)} aria-label="Marker line">
+                  <option value="">Whole file (sites must not edit it)</option>
+                  {commentLines(repo.executeText).map((l) => (
+                    <option key={l} value={l}>{l.length > 70 ? l.slice(0, 70) + '…' : l}{l === suggested ? ' (suggested)' : ''}</option>
+                  ))}
+                </Select>
+                <span className="text-xs text-muted-foreground">
+                  {marker ? 'Everything below this line must be identical at every site; the lines above it (database, schema, connection) may differ.' : 'No boundary line chosen: any edit, including connection settings, is a protocol deviation.'}
+                </span>
+              </Field>
+            )}
+            {!rScript && repo?.executeText && (
               <div className="text-xs text-muted-foreground">
                 Execution script: {hasMarker ? <>protected section below “{PROTECTED_MARKER}” will be pinned.</> : <>no “{PROTECTED_MARKER}” marker — the whole file will be pinned, so sites must not edit it (configure via environment variables or config.yml instead).</>}
               </div>

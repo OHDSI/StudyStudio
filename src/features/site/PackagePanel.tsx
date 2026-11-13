@@ -3,6 +3,7 @@ import { AlertTriangle, Archive, CheckCircle2, Download, Loader2, Lock, PackageC
 import { exportedMinCellCount, siteFiles, siteHashes, useStudyStore, type SlotFile } from '@/store/useStudyStore'
 import { evaluateReadiness } from '@/lib/studypack/readiness'
 import { evaluateEvidence } from '@/lib/studypack/evidence'
+import { isRScriptStudy } from '@/types/studypack'
 import { buildStudyPack, packFileName, retentionFileName, type BuiltPack, type ProtocolCheck } from '@/lib/studypack/builder'
 import { kidFingerprint } from '@/lib/security/signer'
 import { SigningKeys } from '@/features/common/SigningKeys'
@@ -63,9 +64,11 @@ export function PackagePanel() {
       const pack = await buildStudyPack({
         now,
         assurance: config.assurance ?? 'standard',
+        framework: config.framework?.name,
         protocolBytes: protocol?.bytes,
         protocolSignatureBytes: protocol?.signatureBytes,
-        evidence: evaluateEvidence({ config, files: siteFiles({ slots, results }), hashes: siteHashes({ slots, results }), sealedAt: now.toISOString() }),
+        // An R script study has no Strategus evidence (DQD, log, run record) to seal.
+        evidence: isRScriptStudy(config) ? undefined : evaluateEvidence({ config, files: siteFiles({ slots, results }), hashes: siteHashes({ slots, results }), sealedAt: now.toISOString() }),
         signers,
         studyId: config.studyId,
         studyTitle: config.studyTitle,

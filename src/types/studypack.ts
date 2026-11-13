@@ -48,6 +48,11 @@ export interface CohortRef {
   roles: string[]
 }
 
+export type FrameworkName = 'Strategus' | 'R script'
+
+/** A study run by a single R script rather than Strategus (absent framework = Strategus). */
+export const isRScriptStudy = (config?: { framework?: { name?: string } }) => config?.framework?.name === 'R script'
+
 /** A file section that must be identical across sites (the rest of the file is site-editable). */
 export interface ProtectedSection {
   /** Line marker; everything after the line containing it is hashed. */
@@ -70,7 +75,11 @@ export interface StudyConfig {
   issuedAt: string
   /** Minimum reportable cell count. Values in 1..(minCellCount-1) are violations. */
   minCellCount: number
-  framework: { name: 'Strategus'; modules: string[] }
+  /**
+   * `Strategus`: an analysis specification run by Strategus::execute().
+   * `R script`: a single R script (e.g. CodeToRun.R) that writes aggregated CSVs; standard assurance only.
+   */
+  framework: { name: FrameworkName; modules: string[] }
   cohorts: CohortRef[]
   /** Expected SHA-256 of whole files, keyed by StudyPack path. */
   expectedHashes: Record<string, string>

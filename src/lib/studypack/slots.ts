@@ -1,4 +1,4 @@
-import type { FileRole } from '@/types/studypack'
+import { isRScriptStudy, type FileRole, type StudyConfig } from '@/types/studypack'
 
 export type SlotId =
   | 'scanReport'
@@ -39,6 +39,18 @@ export const SLOTS: SlotDef[] = [
   { id: 'runRecord', path: 'evidence/run_record.json', role: 'evidence', label: 'run_record.json', description: 'Run record written by recordStrategusRun() in ExecuteAnalyses.R: hashes of the inputs, results and loaded packages. Picked up from the results folder or ZIP (required for regulatory studies)', accept: ['.json'], required: false, audited: false, fromProtocol: false },
   { id: 'executionLog', path: 'logs/execution.log', role: 'evidence', label: 'Strategus log', description: 'Strategus / ParallelLogger execution log. Credentials, hosts and user names are redacted; the original stays at the site (required for regulatory studies)', accept: ['.log', '.txt'], required: false, audited: false, fromProtocol: false },
 ]
+
+/**
+ * The slots a study uses. An R script study has no analysis specification, DQD, Strategus log or run
+ * record: only the pinned script (and renv.lock when the protocol pins one) plus its result CSVs.
+ */
+export function slotsFor(config?: Pick<StudyConfig, 'framework' | 'expectedHashes'>): SlotDef[] {
+  if (!isRScriptStudy(config)) return SLOTS
+  return [
+    { ...SLOT_BY_ID.executeAnalyses, label: 'R script', description: 'The study script (e.g. CodeToRun.R) from the protocol. If the protocol pins it below a marker line, only the settings above that line may differ.' },
+    { ...SLOT_BY_ID.renvLock, required: !!config?.expectedHashes?.[SLOT_BY_ID.renvLock.path] },
+  ]
+}
 
 export const SLOT_BY_ID: Record<SlotId, SlotDef> = Object.fromEntries(SLOTS.map((s) => [s.id, s])) as Record<SlotId, SlotDef>
 export const SLOT_BY_PATH: Record<string, SlotDef> = Object.fromEntries(SLOTS.map((s) => [s.path, s]))
@@ -82,6 +94,8 @@ export interface BulkIngestPlan {
   protectedByProtocol: { name: string; slotId: SlotId }[]
   /** ZIP archives — treated as a Strategus results archive. */
   resultsArchives: string[]
+  /** Loose CSVs, taken as results (R script studies only). */
+  resultCsvs: string[]
   unknown: string[]
 }
 
@@ -89,11 +103,15 @@ export interface BulkIngestPlan {
  * Decide where each bulk-dropped file goes. Protocol-distributed artifacts loaded from the protocol
  * ZIP are never replaced this way, so a stray local copy cannot silently diverge from the protocol hash.
  */
-export function planBulkIngest(fileNames: string[], protocolFilled: ReadonlySet<SlotId>): BulkIngestPlan {
-  const plan: BulkIngestPlan = { assign: [], protectedByProtocol: [], resultsArchives: [], unknown: [] }
+export function planBulkIngest(fileNames: string[], protocolFilled: ReadonlySet<SlotId>, opts: { csvAsResults?: boolean } = {}): BulkIngestPlan {
+  const plan: BulkIngestPlan = { assign: [], protectedByProtocol: [], resultsArchives: [], resultCsvs: [], unknown: [] }
   for (const name of fileNames) {
     if (/\.zip$/i.test(name)) {
       plan.resultsArchives.push(name)
+      continue
+    }
+    if (opts.csvAsResults && /\.csv$/i.test(name)) {
+      plan.resultCsvs.push(name)
       continue
     }
     const slotId = guessSlot(name)

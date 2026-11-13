@@ -122,3 +122,7 @@ signature, sealed protocol, coordinator signature and blocking evidence) and `bu
    Masked results are compared with the record at the site only: their hashes are withheld in the sealed
    copy (R5.3), so for those files the coordinator relies on the site's audit report (signed in `regulatory` mode).
    The script is hashed from disk: code run line by line from an unsaved editor is not what the record shows.
+8. R script studies (a single script such as `CodeToRun.R`, no Strategus) are standard assurance only: there is
+   no run record, data-quality gate or execution log, so nothing ties the sealed CSVs to a run of the pinned
+   script. When a result holds only relative values (e.g. percentages), the small-cell audit has no count column
+   to check; the script itself must suppress small counts.

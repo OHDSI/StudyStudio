@@ -12,6 +12,10 @@ Everything here is synthetic. `npm run samples` regenerates it (`scripts/make-sa
 | **Site Mode → Step 2** | one whole folder from `site-inputs/`: `clean/`, `small-cells/` or `dqd-failure/` |
 | **Admin → Multi-Site Aggregator** | standard: `standard/protocol/study_config.json`, then `standard/packs/` |
 | | regulatory: `regulatory/protocol/ACEI_ANGIO_2026_protocol.zip`, `regulatory/roster/`, then `regulatory/packs/` |
+| | R script study: `r-script/protocol/study_config.json`, then `r-script/packs/` |
+
+For the R script study, Protocol Issuer takes `r-script/study-repo/CodeToRun.R`, and Site Mode takes
+`r-script/protocol/FACT_REL_2026_protocol.zip` then the CSV in `r-script/site-inputs/`.
 
 ## Folders
 
@@ -31,6 +35,11 @@ samples/
 │   ├── roster/                   signer roster signed by the protocol issuer
 │   ├── packs/                    Site_A, Site_B adopted · Site_C key not enrolled · Site_D key revoked
 │   └── keys/                     demo keys, passphrase demo-passphrase-not-secret (never reuse them)
+├── r-script/                     R script study (no Strategus): one CodeToRun.R, one aggregated CSV
+│   ├── study-repo/CodeToRun.R    the study script (input of the generator, not regenerated)
+│   ├── protocol/                 issued protocol, pinned below "# --- script starts here ----"
+│   ├── site-inputs/              the CSV a site's run wrote (percentages only)
+│   └── packs/                    Site_A, Site_B clean · Site_C edited query · Site_D tampered
 └── _source/                      inputs of npm run samples (ATLAS cohorts, templates, site ETL files)
 ```
 

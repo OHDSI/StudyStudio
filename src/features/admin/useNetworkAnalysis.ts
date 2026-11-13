@@ -1,10 +1,11 @@
 import * as React from 'react'
 import { useStudyStore } from '@/store/useStudyStore'
-import { crossCheckSites, PROTOCOL_KEY_PATHS, siteVerdict } from '@/lib/network/aggregator'
+import { crossCheckSites, protocolKeyPaths, siteVerdict } from '@/lib/network/aggregator'
 import { evaluateEvidence } from '@/lib/studypack/evidence'
 import { withEnrollment } from '@/lib/security/signer'
 import { DEFAULT_REASON_CODES } from '@/lib/network/dispositionLog'
 import type { SiteRow } from '@/lib/export/regulatory'
+import { isRScriptStudy } from '@/types/studypack'
 
 /** Derived network state shared by the Aggregator and Export Hub. */
 export function useNetworkAnalysis() {
@@ -17,7 +18,7 @@ export function useNetworkAnalysis() {
   return React.useMemo(() => {
     const expected = config?.expectedHashes ?? {}
     const sections = config?.protectedSections ?? {}
-    const paths = [...new Set([...PROTOCOL_KEY_PATHS, ...Object.keys(expected), ...Object.keys(sections)])]
+    const paths = protocolKeyPaths(config, sites)
     const cross = crossCheckSites(sites, expected, sections, paths)
     const decisions = log.decisions()
     // In a regulatory study an enrollment only counts if the roster is signed by the protocol issuer.
@@ -25,7 +26,8 @@ export function useNetworkAnalysis() {
     const rosterIssue = regulatory && roster && rosterStatus?.trust !== 'signed-by-issuer' ? rosterStatus?.message ?? 'The signer roster is not verified' : undefined
     const rows: SiteRow[] = sites.map((site) => {
       // Re-evaluate each pack's evidence under the coordinator's protocol (or the one the site sealed with).
-      const evidence = evaluateEvidence({
+      // An R script study has no Strategus evidence (DQD, CDM metadata, log, run record) to judge.
+      const evidence = isRScriptStudy(config ?? site.sealedProtocol) ? undefined : evaluateEvidence({
         config: config ?? site.sealedProtocol,
         files: site.files,
         sealedAt: site.manifest?.sealedAt?.utc ?? site.manifest?.generatedAt,

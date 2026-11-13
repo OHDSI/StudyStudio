@@ -2,17 +2,19 @@
  * Protocol issuance from a Strategus study repository. The ohdsi-studies/StrategusStudyRepoTemplate
  * layout is recognised, but not required: any repository with a Strategus analysis specification,
  * an R script that calls Strategus::execute() and a renv.lock works.
+ * A repository without an analysis specification is an "R script" study: one R script (e.g. CodeToRun.R)
+ * that writes aggregated CSVs, pinned the same way, with renv.lock optional and standard assurance only.
  * The coordinator's repository is the source of truth; OHDSI Study Studio pins its artifacts with SHA-256
  * and distributes them to sites as <studyId>_protocol.zip.
  */
 import JSZip from 'jszip'
 import { sha256Hex } from '@/lib/integrity/hasher'
-import type { AssuranceLevel, StudyConfig } from '@/types/studypack'
+import type { AssuranceLevel, FrameworkName, StudyConfig } from '@/types/studypack'
 import { defaultDqdPolicy, studyTablesFor } from '@/lib/audit/dqdAuditor'
 import { DEFAULT_REASON_CODES } from '@/lib/network/dispositionLog'
 import { addSignature, parseJws, verifyDetachedJws, type DetachedJws, type SignatureCheck, type UnlockedSigner } from '@/lib/security/signer'
 import { parseAnalysisSpecification, type AnalysisSpecSummary } from './spec'
-import { PROTECTED_MARKER, protectedSectionHash } from './executeScript'
+import { PROTECTED_MARKER, protectedSectionHash, suggestMarker } from './executeScript'
 
 export const PROTOCOL_PATHS = {
   analysisSpecifications: 'definitions/analysisSpecifications.json',
@@ -26,6 +28,8 @@ export interface RepoFile {
 }
 
 export interface StudyRepo {
+  /** Strategus when an analysis specification was found, else R script. Absent = Strategus. */
+  kind?: FrameworkName
   specText?: string
   executeText?: string
   renvText?: string
@@ -57,26 +61,41 @@ export function locateStudyRepo(files: RepoFile[]): StudyRepo {
     shallowest(paths.filter((p) => /(^|\/)inst\/analysisSpecifications?\.json$/i.test(p))) ??
     shallowest(paths.filter((p) => /analysisSpecifications?\.json$/i.test(p) && !/(^|\/)es[A-Z_]?/i.test(p.split('/').pop()!) && notVendored(p)))
   const text0 = (p: string) => dec.decode(files.find((f) => f.path === p)!.bytes)
+  const rScripts = paths.filter((p) => /\.R$/i.test(p) && notVendored(p))
   const execute =
     shallowest(paths.filter((p) => /(^|\/)ExecuteAnalyses\.R$/i.test(p) && notVendored(p))) ??
-    shallowest(paths.filter((p) => /\.R$/i.test(p) && notVendored(p) && /Strategus::execute\s*\(/.test(text0(p))))
+    shallowest(rScripts.filter((p) => /Strategus::execute\s*\(/.test(text0(p)))) ??
+    // No Strategus: an R script study runs CodeToRun.R, or the repository's only top-level script.
+    (spec ? undefined : shallowest(rScripts.filter((p) => /(^|\/)CodeToRun\.R$/i.test(p))) ?? onlyTopLevel(rScripts))
   const renv = shallowest(paths.filter((p) => /(^|\/)renv\.lock$/i.test(p) && notVendored(p)))
   const config = shallowest(paths.filter((p) => /(^|\/)config\.yml$/i.test(p) && notVendored(p)))
   const text = (p?: string) => (p ? dec.decode(files.find((f) => f.path === p)!.bytes) : undefined)
 
-  const errors: string[] = []
-  if (!spec) errors.push('analysisSpecifications.json not found (expected inst/analysisSpecifications.json)')
-  if (!execute) errors.push('No execution script found (ExecuteAnalyses.R or an .R file calling Strategus::execute())')
-  if (!renv) errors.push('renv.lock not found')
   const studyName = text(config)?.match(/^\s*studyName:\s*["']?([^"'\n#]+?)["']?\s*(#.*)?$/m)?.[1]?.trim()
+  const executeText = text(execute)
+  const kind: FrameworkName = spec || !executeText || /Strategus::execute\s*\(/.test(executeText) ? 'Strategus' : 'R script'
+  const repo = { kind, specText: text(spec), executeText, renvText: text(renv) }
   return {
-    specText: text(spec),
-    executeText: text(execute),
-    renvText: text(renv),
+    ...repo,
     studyName,
     sources: { analysisSpecifications: spec, executeAnalyses: execute, renvLock: renv },
-    errors,
+    errors: repoErrors(repo),
   }
+}
+
+function onlyTopLevel(paths: string[]): string | undefined {
+  const top = paths.filter((p) => depth(p) === Math.min(...paths.map(depth)))
+  return top.length === 1 ? top[0] : undefined
+}
+
+/** What is still missing before a protocol can be issued from these artifacts. */
+export function repoErrors(r: Pick<StudyRepo, 'kind' | 'specText' | 'executeText' | 'renvText'>): string[] {
+  if (r.kind === 'R script') return r.executeText ? [] : ['No R script found (CodeToRun.R, or a single .R file at the top of the repository)']
+  const errors: string[] = []
+  if (!r.specText) errors.push('analysisSpecifications.json not found (expected inst/analysisSpecifications.json)')
+  if (!r.executeText) errors.push('No execution script found (ExecuteAnalyses.R or an .R file calling Strategus::execute())')
+  if (!r.renvText) errors.push('renv.lock not found')
+  return errors
 }
 
 export interface ProtocolMeta {
@@ -94,6 +113,11 @@ export interface ProtocolMeta {
   vocabularyVersion?: string
   /** Coordinator key: signs study_config.json so sites can verify who issued it. */
   signer?: UnlockedSigner
+  /**
+   * R script studies: the comment line below which the script is pinned. Undefined picks
+   * suggestMarker(); null pins the whole file. Strategus studies always use the template marker.
+   */
+  marker?: string | null
 }
 
 export interface IssuedProtocol {
@@ -108,6 +132,7 @@ export interface IssuedProtocol {
 export const PROTOCOL_SIGNATURE_FILE = 'study_config.jws.json'
 
 export async function issueProtocol(repo: StudyRepo, meta: ProtocolMeta): Promise<IssuedProtocol> {
+  if (repo.kind === 'R script') return issueRScriptProtocol(repo, meta)
   if (!repo.specText || !repo.executeText || !repo.renvText) throw new Error(repo.errors.join('; ') || 'Incomplete study repository')
   const summary = parseAnalysisSpecification(repo.specText)
   try {
@@ -155,6 +180,56 @@ export async function issueProtocol(repo: StudyRepo, meta: ProtocolMeta): Promis
   const configBytes = enc.encode(JSON.stringify(config, null, 2) + '\n')
   const signature = meta.signer ? await addSignature(undefined, configBytes, meta.signer, 'protocol-issued', meta.now) : undefined
   return { config, configBytes, signature, files, summary }
+}
+
+/** Shared fields of study_config.json. */
+function baseConfig(meta: ProtocolMeta): Omit<StudyConfig, 'framework' | 'cohorts' | 'expectedHashes' | 'protectedSections'> {
+  return {
+    configVersion: '1.0.0',
+    studyId: meta.studyId,
+    studyTitle: meta.studyTitle || meta.studyId,
+    description: meta.description || undefined,
+    principalInvestigator: meta.principalInvestigator || undefined,
+    sponsor: meta.sponsor || undefined,
+    cdmVersion: meta.cdmVersion,
+    issuedAt: (meta.now ?? new Date()).toISOString(),
+    minCellCount: meta.minCellCount,
+  }
+}
+
+/**
+ * An R script study: the script is pinned below its marker (or whole), renv.lock is pinned when present.
+ * Without Strategus there is no run record or data-quality gate, so only standard assurance is offered.
+ */
+async function issueRScriptProtocol(repo: StudyRepo, meta: ProtocolMeta): Promise<IssuedProtocol> {
+  if (!repo.executeText) throw new Error(repoErrors(repo).join('; '))
+  if (meta.assurance === 'regulatory') throw new Error('Regulatory assurance needs a Strategus study (run record, data-quality gate); R script studies use standard assurance')
+  if (repo.renvText) {
+    try {
+      JSON.parse(repo.renvText)
+    } catch {
+      throw new Error('renv.lock is not valid JSON')
+    }
+  }
+  const marker = meta.marker === undefined ? suggestMarker(repo.executeText) : meta.marker ?? undefined
+  const sectionHash = marker ? await protectedSectionHash(repo.executeText, marker) : undefined
+  if (marker && !sectionHash) throw new Error(`The marker line "${marker}" is not in the script`)
+  const files: Record<string, Uint8Array> = { [PROTOCOL_PATHS.executeAnalyses]: enc.encode(repo.executeText) }
+  if (repo.renvText) files[PROTOCOL_PATHS.renvLock] = enc.encode(repo.renvText)
+  const config: StudyConfig = {
+    ...baseConfig(meta),
+    framework: { name: 'R script', modules: [] },
+    cohorts: [],
+    expectedHashes: {
+      ...(files[PROTOCOL_PATHS.renvLock] ? { [PROTOCOL_PATHS.renvLock]: await sha256Hex(files[PROTOCOL_PATHS.renvLock]) } : {}),
+      ...(sectionHash ? {} : { [PROTOCOL_PATHS.executeAnalyses]: await sha256Hex(files[PROTOCOL_PATHS.executeAnalyses]) }),
+    },
+    protectedSections: sectionHash && marker ? { [PROTOCOL_PATHS.executeAnalyses]: { marker, sha256: sectionHash } } : {},
+  }
+  if (meta.vocabularyVersion?.trim()) config.cdmRequirements = { vocabularyVersion: meta.vocabularyVersion.trim() }
+  const configBytes = enc.encode(JSON.stringify(config, null, 2) + '\n')
+  const signature = meta.signer ? await addSignature(undefined, configBytes, meta.signer, 'protocol-issued', meta.now) : undefined
+  return { config, configBytes, signature, files, summary: { modules: [], cohorts: [], negativeControlOutcomes: 0 } }
 }
 
 export async function protocolZip(p: IssuedProtocol): Promise<Blob> {

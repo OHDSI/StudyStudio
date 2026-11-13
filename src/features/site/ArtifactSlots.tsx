@@ -1,6 +1,7 @@
 import { AlertTriangle, CheckCircle2, FileCheck2, FolderOpen, Loader2, ShieldAlert, Trash2, XCircle } from 'lucide-react'
 import { useStudyStore, type SlotFile } from '@/store/useStudyStore'
-import { SITE_PRODUCED_SLOTS, SLOT_BY_ID, SLOTS, planBulkIngest, type SlotDef, type SlotId } from '@/lib/studypack/slots'
+import { SITE_PRODUCED_SLOTS, SLOT_BY_ID, planBulkIngest, slotsFor, type SlotDef, type SlotId } from '@/lib/studypack/slots'
+import { isRScriptStudy } from '@/types/studypack'
 import { findResultsSideFiles, readResultsZip, readZipEntries, resultFilesFromList, moduleOf, RDMS_FILE, RESULTS_SIDE_FILES } from '@/lib/strategus/results'
 import { hashesEqual } from '@/lib/integrity/hasher'
 import { Badge } from '@/components/ui/badge'
@@ -103,6 +104,7 @@ export async function loadResults(files: DroppedFile[], ingestResults: (source: 
 }
 
 function ResultsBundleCard() {
+  const rScript = useStudyStore((s) => isRScriptStudy(s.config))
   const results = useStudyStore((s) => s.results)
   const busy = useStudyStore((s) => s.busy.results)
   const ingestResults = useStudyStore((s) => s.ingestResults)
@@ -114,10 +116,16 @@ function ResultsBundleCard() {
     <div className={cn('flex flex-col gap-2 rounded-lg border bg-background p-3', failing > 0 && 'border-destructive/60 bg-destructive/5')}>
       <div className="flex items-start justify-between gap-2">
         <div>
-          <div className="font-mono text-xs font-semibold">Strategus results</div>
+          <div className="font-mono text-xs font-semibold">{rScript ? 'Results' : 'Strategus results'}</div>
+          {rScript ? (
+            <div className="text-xs text-muted-foreground">
+              The CSV file(s) the study script wrote. Every CSV is audited for small cells and direct identifiers.
+            </div>
+          ) : (
           <div className="text-xs text-muted-foreground">
             The <code>results/&lt;databaseName&gt;</code> folder written by <code>Strategus::execute()</code>, or the ZIP from <code>Strategus::zipResults()</code>. Every CSV is audited; columns flagged <code>min_cell_count</code> in each module's <code>{RDMS_FILE}</code> are checked exactly. <code>run_record.json</code> and <code>executionSettings.json</code> in the same folder are picked up too (a <code>zipResults()</code> ZIP has only the CSVs: drop them separately).
           </div>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <Badge variant="outline" className="text-[10px]">Required</Badge>
@@ -128,16 +136,22 @@ function ResultsBundleCard() {
         <div className="flex flex-col gap-1 text-xs">
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-medium">{results.source}</span>
-            <span className="text-muted-foreground">{files.length} CSV · {modules.length} module(s)</span>
+            <span className="text-muted-foreground">{files.length} CSV{rScript ? '' : ` · ${modules.length} module(s)`}</span>
             {failing ? <Badge variant="destructive"><ShieldAlert /> {failing} file(s) with violations</Badge> : <Badge variant="success"><CheckCircle2 /> Audit passed</Badge>}
             <Button size="icon" variant="ghost" className="ml-auto" onClick={removeResults} aria-label="Remove results"><Trash2 /></Button>
           </div>
           <div className="flex flex-wrap gap-1">
-            {modules.map((m) => (
-              <Badge key={m} variant="outline">{m} ({files.filter(([p]) => moduleOf(p) === m).length})</Badge>
-            ))}
+            {rScript
+              ? files.map(([p]) => <Badge key={p} variant="outline">{p.replace(/^_root\//, '')}</Badge>)
+              : modules.map((m) => (
+                  <Badge key={m} variant="outline">{m} ({files.filter(([p]) => moduleOf(p) === m).length})</Badge>
+                ))}
           </div>
         </div>
+      ) : rScript ? (
+        <DropZone compact multiple accept=".csv" onFiles={(fs) => loadResults(fs, ingestResults)}>
+          {busy ? <Loader2 className="size-4 animate-spin" /> : <span className="text-xs text-muted-foreground">Drop the result CSV file(s)</span>}
+        </DropZone>
       ) : (
         <div className="grid gap-2 md:grid-cols-2">
           <DropZone compact multiple accept=".zip,.csv" onFiles={(fs) => loadResults(fs, ingestResults)}>
@@ -156,6 +170,9 @@ export function ArtifactSlots() {
   const ingest = useStudyStore((s) => s.ingest)
   const ingestResults = useStudyStore((s) => s.ingestResults)
   const filled = useStudyStore((s) => Object.keys(s.slots).length + (s.results ? 1 : 0))
+  const config = useStudyStore((s) => s.config)
+  const rScript = isRScriptStudy(config)
+  const visible = slotsFor(config)
   const [unknown, setUnknown] = React.useState<string[]>([])
   const [protectedNames, setProtectedNames] = React.useState<string[]>([])
   return (
@@ -166,17 +183,22 @@ export function ArtifactSlots() {
           <DropZone
             multiple
             title="Drop multiple files at once (auto-assigned by file name)"
-            hint={`Site-produced artifacts: ${SITE_PRODUCED_SLOTS.map((id) => SLOT_BY_ID[id].label).join(', ')}, and the Strategus results ZIP. The analysis specification, ExecuteAnalyses.R and renv.lock come from the protocol ZIP.`}
+            hint={
+              rScript
+                ? 'The result CSV file(s) your script wrote. The script itself comes from the protocol ZIP.'
+                : `Site-produced artifacts: ${SITE_PRODUCED_SLOTS.map((id) => SLOT_BY_ID[id].label).join(', ')}, and the Strategus results ZIP. The analysis specification, ExecuteAnalyses.R and renv.lock come from the protocol ZIP.`
+            }
             onFiles={async (fs) => {
               const slots = useStudyStore.getState().slots
               const protocolFilled = new Set((Object.keys(slots) as SlotId[]).filter((id) => slots[id]?.fromProtocol))
-              const plan = planBulkIngest(fs.map((f) => f.name), protocolFilled)
+              const plan = planBulkIngest(fs.map((f) => f.name), protocolFilled, { csvAsResults: rScript })
               for (const a of plan.assign) {
                 const f = fs.find((x) => x.name === a.name)!
                 await ingest(a.slotId, f.name.split('/').pop()!, f.bytes)
               }
               const archive = fs.find((f) => plan.resultsArchives.includes(f.name))
               if (archive) await loadResults([archive], ingestResults)
+              else if (plan.resultCsvs.length) await loadResults(fs.filter((f) => plan.resultCsvs.includes(f.name)), ingestResults)
               setUnknown(plan.unknown)
               setProtectedNames(plan.protectedByProtocol.map((p) => p.name))
             }}
@@ -187,18 +209,18 @@ export function ArtifactSlots() {
             </div>
           )}
           {unknown.length > 0 && <div className="text-xs text-amber-700">Could not assign: {unknown.join(', ')} (drop them into a specific slot; result CSVs go into “Strategus results”)</div>}
-          {GROUPS.map((g) => (
+          {GROUPS.filter((g) => visible.some((s) => s.path.startsWith(g.dir + '/'))).map((g) => (
             <div key={g.dir}>
               <div className="mb-2 font-mono text-xs font-semibold text-muted-foreground">{g.title}</div>
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {SLOTS.filter((s) => s.path.startsWith(g.dir + '/')).map((s) => (
+                {visible.filter((s) => s.path.startsWith(g.dir + '/')).map((s) => (
                   <SlotCard key={s.id} slot={s} />
                 ))}
               </div>
             </div>
           ))}
           <div>
-            <div className="mb-2 font-mono text-xs font-semibold text-muted-foreground">results/ — Strategus results (small-cell audited)</div>
+            <div className="mb-2 font-mono text-xs font-semibold text-muted-foreground">results/ — {rScript ? 'script output' : 'Strategus results'} (small-cell audited)</div>
             <ResultsBundleCard />
           </div>
         </CardContent>

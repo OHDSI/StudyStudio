@@ -2,6 +2,7 @@ import * as React from 'react'
 import { ClipboardCheck } from 'lucide-react'
 import { siteFiles, siteHashes, useStudyStore } from '@/store/useStudyStore'
 import { evaluateEvidence } from '@/lib/studypack/evidence'
+import { isRScriptStudy } from '@/types/studypack'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { EvidenceView } from '@/features/common/EvidenceView'
@@ -12,7 +13,8 @@ export function EvidencePanel() {
   const slots = useStudyStore((s) => s.slots)
   const results = useStudyStore((s) => s.results)
   const evidence = React.useMemo(() => evaluateEvidence({ config, files: siteFiles({ slots, results }), hashes: siteHashes({ slots, results }) }), [config, slots, results])
-  if (!config || !results) return null
+  // DQD, provenance, log and run record come from Strategus studies; an R script study has none of them.
+  if (!config || !results || isRScriptStudy(config)) return null
   return (
     <Card>
       <CardHeader>

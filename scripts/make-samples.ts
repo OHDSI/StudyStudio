@@ -14,6 +14,9 @@
  *                                         Site_C tampered after sealing, Site_D edited code below the protected marker
  *   samples/regulatory/                   the same study with regulatory assurance: signed protocol, demo keys,
  *                                         signed signer roster, four signed packs
+ *   samples/r-script/                     an R script study (no Strategus): protocol issued from study-repo/CodeToRun.R,
+ *                                         a site's result CSV, and four packs (Site_A, Site_B clean, Site_C edited
+ *                                         query, Site_D tampered). `npm run samples -- r-script` regenerates only this set
  *
  * Inputs: samples/_source/ (ATLAS cohort definitions, templates, site ETL files) and r/recordStrategusRun.R.
  * All data is synthetic. The analysis specification mirrors the structure written by
@@ -403,6 +406,8 @@ async function runRecord(results: Record<string, string | Uint8Array>, inputs: {
 }
 
 async function main() {
+  // `npm run samples -- r-script` regenerates only the R script study (the other sets carry fresh signatures and salts).
+  if (process.argv.includes('r-script')) return rScriptSamples()
   for (const d of ['study-repo', 'standard/protocol', 'standard/packs']) rmSync(path.join(root, d), { recursive: true, force: true })
 
   // ---- ScanReport --------------------------------------------------------
@@ -667,7 +672,87 @@ async function main() {
   ]
   for (const p of regPacks) out(`regulatory/packs/${p.name}`, p.bytes)
 
+  await rScriptSamples()
   console.log(`samples written to ${root}`)
+}
+
+// ---------------------------------------------------------------------------
+// R script study (samples/r-script/): one CodeToRun.R writing one aggregated CSV, no Strategus
+// ---------------------------------------------------------------------------
+const R_STUDY = 'FACT_REL_2026'
+const R_RESULT = 'fact_relationships-aggregated-and-relative-data.csv'
+
+/** Share (%) of fact_relationship rows per domain pair, as write.csv() would write it. */
+function factRelationshipCsv(shares: [number, string, number, string, number][]): string {
+  const q = (s: string) => `"${s}"`
+  return [['domainConceptId1', 'domainConceptName1', 'domainConceptId2', 'domainConceptName2', 'percentage'].map(q).join(','), ...shares.map(([a, an, b, bn, p]) => [a, q(an), b, q(bn), p].join(','))].join('\n') + '\n'
+}
+
+const FACT_SHARES: Record<string, [number, string, number, string, number][]> = {
+  Site_A: [[56, 'Person', 56, 'Person', 58.4], [57, 'Care site', 57, 'Care site', 31.2], [21, 'Measurement', 21, 'Measurement', 7.9], [27, 'Observation', 27, 'Observation', 2.5]],
+  Site_B: [[57, 'Care site', 57, 'Care site', 72.03], [56, 'Person', 56, 'Person', 27.97]],
+  Site_C: [[56, 'Person', 56, 'Person', 90.1], [21, 'Measurement', 27, 'Observation', 9.9]],
+  Site_D: [[56, 'Person', 56, 'Person', 44.44], [19, 'Condition', 21, 'Measurement', 33.33], [57, 'Care site', 57, 'Care site', 22.23]],
+}
+
+async function rScriptSamples() {
+  const dir = 'r-script'
+  for (const d of ['protocol', 'packs', 'site-inputs']) rmSync(path.join(root, dir, d), { recursive: true, force: true })
+  const script = readFileSync(path.join(root, dir, 'study-repo/CodeToRun.R'), 'utf8')
+  const repo = locateStudyRepo([{ path: 'CodeToRun.R', bytes: enc.encode(script) }])
+  const protocol = await issueProtocol(repo, {
+    studyId: R_STUDY,
+    studyTitle: 'Which domains does FACT_RELATIONSHIP link? (synthetic demo)',
+    description: 'Share of fact_relationship rows per domain pair at each site. Relative values only; synthetic data.',
+    cdmVersion: '5.4',
+    minCellCount: MIN,
+    now,
+  })
+  out(`${dir}/protocol/study_config.json`, protocol.configBytes)
+  out(`${dir}/protocol/${R_STUDY}_protocol.zip`, new Uint8Array(await (await protocolZip(protocol)).arrayBuffer()))
+  out(`${dir}/site-inputs/${R_RESULT}`, factRelationshipCsv(FACT_SHARES.Site_A))
+
+  // Each site edits only the settings block (database, schema) above "# --- script starts here ----".
+  const settings = (dbms: string, schema: string) => script.replace('myDbms <- "postgresql"', `myDbms <- "${dbms}"`).replace('cdmDatabaseSchema <- "cdm"', `cdmDatabaseSchema <- "${schema}"`)
+  const makePack = async (siteId: string, siteScript: string) => {
+    const csv = enc.encode(factRelationshipCsv(FACT_SHARES[siteId]))
+    const resultPath = `_root/${R_RESULT}`
+    const audit = auditResultFiles([{ path: resultPath, bytes: csv }], { minCellCount: MIN }).get(resultPath)
+    const scriptBytes = enc.encode(siteScript)
+    const section = protocol.config.protectedSections['code/ExecuteAnalyses.R']
+    const actual = await protectedSectionHash(siteScript, section.marker)
+    const pack = await buildStudyPack({
+      studyId: R_STUDY,
+      studyTitle: protocol.config.studyTitle,
+      siteId,
+      cdmVersion: '5.4',
+      minCellCount: MIN,
+      framework: 'R script',
+      files: [
+        { path: SLOT_BY_ID.executeAnalyses.path, role: 'code', originalName: 'CodeToRun.R', bytes: scriptBytes },
+        { path: `results/${resultPath}`, role: 'result', originalName: R_RESULT, bytes: csv, audit },
+      ],
+      protocolChecks: [{ path: 'code/ExecuteAnalyses.R', kind: 'section', expected: section.sha256, actual, match: actual === section.sha256 }],
+      now: new Date(now.getTime() + 2 * 24 * 3600 * 1000),
+      assurance: 'standard',
+      protocolBytes: protocol.configBytes,
+    })
+    return { name: pack.zipName, bytes: new Uint8Array(await pack.zipBlob.arrayBuffer()) }
+  }
+  for (const [siteId, s] of [['Site_A', settings('postgresql', 'cdm')], ['Site_B', settings('sql server', 'cdm_omop.dbo')]] as const) {
+    const p = await makePack(siteId, s)
+    out(`${dir}/packs/${p.name}`, p.bytes)
+  }
+  // Site_C changed the analysis below the marker (breaks the result down by relationship_concept_id too).
+  const c = await makePack('Site_C', settings('postgresql', 'omop').replace('  COUNT(*) AS cnt', '  fr.relationship_concept_id,\n  COUNT(*) AS cnt').replace('c2.concept_name;', 'c2.concept_name, fr.relationship_concept_id;'))
+  out(`${dir}/packs/${c.name}`, c.bytes)
+  // Site_D's result was edited after sealing.
+  const d = await makePack('Site_D', settings('redshift', 'cdm'))
+  const zip = await JSZip.loadAsync(d.bytes)
+  const target = Object.keys(zip.files).find((p) => p.endsWith(R_RESULT))!
+  zip.file(target, (await zip.file(target)!.async('string')).replace('44.44', '54.44').replace('33.33', '23.33'))
+  out(`${dir}/packs/${d.name}`, await zip.generateAsync({ type: 'uint8array' }))
+  console.log(`R script samples written to ${path.join(root, dir)}`)
 }
 
 main().catch((e) => {

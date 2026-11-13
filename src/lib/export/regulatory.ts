@@ -23,7 +23,7 @@ import { buildDataDefinitionHtml } from './dataDefinition'
 import { moduleOf, parseRdms, RDMS_FILE, tableNameOf, type Rdms } from '@/lib/strategus/results'
 import { PROTOCOL_PATHS } from '@/lib/strategus/protocol'
 import { RESULTS_DIR } from '@/lib/studypack/slots'
-import { PACK_VERSION, type FileRole, type StudyConfig, type StudyPackManifest } from '@/types/studypack'
+import { isRScriptStudy, PACK_VERSION, type FileRole, type StudyConfig, type StudyPackManifest } from '@/types/studypack'
 
 export interface SiteRow {
   site: LoadedSitePack
@@ -225,7 +225,8 @@ const mdCell = (s: string) => s.replace(/\|/g, '\\|').replace(/\n/g, ' ')
 function siteFacts(r: SiteRow, cross: CrossSiteResult) {
   const s = r.site
   const checks = cross.perSite[s.key] ?? {}
-  const st = (p: string) => (checks[p]?.status === 'match' ? '✅ Match' : checks[p]?.status === 'missing' ? '⚠️ Missing' : '❌ Mismatch')
+  // A path the study does not compare (e.g. renv.lock in an R script study without one) is not a mismatch.
+  const st = (p: string) => (!checks[p] ? '—' : checks[p].status === 'match' ? '✅ Match' : checks[p].status === 'missing' ? '⚠️ Missing' : '❌ Mismatch')
   const a = s.reAudit
   return {
     siteId: s.siteId,
@@ -242,6 +243,27 @@ function siteFacts(r: SiteRow, cross: CrossSiteResult) {
     reasons: r.verdict.reasons.join('; ') || '—',
   }
 }
+
+type SiteFacts = ReturnType<typeof siteFacts>
+
+/** Columns of the site verification summary. An R script study has no specification or DQD to show. */
+function summaryColumns(i: ReportInput): { label: string; value: (f: SiteFacts) => string; escape?: boolean }[] {
+  const rScript = isRScriptStudy(i.config ?? i.rows.find((r) => r.site.sealedProtocol)?.site.sealedProtocol)
+  return [
+    { label: 'Site', value: (f) => f.siteId, escape: true },
+    { label: 'Manifest integrity', value: (f) => f.integrity },
+    ...(rScript ? [] : [{ label: 'analysisSpecifications.json', value: (f: SiteFacts) => f.spec }]),
+    { label: rScript ? 'R script' : 'ExecuteAnalyses.R', value: (f) => f.code },
+    { label: 'renv.lock', value: (f) => f.renv },
+    ...(rScript ? [] : [{ label: 'DQD pass rate', value: (f: SiteFacts) => f.dqd }]),
+    { label: 'Small-cell audit', value: (f) => f.cells },
+    { label: 'Decision', value: (f) => f.decision },
+    { label: 'Reasons', value: (f) => f.reasons, escape: true },
+  ]
+}
+
+/** Shorter headers for the printable report. */
+const HTML_HEADERS: Record<string, string> = { 'Manifest integrity': 'Manifest', 'analysisSpecifications.json': 'Analysis spec', 'DQD pass rate': 'DQD', 'Small-cell audit': 'Small cells' }
 
 export function buildMarkdownReport(i: ReportInput): string {
   const adopted = i.rows.filter((r) => r.adopted)
@@ -262,11 +284,12 @@ export function buildMarkdownReport(i: ReportInput): string {
   L.push('')
 
   L.push('## 2. Site verification summary', '')
-  L.push('| Site | Manifest integrity | analysisSpecifications.json | ExecuteAnalyses.R | renv.lock | DQD pass rate | Small-cell audit | Decision | Reasons |')
-  L.push('|---|---|---|---|---|---|---|---|---|')
+  const cols = summaryColumns(i)
+  L.push(`| ${cols.map((c) => c.label).join(' | ')} |`)
+  L.push(`|${cols.map(() => '---').join('|')}|`)
   for (const r of i.rows) {
     const f = siteFacts(r, i.cross)
-    L.push(`| ${mdCell(f.siteId)} | ${f.integrity} | ${f.spec} | ${f.code} | ${f.renv} | ${f.dqd} | ${f.cells} | **${f.decision}** | ${mdCell(f.reasons)} |`)
+    L.push(`| ${cols.map((c) => (c.label === 'Decision' ? `**${c.value(f)}**` : c.escape ? mdCell(c.value(f)) : c.value(f))).join(' | ')} |`)
   }
   L.push('')
 
@@ -280,7 +303,7 @@ export function buildMarkdownReport(i: ReportInput): string {
     if (s.auditReport) L.push(`- Site self-audit: ${s.auditReport.passed ? 'passed' : 'FAILED'} at ${s.auditReport.generatedAt}`)
     if (s.exportedMinCellCount !== undefined) L.push(`- Exported with minCellCount ${s.exportedMinCellCount} (executionSettings.json)`)
     if (s.reAudit) {
-      L.push(`- Coordinator re-audit of ${s.reAudit.files} Strategus result file(s): ${s.reAudit.scannedCells} cells scanned, ${s.reAudit.smallCellCount} small cells, ${s.reAudit.identifierCount} identifier columns`)
+      L.push(`- Coordinator re-audit of ${s.reAudit.files} ${isRScriptStudy(i.config ?? s.sealedProtocol) ? '' : 'Strategus '}result file(s): ${s.reAudit.scannedCells} cells scanned, ${s.reAudit.smallCellCount} small cells, ${s.reAudit.identifierCount} identifier columns`)
       for (const f of s.reAudit.failing) L.push(`  - ❌ \`results/${f.path}\`: ${f.smallCellCount} small cell(s), ${f.identifierCount} identifier column(s)`)
     }
     for (const m of s.integrity.mismatched) L.push(`- ❌ Hash mismatch \`${m.path}\`: manifest ${short(m.expected)} vs actual ${short(m.actual)}`)
@@ -340,10 +363,11 @@ export function buildMarkdownReport(i: ReportInput): string {
 
 export function buildHtmlReport(i: ReportInput): string {
   const adopted = i.rows.filter((r) => r.adopted).length
+  const cols = summaryColumns(i)
   const rows = i.rows
     .map((r) => {
       const f = siteFacts(r, i.cross)
-      return `<tr class="${r.adopted ? '' : 'excluded'}"><td>${xmlEscape(f.siteId)}</td><td>${f.integrity}</td><td>${f.spec}</td><td>${f.code}</td><td>${f.renv}</td><td>${f.dqd}</td><td>${f.cells}</td><td><b>${f.decision}</b></td><td>${xmlEscape(f.reasons)}</td></tr>`
+      return `<tr class="${r.adopted ? '' : 'excluded'}">${cols.map((c) => `<td>${c.label === 'Decision' ? `<b>${c.value(f)}</b>` : c.escape ? xmlEscape(c.value(f)) : c.value(f)}</td>`).join('')}</tr>`
     })
     .join('\n')
   const refs = Object.entries(i.cross.references)
@@ -368,7 +392,7 @@ Sites received ${i.rows.length} · adopted ${adopted} · excluded ${i.rows.lengt
 <h2>1. Protocol reference hashes (SHA-256)</h2>
 <table><tr><th>Artifact</th><th>Reference</th><th>Source</th></tr>${refs}</table>
 <h2>2. Site verification summary</h2>
-<table><tr><th>Site</th><th>Manifest</th><th>Analysis spec</th><th>ExecuteAnalyses.R</th><th>renv.lock</th><th>DQD</th><th>Small cells</th><th>Decision</th><th>Reasons</th></tr>
+<table><tr>${cols.map((c) => `<th>${HTML_HEADERS[c.label] ?? c.label}</th>`).join('')}</tr>
 ${rows}</table>
 ${htmlDisposition(i)}
 ${etlSection(i.etl).html}

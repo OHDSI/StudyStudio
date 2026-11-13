@@ -375,7 +375,8 @@ export const useStudyStore = create<StudyState>((set, get) => {
     addSitePacks: async (files) => {
       const actor = actorOrThrow()
       const min = get().config?.minCellCount ?? 5
-      const loaded = await Promise.all(files.map((f) => loadStudyPack(f.name, f.bytes, min)))
+      const markers = Object.fromEntries(Object.entries(get().config?.protectedSections ?? {}).map(([p, x]) => [p, x.marker]))
+      const loaded = await Promise.all(files.map((f) => loadStudyPack(f.name, f.bytes, min, undefined, markers)))
       const dupes: string[] = []
       const keys = new Set(get().sites.map((x) => x.key))
       const fresh = loaded.filter((l) => {

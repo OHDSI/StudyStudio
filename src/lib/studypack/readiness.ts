@@ -1,8 +1,8 @@
 /** Site-mode guardrail: decides whether "Download StudyPack" may be enabled. */
 import type { AuditResult } from '@/lib/audit/cellAuditor'
 import { hashesEqual } from '@/lib/integrity/hasher'
-import type { StudyConfig } from '@/types/studypack'
-import { SLOTS, type SlotId } from './slots'
+import { isRScriptStudy, type StudyConfig } from '@/types/studypack'
+import { slotsFor, type SlotId } from './slots'
 import { judgeEvidence, type SiteEvidence } from './evidence'
 
 export interface SlotSnapshot {
@@ -52,7 +52,8 @@ export function evaluateReadiness(p: ReadinessInput): Readiness {
     }
   }
 
-  for (const slot of SLOTS) {
+  const rScript = isRScriptStudy(p.config)
+  for (const slot of slotsFor(p.config)) {
     const s = p.slots[slot.id]
     if (!s) {
       if (slot.required) blockers.push(`Required file ${slot.path} is missing`)
@@ -70,17 +71,21 @@ export function evaluateReadiness(p: ReadinessInput): Readiness {
   }
 
   const results = Object.entries(p.results)
-  if (results.length === 0) blockers.push('Strategus results are not loaded (drop the results ZIP or folder)')
+  if (results.length === 0) blockers.push(rScript ? 'No results loaded (drop the CSV file(s) the script wrote)' : 'Strategus results are not loaded (drop the results ZIP or folder)')
   for (const [path, s] of results) {
     if (s.error) blockers.push(`results/${path}: ${s.error}`)
     else checkAudit(`results/${path}`, s)
+    // Without a results data model, a file with no recognisable count column cannot be small-cell checked.
+    if (rScript && s.audit?.passed && s.audit.sheets.every((x) => x.countColumns.length === 0))
+      warnings.push(`results/${path}: no count column found, so small cells cannot be checked here (relative values such as percentages only). Make sure the script itself suppresses small counts.`)
   }
 
   const min = p.config?.minCellCount
   if (min !== undefined && p.exportedMinCellCount !== undefined && p.exportedMinCellCount < min)
     warnings.push(`Results were exported with minCellCount ${p.exportedMinCellCount}, below the protocol's ${min}. Small cells must be masked before packaging.`)
 
-  if (p.evidence) {
+  // DQD, provenance, log and run record are Strategus evidence; an R script study has none of them.
+  if (p.evidence && !rScript) {
     const v = judgeEvidence(p.evidence)
     blockers.push(...v.blockers)
     warnings.push(...v.warnings)

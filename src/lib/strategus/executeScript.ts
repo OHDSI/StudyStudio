@@ -41,3 +41,24 @@ export function executionSettingsMinCellCount(json: unknown): number | undefined
   const n = Array.isArray(v) ? Number(v[0]) : Number(v)
   return Number.isFinite(n) ? n : undefined
 }
+
+/** Comment lines of an R script, as candidate markers for the protected section (trimmed, in order). */
+export function commentLines(text: string): string[] {
+  return text
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l, i, all) => /^#/.test(l) && /[a-z0-9]/i.test(l) && all.indexOf(l) === i)
+}
+
+const BOUNDARY = /(starts?\s+here|begins?\s+here|start\s+of\s+(the\s+)?(analysis|script|study)|do\s+not\s+(modify|edit|change)|below\s+this|end\s+of\s+(the\s+)?(settings|config|configuration|setup|inputs?|connection))/i
+
+/**
+ * The marker to pin an R script with: the template marker when present, else a comment line that reads
+ * like the boundary between site settings and the analysis (e.g. "# --- script starts here ----").
+ * Undefined means no boundary was found, so the whole script is pinned.
+ */
+export function suggestMarker(text: string): string | undefined {
+  if (protectedSection(text) !== undefined) return PROTECTED_MARKER
+  return commentLines(text).find((l) => BOUNDARY.test(l) && protectedSection(text, l)?.trim())
+}

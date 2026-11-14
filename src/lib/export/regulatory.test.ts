@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import JSZip from 'jszip'
 import { XMLValidator } from 'fast-xml-parser'
 import { crossCheckSites, loadStudyPack, siteVerdict, type LoadedSitePack } from '@/lib/network/aggregator'
-import { buildMarkdownReport, buildRegulatoryExport, listResultTables } from './regulatory'
+import { buildHtmlReport, buildMarkdownReport, buildRegulatoryExport, listResultTables } from './regulatory'
 import type { StudyConfig } from '@/types/studypack'
 
 const samples = path.resolve(__dirname, '../../../samples')
@@ -320,5 +320,19 @@ describe('disposition audit trail in the submission', () => {
       buildRegulatoryExport({ studyId: config.studyId, studyTitle: config.studyTitle, config: reg, cross, rows: rows.map((r, i) => (i === 0 ? { ...r, decision: undefined } : r)), disposition: disp(log) }),
     ).rejects.toThrow(/no recorded decision/)
     await expect(buildRegulatoryExport({ studyId: config.studyId, studyTitle: config.studyTitle, config: reg, cross, rows, disposition: disp(log) })).resolves.toBeDefined()
+  })
+})
+
+describe('audit report HTML', () => {
+  it('escapes every value taken from the disposition log', async () => {
+    const { DispositionLog } = await import('@/lib/network/dispositionLog')
+    const x = '<img src=x onerror=alert(1)>'
+    const log = new DispositionLog()
+    await log.append({ actor: { name: x, role: x, organization: x }, action: 'note', siteId: x, reasonCode: undefined, reasonText: x })
+    // Entries as a forged log could carry them (fromJsonl rejects these; the report must not rely on it).
+    const forged = [{ ...log.entries[0], at: x, action: x, from: x, to: x, seq: x }] as unknown as typeof log.entries
+    const html = buildHtmlReport({ studyId: x, studyTitle: x, generatedAt: x, rows: [], cross: { references: { [x]: { hash: x, source: 'protocol', kind: 'file' } }, perSite: {} }, disposition: forged, dispositionHead: x })
+    expect(html).not.toContain('<img')
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;')
   })
 })

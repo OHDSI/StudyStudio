@@ -13,7 +13,7 @@ import { executionSettingsMinCellCount, inputMinCellCount, protectedSectionHash 
 import { auditResultFiles, collectRdms, auditOptionsFor, type ResultFile } from '@/lib/strategus/results'
 import { loadStudyPack, type LoadedSitePack } from '@/lib/network/aggregator'
 import { DEFAULT_REASON_CODES, DispositionLog, type Actor } from '@/lib/network/dispositionLog'
-import { addSignature, rosterBytes, verifyRoster, type DetachedJws, type RosterStatus, type SignatureCheck, type SignatureMeaning, type SignerRoster, type UnlockedSigner } from '@/lib/security/signer'
+import { addSignature, protocolIssuerKids, rosterBytes, verifyRoster, type DetachedJws, type RosterStatus, type SignatureCheck, type SignatureMeaning, type SignerRoster, type UnlockedSigner } from '@/lib/security/signer'
 import type { RoleMode, StudyConfig } from '@/types/studypack'
 import type { RunRecordHashes } from '@/lib/strategus/runRecord'
 
@@ -205,7 +205,7 @@ export const useStudyStore = create<StudyState>((set, get) => {
   const refreshRoster = async () => {
     const { rosterBytes: bytes, rosterSignature, protocol } = get()
     if (!bytes) return set({ rosterStatus: undefined })
-    const issuerKids = (protocol?.signatureChecks ?? []).filter((c) => c.valid).map((c) => c.kid)
+    const issuerKids = protocolIssuerKids(protocol?.signatureChecks)
     set({ rosterStatus: await verifyRoster(bytes, rosterSignature, issuerKids) })
   }
 

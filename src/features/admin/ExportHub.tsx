@@ -45,11 +45,15 @@ const DATASET_NOTES: Record<DatasetChoice, string> = {
   xpt: 'SAS Version 5 transport files, the format most agencies expect, and the one the PMDA validator reads. Dataset and variable names become the 8-character SAS names; text is limited to 200 bytes.',
 }
 
-/** Open the HTML report in a new window and trigger the browser's print dialog (Save as PDF). */
+/**
+ * Open the HTML report in a new window and trigger the browser's print dialog (Save as PDF).
+ * The window is opened without an opener, so the report document cannot reach this application's
+ * state; it starts printing itself instead.
+ */
 function printHtml(html: string) {
-  const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
-  const w = window.open(url, '_blank')
-  if (w) w.addEventListener('load', () => w.print())
+  const printable = html.replace('</body>', "<script>addEventListener('load',function(){print()})</script></body>")
+  const url = URL.createObjectURL(new Blob([printable], { type: 'text/html' }))
+  window.open(url, '_blank', 'noopener,noreferrer')
   setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 

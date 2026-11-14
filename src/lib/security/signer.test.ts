@@ -132,4 +132,18 @@ describe('signer roster trust', () => {
     const edited = rosterBytes({ ...roster, signers: [{ kid: other.kid, name: 'X', organization: 'N', role: 'operator', siteId: 'Site_A', enrolledAt: 't', verifiedBy: 'C', verificationMethod: 'm' }] })
     expect((await verifyRoster(edited, good, [coord.kid])).trust).toBe('invalid')
   })
+
+  it('takes as protocol issuers only valid signatures made with the protocol-issued meaning', async () => {
+    const { protocolIssuerKids } = await import('./signer')
+    const coord = await unlockKeyFile(await createKeyFile({ name: 'C', organization: 'N', role: 'coordinator' }, PASS, fast), PASS)
+    const other = await unlockKeyFile(await createKeyFile({ name: 'X', organization: 'N', role: 'coordinator' }, PASS, fast), PASS)
+    const config = enc.encode('{"studyId":"S"}')
+    let jws = await addSignature(undefined, config, coord, 'protocol-issued')
+    jws = await addSignature(jws, config, other, 'sealed')
+    const checks = await verifyDetachedJws(jws, config)
+    expect(checks.every((c) => c.valid)).toBe(true)
+    expect(protocolIssuerKids(checks)).toEqual([coord.kid])
+    expect(protocolIssuerKids(await verifyDetachedJws(jws, enc.encode('{"studyId":"T"}')))).toEqual([])
+  })
 })
+

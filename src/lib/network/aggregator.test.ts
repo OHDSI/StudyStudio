@@ -165,13 +165,13 @@ describe('regulatory controls end to end', () => {
 describe('regulatory demo set (samples/regulatory)', () => {
   it('adopts the signed, enrolled sites and excludes an unenrolled and a revoked key', async () => {
     const { readProtocolFile } = await import('@/lib/strategus/protocol')
-    const { parseJws, verifyRoster, withEnrollment, parseRoster } = await import('@/lib/security/signer')
+    const { parseJws, verifyRoster, withEnrollment, parseRoster, protocolIssuerKids } = await import('@/lib/security/signer')
     const { evaluateEvidence } = await import('@/lib/studypack/evidence')
     const reg = path.join(samples, 'regulatory')
     const proto = await readProtocolFile('p.zip', readFileSync(path.join(reg, 'protocol/ACEI_ANGIO_2026_protocol.zip')))
     expect(proto.errors).toEqual([])
     expect(proto.config?.assurance).toBe('regulatory')
-    const issuer = proto.signatureChecks!.filter((c) => c.valid).map((c) => c.kid)
+    const issuer = protocolIssuerKids(proto.signatureChecks)
     expect(issuer).toHaveLength(1)
 
     const rb = new Uint8Array(readFileSync(path.join(reg, 'roster/signer_roster.json')))

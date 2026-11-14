@@ -48,4 +48,20 @@ describe('DispositionLog', () => {
     await expect(DispositionLog.fromJsonl([lines[0], lines[2]].join('\n'))).rejects.toThrow(/sequence gap/)
     await expect(DispositionLog.fromJsonl(lines.slice(0, 2).join('\n'), { headHash: log.headHash, entries: 3 })).rejects.toThrow(/signed head/)
   })
+
+  it('rejects a rebuilt chain whose entries carry invalid values', async () => {
+    const good = JSON.parse((await sample()).toJsonl().split('\n')[0])
+    // The chain is unkeyed, so a forger can recompute it; the values themselves must be checked.
+    const chain = async (e: Record<string, unknown>) => JSON.stringify({ ...good, ...e, seq: 0, prevHash: GENESIS })
+    for (const [field, value, message] of [
+      ['at', '<img src=x onerror=alert(1)>', /at is not/],
+      ['action', '<b>adopt</b>', /action is invalid/],
+      ['to', 'adopt<script>', /decision values/],
+      ['packSha256', 'x', /packSha256/],
+      ['actor', { name: 1 }, /actor is invalid/],
+      ['reasonText', { html: true }, /text fields/],
+    ] as const)
+      await expect(DispositionLog.fromJsonl(await chain({ [field]: value }))).rejects.toThrow(message)
+    await expect(DispositionLog.fromJsonl(await chain({}))).resolves.toBeDefined()
+  })
 })

@@ -59,6 +59,35 @@ export const DEFAULT_REASON_CODES: ReasonCode[] = [
 
 export class DispositionError extends Error {}
 
+const ACTIONS: readonly string[] = ['received', 'adopt', 'exclude', 'lock', 'export', 'note'] satisfies DispositionAction[]
+const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/
+const HEX64 = /^[a-f0-9]{64}$/i
+
+/**
+ * Field-level check of an imported entry. The hash chain proves the lines were not changed after they
+ * were written, not who wrote them: anyone can build a valid chain, so the values are checked too
+ * before they reach the reports.
+ */
+function entryProblem(e: unknown): string | undefined {
+  if (!e || typeof e !== 'object' || Array.isArray(e)) return 'not an object'
+  const o = e as Record<string, unknown>
+  const optString = (k: string) => o[k] === undefined || typeof o[k] === 'string'
+  const optOneOf = (k: string, values: readonly string[]) => o[k] === undefined || values.includes(o[k] as string)
+  if (typeof o.prevHash !== 'string' || !HEX64.test(o.prevHash)) return 'prevHash is invalid'
+  if (typeof o.at !== 'string' || !ISO_UTC.test(o.at) || Number.isNaN(Date.parse(o.at))) return 'at is not an ISO-8601 UTC time'
+  if (!Number.isInteger(o.tzOffsetMinutes)) return 'tzOffsetMinutes is invalid'
+  const a = o.actor as Record<string, unknown> | undefined
+  if (!a || typeof a !== 'object' || typeof a.name !== 'string' || typeof a.role !== 'string' || typeof a.organization !== 'string' || (a.kid !== undefined && typeof a.kid !== 'string'))
+    return 'actor is invalid'
+  if (!ACTIONS.includes(o.action as string)) return 'action is invalid'
+  if (o.packSha256 !== undefined && (typeof o.packSha256 !== 'string' || !HEX64.test(o.packSha256))) return 'packSha256 is invalid'
+  if (!optOneOf('from', ['adopt', 'exclude', 'undecided']) || !optOneOf('to', ['adopt', 'exclude']) || !optOneOf('recommended', ['adopt', 'exclude'])) return 'decision values are invalid'
+  if (!optString('siteId') || !optString('reasonCode') || !optString('reasonText')) return 'text fields are invalid'
+  if (o.deviatesFromRecommendation !== undefined && typeof o.deviatesFromRecommendation !== 'boolean') return 'deviatesFromRecommendation is invalid'
+  if (o.details !== undefined && (!o.details || typeof o.details !== 'object' || Array.isArray(o.details))) return 'details is invalid'
+  return undefined
+}
+
 export type NewEntry = Omit<DispositionEntry, 'seq' | 'prevHash' | 'at' | 'tzOffsetMinutes'>
 
 const enc = new TextEncoder()
@@ -135,7 +164,9 @@ export class DispositionLog {
       } catch {
         throw new DispositionError(`Entry ${i + 1} is not valid JSON`)
       }
-      if (e.seq !== i) throw new DispositionError(`Entry ${i + 1}: sequence gap (found ${e.seq})`)
+      if (e?.seq !== i) throw new DispositionError(`Entry ${i + 1}: sequence gap (found ${String(e?.seq).slice(0, 20)})`)
+      const problem = entryProblem(e)
+      if (problem) throw new DispositionError(`Entry ${i + 1}: ${problem}`)
       if (e.prevHash !== prev) throw new DispositionError(`Entry ${i + 1}: the chain is broken (an earlier entry was changed or removed)`)
       prev = await sha256Hex(enc.encode(line))
       entries.push(e)

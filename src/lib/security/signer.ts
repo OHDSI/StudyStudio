@@ -312,6 +312,15 @@ export interface RosterStatus {
 }
 
 /**
+ * Keys that issued the protocol: valid signatures over study_config.json made with the
+ * "protocol-issued" meaning. Any other signature on the protocol (e.g. one added later by someone
+ * else) is not an issuer and cannot approve the signer roster.
+ */
+export function protocolIssuerKids(checks: readonly SignatureCheck[] | undefined): string[] {
+  return (checks ?? []).filter((c) => c.valid && c.meaning === 'protocol-issued').map((c) => c.kid)
+}
+
+/**
  * A roster is only as trustworthy as whoever signed it. The trust anchor is the key that signed the
  * protocol (study_config.json): the roster must carry a valid "roster-approved" signature by that key.
  */

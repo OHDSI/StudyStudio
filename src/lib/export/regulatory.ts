@@ -113,7 +113,7 @@ function etlSection(etl: SiteEtl[] | undefined): { md: string[]; html: string } 
       for (const t of e.scanTables) md.push(`| ${mdCell(t.name)} | ${t.rows ?? '—'} | ${mdCell(t.fields.map((f) => (f.type ? `${f.name} (${f.type})` : f.name)).join(', '))} |`)
       md.push('')
       html += `<table><tr><th>Source table</th><th>Rows profiled</th><th>Fields</th></tr>${e.scanTables
-        .map((t) => `<tr><td>${xmlEscape(t.name)}</td><td>${t.rows ?? '—'}</td><td>${xmlEscape(t.fields.map((f) => (f.type ? `${f.name} (${f.type})` : f.name)).join(', '))}</td></tr>`)
+        .map((t) => `<tr><td>${xmlEscape(t.name)}</td><td>${xmlEscape(String(t.rows ?? '—'))}</td><td>${xmlEscape(t.fields.map((f) => (f.type ? `${f.name} (${f.type})` : f.name)).join(', '))}</td></tr>`)
         .join('')}</table>`
     }
     const m = e.mapping
@@ -367,13 +367,13 @@ export function buildHtmlReport(i: ReportInput): string {
   const rows = i.rows
     .map((r) => {
       const f = siteFacts(r, i.cross)
-      return `<tr class="${r.adopted ? '' : 'excluded'}">${cols.map((c) => `<td>${c.label === 'Decision' ? `<b>${c.value(f)}</b>` : c.escape ? xmlEscape(c.value(f)) : c.value(f)}</td>`).join('')}</tr>`
+      return `<tr class="${r.adopted ? '' : 'excluded'}">${cols.map((c) => `<td>${c.label === 'Decision' ? `<b>${xmlEscape(c.value(f))}</b>` : xmlEscape(c.value(f))}</td>`).join('')}</tr>`
     })
     .join('\n')
   const refs = Object.entries(i.cross.references)
-    .map(([p, r]) => `<tr><td><code>${xmlEscape(p)}</code>${r.kind === 'section' ? ' (protected section)' : ''}</td><td><code>${r.hash ?? '—'}</code></td><td>${r.source}</td></tr>`)
+    .map(([p, r]) => `<tr><td><code>${xmlEscape(p)}</code>${r.kind === 'section' ? ' (protected section)' : ''}</td><td><code>${xmlEscape(r.hash ?? '—')}</code></td><td>${xmlEscape(r.source)}</td></tr>`)
     .join('\n')
-  const files = (i.exportedFiles ?? []).map((f) => `<tr><td><code>${xmlEscape(f.path)}</code></td><td><code>${f.sha256}</code></td><td>${f.sizeBytes}</td></tr>`).join('\n')
+  const files = (i.exportedFiles ?? []).map((f) => `<tr><td><code>${xmlEscape(f.path)}</code></td><td><code>${xmlEscape(f.sha256)}</code></td><td>${xmlEscape(String(f.sizeBytes))}</td></tr>`).join('\n')
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Audit Report — ${xmlEscape(i.studyId)}</title>
 <style>
@@ -387,8 +387,8 @@ export function buildHtmlReport(i: ReportInput): string {
 <button class="noprint" onclick="window.print()" style="float:right">Print / Save as PDF</button>
 <h1>Network Integrity &amp; Privacy Audit Report</h1>
 <div class="meta">${xmlEscape(i.studyId)} — ${xmlEscape(i.studyTitle)}<br>
-Generated ${xmlEscape(i.generatedAt)} · OHDSI Study Studio ${APP_VERSION} · min cell count ${i.config?.minCellCount ?? 5}<br>
-Sites received ${i.rows.length} · adopted ${adopted} · excluded ${i.rows.length - adopted}${i.standards ? `<br>${standardsLine(i)}` : ''}</div>
+Generated ${xmlEscape(i.generatedAt)} · OHDSI Study Studio ${APP_VERSION} · min cell count ${xmlEscape(String(i.config?.minCellCount ?? 5))}<br>
+Sites received ${i.rows.length} · adopted ${adopted} · excluded ${i.rows.length - adopted}${i.standards ? `<br>${xmlEscape(standardsLine(i) ?? '')}` : ''}</div>
 <h2>1. Protocol reference hashes (SHA-256)</h2>
 <table><tr><th>Artifact</th><th>Reference</th><th>Source</th></tr>${refs}</table>
 <h2>2. Site verification summary</h2>
@@ -406,7 +406,7 @@ ${files ? `<h2>7. Submission package contents</h2><table><tr><th>File</th><th>SH
 function htmlDisposition(i: ReportInput): string {
   const lock = i.disposition?.find((e) => e.action === 'lock')
   const disp = dispositionRows(i)
-    .map((d) => `<tr><td>${xmlEscape(d.siteId)}</td><td><code>${short(d.pack)}</code></td><td>${d.recommended}</td><td><b>${xmlEscape(d.decision)}</b>${d.deviates ? ' ⚠️' : ''}</td><td>${xmlEscape(d.code)}</td><td>${xmlEscape(d.text)}</td><td>${xmlEscape(d.by)}</td><td>${d.at}</td></tr>`)
+    .map((d) => `<tr><td>${xmlEscape(d.siteId)}</td><td><code>${xmlEscape(short(d.pack))}</code></td><td>${xmlEscape(d.recommended)}</td><td><b>${xmlEscape(d.decision)}</b>${d.deviates ? ' ⚠️' : ''}</td><td>${xmlEscape(d.code)}</td><td>${xmlEscape(d.text)}</td><td>${xmlEscape(d.by)}</td><td>${xmlEscape(d.at)}</td></tr>`)
     .join('\n')
   const ev = i.rows
     .map((r) => {
@@ -417,14 +417,14 @@ function htmlDisposition(i: ReportInput): string {
     })
     .join('\n')
   const trail = (i.disposition ?? [])
-    .map((e) => `<tr><td>${e.seq}</td><td>${e.at}</td><td>${xmlEscape(`${e.actor.name} (${e.actor.role})`)}</td><td>${e.action}</td><td>${xmlEscape(e.siteId ?? '—')}</td><td>${e.to ? `${e.from ?? '—'} → ${e.to}` : '—'}</td><td>${xmlEscape([e.reasonCode, e.reasonText].filter(Boolean).join(': ') || '—')}</td></tr>`)
+    .map((e) => `<tr><td>${xmlEscape(String(e.seq))}</td><td>${xmlEscape(e.at)}</td><td>${xmlEscape(`${e.actor.name} (${e.actor.role})`)}</td><td>${xmlEscape(e.action)}</td><td>${xmlEscape(e.siteId ?? '—')}</td><td>${e.to ? xmlEscape(`${e.from ?? '—'} → ${e.to}`) : '—'}</td><td>${xmlEscape([e.reasonCode, e.reasonText].filter(Boolean).join(': ') || '—')}</td></tr>`)
     .join('\n')
   return `<h2>4. Site disposition</h2>
-<p>Assurance: ${i.config?.assurance ?? 'standard'} · Dispositions locked: ${lock ? `yes — ${xmlEscape(lock.actor.name)} at ${lock.at}` : 'no'}</p>
+<p>Assurance: ${xmlEscape(i.config?.assurance ?? 'standard')} · Dispositions locked: ${lock ? `yes — ${xmlEscape(lock.actor.name)} at ${xmlEscape(lock.at)}` : 'no'}</p>
 <table><tr><th>Site</th><th>Pack</th><th>Recommended</th><th>Decision</th><th>Code</th><th>Justification / reasons</th><th>Decided by</th><th>When (UTC)</th></tr>${disp}</table>
 <h2>5. Signatures, data quality and provenance</h2>
 <table><tr><th>Site</th><th>Signatures</th><th>DQD block/warn</th><th>CDM / vocabulary</th><th>Log errors</th><th>Run record</th><th>Issues</th></tr>${ev}</table>
-${trail ? `<h2>6. Disposition audit trail</h2><p>Head <code>${i.dispositionHead ?? '—'}</code></p><table><tr><th>#</th><th>When (UTC)</th><th>Who</th><th>Action</th><th>Site</th><th>Change</th><th>Reason</th></tr>${trail}</table>` : ''}
+${trail ? `<h2>6. Disposition audit trail</h2><p>Head <code>${xmlEscape(i.dispositionHead ?? '—')}</code></p><table><tr><th>#</th><th>When (UTC)</th><th>Who</th><th>Action</th><th>Site</th><th>Change</th><th>Reason</th></tr>${trail}</table>` : ''}
 <h2>Limitations</h2><ul>${LIMITATIONS.map((l) => `<li>${xmlEscape(l)}</li>`).join('')}</ul>`
 }
 

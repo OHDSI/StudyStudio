@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { DropZone } from '@/features/common/DropZone'
 import { Hash } from '@/features/common/Hash'
 import type { HashCheckStatus, LoadedSitePack } from '@/lib/network/aggregator'
-import { kidFingerprint, type SignatureCheck } from '@/lib/security/signer'
+import { kidFingerprint, protocolIssuerKids, type SignatureCheck } from '@/lib/security/signer'
 import type { SiteRow } from '@/lib/export/regulatory'
 import { EvidenceView } from '@/features/common/EvidenceView'
 import { ActorCard, DecisionCell, DispositionLogCard, LockCard, RosterCard } from './DispositionPanel'
@@ -52,6 +52,23 @@ function IntegrityBadge({ site }: { site: LoadedSitePack }) {
   if (i.status === 'verified') return <Badge variant="success"><CheckCircle2 /> Verified {i.verifiedCount}</Badge>
   if (i.status === 'tampered') return <Badge variant="destructive"><XCircle /> Tampered</Badge>
   return <Badge variant="destructive"><AlertTriangle /> Invalid</Badge>
+}
+
+/** Who issued the loaded protocol: the trust anchor for the signer roster, to be checked out of band. */
+function ProtocolIssuer() {
+  const checks = useStudyStore((s) => s.protocol?.signatureChecks)
+  const issuers = protocolIssuerKids(checks)
+  if (!issuers.length)
+    return <div className="text-warning">{checks?.some((c) => !c.valid) ? 'Invalid protocol signature' : 'Protocol not signed by its issuer'} — a signer roster cannot be trusted against it.</div>
+  return (
+    <div className="text-muted-foreground">
+      {checks!.filter((c) => issuers.includes(c.kid)).map((c) => (
+        <div key={c.kid}>
+          Issued by <b>{c.signer?.name}</b> · key <code>{kidFingerprint(c.kid)}</code> — confirm this is your key
+        </div>
+      ))}
+    </div>
+  )
 }
 
 export function Aggregator() {
@@ -101,6 +118,7 @@ export function Aggregator() {
               <div className="flex flex-col gap-1 text-xs">
                 <div className="font-medium">{config.studyId} — {config.studyTitle}</div>
                 <div className="text-muted-foreground">{Object.keys(config.expectedHashes).length + Object.keys(config.protectedSections ?? {}).length} pinned hashes · suppress &lt;{config.minCellCount}</div>
+                <ProtocolIssuer />
                 <Button size="sm" variant="ghost" className="w-fit" onClick={() => setConfig(undefined)}>Clear</Button>
               </div>
             ) : (

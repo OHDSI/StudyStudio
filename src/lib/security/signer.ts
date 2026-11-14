@@ -53,6 +53,11 @@ export interface KeyFile {
 
 export const MIN_PASSPHRASE_LENGTH = 12
 const PBKDF2_ITERATIONS = 600_000
+/**
+ * Accepted PBKDF2 iteration counts in a key file. The upper bound keeps a crafted key file from
+ * hanging the browser; the lower bound only rejects files that are clearly not ours.
+ */
+export const KEY_FILE_ITERATIONS = { min: 1_000, max: 10_000_000 } as const
 const EC = { name: 'ECDSA', namedCurve: 'P-256' } as const
 const ES256 = { name: 'ECDSA', hash: 'SHA-256' } as const
 
@@ -90,7 +95,24 @@ export function parseKeyFile(v: unknown): KeyFile {
   const k = v as Partial<KeyFile>
   if (!k || k.format !== KEY_FILE_FORMAT) throw new Error('Not a StudyPack signing key file')
   if (!k.kid || !k.publicJwk || !k.wrappedPkcs8 || !k.kdf || !k.wrap || !k.signer) throw new Error('Key file is incomplete')
+  checkKdf(k as KeyFile)
   return k as KeyFile
+}
+
+function checkKdf(k: KeyFile) {
+  const { iterations, salt } = k.kdf
+  if (k.kdf.name !== 'PBKDF2' || k.kdf.hash !== 'SHA-256' || k.wrap.name !== 'AES-GCM') throw new Error('Key file uses an unsupported key protection')
+  if (!Number.isInteger(iterations) || iterations < KEY_FILE_ITERATIONS.min || iterations > KEY_FILE_ITERATIONS.max)
+    throw new Error(`Key file iteration count must be between ${KEY_FILE_ITERATIONS.min} and ${KEY_FILE_ITERATIONS.max}`)
+  let saltLength = 0
+  let ivLength = 0
+  try {
+    saltLength = b64urlDecode(salt).length
+    ivLength = b64urlDecode(k.wrap.iv).length
+  } catch {
+    /* reported below */
+  }
+  if (saltLength < 16 || ivLength !== 12) throw new Error('Key file salt or IV is invalid')
 }
 
 export interface UnlockedSigner {
@@ -101,6 +123,7 @@ export interface UnlockedSigner {
 }
 
 export async function unlockKeyFile(file: KeyFile, passphrase: string): Promise<UnlockedSigner> {
+  checkKdf(file)
   const kek = await deriveKek(passphrase, b64urlDecode(file.kdf.salt), file.kdf.iterations)
   let key: CryptoKey
   try {

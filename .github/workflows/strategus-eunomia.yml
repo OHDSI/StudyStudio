@@ -31,8 +31,8 @@ jobs:
         run: |
           echo "EUNOMIA_DATA_FOLDER=$RUNNER_TEMP/eunomia-data" >> "$GITHUB_ENV"
           echo "OUT=$RUNNER_TEMP/eunomia-run" >> "$GITHUB_ENV"
-      - uses: actions/checkout@v7
-      - uses: r-lib/actions/setup-r@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: r-lib/actions/setup-r@f9a764fea8d5c63df6ef9a5c7795bf7deb5d7e05 # v2
         with:
           r-version: release
           use-public-rspm: true
@@ -48,7 +48,7 @@ jobs:
         run: |
           mkdir -p "$EUNOMIA_DATA_FOLDER"
           Rscript r/tests/eunomia/run-eunomia.R "$OUT"
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: npm
@@ -73,7 +73,7 @@ jobs:
         env:
           STUDYSTUDIO_EUNOMIA: ${{ env.OUT }}
       - if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: eunomia-run
           path: |

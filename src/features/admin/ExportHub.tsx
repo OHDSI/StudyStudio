@@ -24,6 +24,7 @@ import { mergeSiteResults } from '@/lib/network/mergeResults'
 import { isRScriptStudy } from '@/types/studypack'
 import { DEFINE_XML_VERSIONS, type DefineXmlVersion } from '@/lib/cdisc/defineXml'
 import { DATASET_JSON_VERSIONS, type DatasetJsonVersion } from '@/lib/cdisc/datasetJson'
+import { PRINT_SCRIPT } from '@/lib/security/csp'
 
 const PROFILE_NOTES: Record<SubmissionProfile, string> = {
   'aggregated-results':
@@ -51,7 +52,8 @@ const DATASET_NOTES: Record<DatasetChoice, string> = {
  * state; it starts printing itself instead.
  */
 function printHtml(html: string) {
-  const printable = html.replace('</body>', "<script>addEventListener('load',function(){print()})</script></body>")
+  // PRINT_SCRIPT is allowed by hash in the CSP the report window inherits.
+  const printable = html.replace('</body>', `<script>${PRINT_SCRIPT}</script></body>`)
   const url = URL.createObjectURL(new Blob([printable], { type: 'text/html' }))
   window.open(url, '_blank', 'noopener,noreferrer')
   setTimeout(() => URL.revokeObjectURL(url), 60_000)

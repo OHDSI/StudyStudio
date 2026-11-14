@@ -9,7 +9,7 @@
  * The results data model specification (RDMS) tells us exactly which columns are subject to
  * min-cell-count suppression, so the audit does not have to guess from column names.
  */
-import JSZip from 'jszip'
+import { openZip } from '@/lib/security/zip'
 import Papa from 'papaparse'
 import { auditCsvText, type AuditOptions, type AuditResult } from '@/lib/audit/cellAuditor'
 
@@ -83,7 +83,7 @@ export interface ResultFile {
 
 /** Read a Strategus results ZIP (Strategus::zipResults output) in memory. */
 export async function readResultsZip(data: ArrayBuffer | Uint8Array): Promise<ResultFile[]> {
-  const zip = await JSZip.loadAsync(data)
+  const zip = await openZip(data)
   const entries = Object.entries(zip.files).filter(([p, e]) => !e.dir && !p.includes('..'))
   const map = normalizeResultPaths(entries.map(([p]) => p))
   const out: ResultFile[] = []
@@ -114,7 +114,7 @@ export function findResultsSideFiles(files: { name: string; bytes: Uint8Array }[
 
 /** Non-directory entries of a ZIP, by path; only entries accepted by `want` are decompressed. */
 export async function readZipEntries(data: ArrayBuffer | Uint8Array, want: (path: string) => boolean = () => true): Promise<{ name: string; bytes: Uint8Array }[]> {
-  const zip = await JSZip.loadAsync(data)
+  const zip = await openZip(data)
   const entries = Object.entries(zip.files).filter(([p, e]) => !e.dir && !p.includes('..') && want(p))
   return Promise.all(entries.map(async ([name, e]) => ({ name, bytes: await e.async('uint8array') })))
 }

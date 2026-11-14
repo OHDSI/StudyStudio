@@ -116,6 +116,20 @@ describe('detached JWS', () => {
   })
 })
 
+describe('key file protection parameters', () => {
+  it('rejects iteration counts that would hang the browser, and malformed salt or IV', async () => {
+    const kf = await createKeyFile(signer, PASS, fast)
+    const withKdf = (kdf: object, wrap: object = {}) => JSON.parse(JSON.stringify({ ...kf, kdf: { ...kf.kdf, ...kdf }, wrap: { ...kf.wrap, ...wrap } }))
+    expect(() => parseKeyFile(withKdf({ iterations: 1e12 }))).toThrow(/iteration count/)
+    expect(() => parseKeyFile(withKdf({ iterations: 1.5 }))).toThrow(/iteration count/)
+    expect(() => parseKeyFile(withKdf({ salt: 'AAAA' }))).toThrow(/salt or IV/)
+    expect(() => parseKeyFile(withKdf({}, { iv: '!!' }))).toThrow(/salt or IV/)
+    expect(() => parseKeyFile(withKdf({ hash: 'SHA-1' }))).toThrow(/unsupported/)
+    await expect(unlockKeyFile({ ...kf, kdf: { ...kf.kdf, iterations: 1e12 } }, PASS)).rejects.toThrow(/iteration count/)
+    expect(parseKeyFile(withKdf({}))).toBeDefined()
+  })
+})
+
 describe('signer roster trust', () => {
   it('trusts only a roster signed by the protocol issuer key with the roster-approved meaning', async () => {
     const { verifyRoster, rosterBytes } = await import('./signer')

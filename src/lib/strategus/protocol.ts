@@ -8,6 +8,7 @@
  * and distributes them to sites as <studyId>_protocol.zip.
  */
 import JSZip from 'jszip'
+import { openZip } from '@/lib/security/zip'
 import { sha256Hex } from '@/lib/integrity/hasher'
 import type { AssuranceLevel, FrameworkName, StudyConfig } from '@/types/studypack'
 import { defaultDqdPolicy, studyTablesFor } from '@/lib/audit/dqdAuditor'
@@ -44,7 +45,7 @@ const enc = new TextEncoder()
 
 /** Expand a GitHub "Download ZIP" (or any ZIP) of the study repository into files. */
 export async function unzipRepo(data: ArrayBuffer | Uint8Array): Promise<RepoFile[]> {
-  const zip = await JSZip.loadAsync(data)
+  const zip = await openZip(data)
   const out: RepoFile[] = []
   for (const [p, e] of Object.entries(zip.files)) if (!e.dir && !p.includes('..')) out.push({ path: p, bytes: await e.async('uint8array') })
   return out
@@ -283,7 +284,7 @@ export async function readProtocolFile(name: string, data: ArrayBuffer | Uint8Ar
   let configBytes: Uint8Array | undefined
   let signatureBytes: Uint8Array | undefined
   if (/\.zip$/i.test(name)) {
-    const zip = await JSZip.loadAsync(data)
+    const zip = await openZip(data)
     for (const [p, e] of Object.entries(zip.files)) {
       if (e.dir) continue
       const rel = p.replace(/^[^/]+_protocol\//, '')

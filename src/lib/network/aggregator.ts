@@ -2,7 +2,7 @@
  * Multi-Site Aggregator: unzips StudyPacks in memory, verifies each manifest
  * (tamper detection), re-audits Strategus results, and cross-checks protocol hashes between sites.
  */
-import JSZip from 'jszip'
+import { openZip } from '@/lib/security/zip'
 import { SHA256_PATTERN, hashesEqual, sha256Hex } from '@/lib/integrity/hasher'
 import type { AuditResult } from '@/lib/audit/cellAuditor'
 import { GENERATED_PATHS, RESULTS_DIR } from '@/lib/studypack/slots'
@@ -115,7 +115,7 @@ export async function loadStudyPack(fileName: string, data: ArrayBuffer | Uint8A
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data)
   const zipSha256 = await sha256Hex(bytes)
   const errors: string[] = []
-  const zip = await JSZip.loadAsync(bytes).catch((e: unknown) => {
+  const zip = await openZip(bytes).catch((e: unknown) => {
     errors.push(`Cannot extract ZIP: ${String(e)}`)
     return undefined
   })

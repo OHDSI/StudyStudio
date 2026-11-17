@@ -67,8 +67,12 @@ flowchart LR
   EH -->|submission package| SUB[(Sponsor / regulator)]
 ```
 
-Transfers between the boxes (‹USB media / secure file transfer / …›) are outside the tool. Their integrity
-is verified by the tool on arrival (manifest hashes, signatures), not assumed.
+Transfers between the boxes are outside the tool and are pre-specified in the protocol or data management
+plan (EMA-CS §6.1.2: all transfers need to be pre-specified): ‹approved channels, e.g. institutional encrypted
+mail or file transfer, organisation-issued encrypted USB media›, who sends and receives, and when. Their
+integrity is verified by the tool on arrival (manifest hashes, signatures), not assumed. Confidentiality
+(EMA-CS §6.1.2; FDA-P11 Q6) rests on the channel: packs hold aggregate results with small cells masked, which
+is the risk justification for the channel chosen.
 
 ## 4. Roles and responsibilities
 
@@ -173,13 +177,14 @@ e.g. all packs verify; no unexpected blockers; time per site ≤ ‹x› minutes
 
 | SOP | Covers | Requirement |
 |---|---|---|
-| ‹SOP-1› Signer enrollment and revocation | Identity verification method, fingerprint read-back, revocation on loss or departure, roster re-signing | R1.5 |
-| ‹SOP-2› Key and passphrase handling | Personal use only, storage of key files, no sharing | R1.4 |
+| ‹SOP-1› Signer enrollment and revocation | Identity verification method, fingerprint read-back, revocation on loss or departure, roster re-signing. For studies submitted to FDA: each signing organisation (or the sponsor for all) files one letter of non-repudiation with FDA before first signing, checked by the coordinator at enrollment (FDA-P11 Q29) | R1.5 |
+| ‹SOP-2› Key and passphrase handling; security incidents | Personal use only, storage of key files, no sharing. A suspected compromise of a key, passphrase or workstation is reported to the coordinator, who revokes the key, re-assesses packs signed with it, records the outcome in the disposition log and escalates serious breaches (FDA-P11 Q11; EMA-CS A4.11) | R1.4; JP-ERES 4.(2) |
 | ‹SOP-3› Clock control | Seal (site) and receive (coordinator) only on institution-managed workstations synchronised to an external standard (e.g. institutional NTP); only system administrators can change the date, time or time zone, and changes are documented; a clock warning shown by the tool is reported to the system administrator and resolved before sealing. Optional: ‹the TSA used›; time-stamp the protocol before distributing it and the disposition log after the last receipt; check the TSA's certificate chain (`openssl ts -verify`) | R2.2 |
-| ‹SOP-4› Retention | Site: originals + retention receipt for ‹period›; coordinator: received packs, roster + signature, disposition log + signed head in the TMF | R5.4, R6.4 |
+| ‹SOP-4› Retention and backup | Site: originals + retention receipt + a copy of each sealed pack sent (the record of what was sent) for ‹period›; coordinator: received packs, roster + signature, disposition log + signed head in the TMF, and every released `index.html` used with its SHA-256 (so the records stay readable with the software that made them; they also verify without it: `sha256sum`, JOSE libraries, `openssl`); an inventory of these records and their retention periods, set to the longest of the regions where the data may be submitted; backup copies on ‹media/location›, a documented restore and re-verification of SHA-256 every ‹interval› and after any migration to other media (EMA-CS §6.8, §6.11) | R5.4, R6.4; JP-ERES 3.1.1(3), 3.1.3 |
 | ‹SOP-5› Disposition review | Pre-specified criteria, review of overrides, lock before unblinding | R6.1–R6.3 |
 | ‹SOP-6› Log review | Site reviews the redacted log before sealing | R5.2 |
 | ‹SOP-7› Study execution and its verification | Run the protocol's `ExecuteAnalyses.R` (with `recordStrategusRun()`) as a whole (`source()` or `Rscript`, not line by line from an unsaved editor) after `renv::restore()`; keep `run_record.json` with the results; verify the execution at a sample of sites (§9.1) | R5.5 |
+| ‹SOP-8› Training and workstation security | Site operators, site PIs and coordinators are trained before first use, with a training record; training covers key and passphrase protection, phishing, reporting incidents (SOP-2) and correcting a pack already sent (seal and send a new one; the coordinator excludes the old one with reason `DUPLICATE`) — a one-page guide ships with each release. Packs are sealed and received only on institution-managed workstations (see SOP-3): the user is not a local administrator (or the exception is justified), the system is patched and runs anti-virus per institutional IT; a released copy of `index.html` whose SHA-256 is checked is used; key files and unmasked originals are kept in access-controlled storage | JP-ERES 3.1.1(1), 5; FDA-P11 Q15; EMA-CS §5.3, §5.4, A3.3, A4.7 |
 
 ### 9.1 SOP-7 outline: verifying the execution at a sample of sites
 
@@ -209,7 +214,10 @@ does not come from the site alone. Fill in the ‹ › values in the protocol, b
 ## 10. Deviations
 
 Test failures and unexpected behaviour are recorded with ID, description, impact assessment, root cause,
-corrective action and QA approval. A failure in a high-risk function (§5) blocks release.
+corrective action and QA approval. A failure in a high-risk function (§5) blocks release. Users report
+defects and issues through ‹tracker / contact›; the tool maintainer triages them, fixes them in a timely
+manner and records corrective and preventive actions, which the periodic review (§11) checks (EMA-CS A2.8;
+FDA-P11 Q8).
 
 ## 11. Periodic review
 

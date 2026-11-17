@@ -163,14 +163,31 @@ recordStrategusRun <- function(code,
   })
   finishedAt <- now()
 
+  # State in the execution record Strategus (>= 1.6) keeps at <results>/<module>/execution_status.json.
+  # resultsFolder may be a parent of the Strategus results folder, so the shallowest match is used.
+  executionRecordState <- function(moduleName) {
+    paths <- list.files(resultsFolder, pattern = "^execution_status\\.json$", recursive = TRUE)
+    paths <- paths[basename(dirname(paths)) == moduleName]
+    if (!length(paths)) return(NA_character_)
+    path <- paths[order(lengths(strsplit(paths, "/", fixed = TRUE)))][1]
+    record <- tryCatch(jsonlite::fromJSON(file.path(resultsFolder, path), simplifyVector = FALSE), error = function(e) NULL)
+    state <- if (is.list(record)) record$state
+    if (is.character(state) && length(state) == 1) state else NA_character_
+  }
+
   # Strategus::execute() (1.x) does not stop when a module fails: it returns one status per module.
   # Keep each module's outcome (not its error message) and treat a failed or blocked module as a failed run.
   modules <- NULL
   if (is.list(value) && length(value) > 0 && all(vapply(value, function(m) is.list(m) && !is.null(m$moduleName) && !is.null(m$status), TRUE))) {
+    # Strategus skips a module for one of two reasons: its execution record is COMPLETED with the current
+    # task checksum (skipCompletedTasks), or cohort generation failed in this run. A skip does not rewrite
+    # the record, so a COMPLETED record after the run, with cohort generation not failed, is the first case.
+    cohortGenerationFailed <- any(vapply(value, function(m) tolower(m$moduleName) == "cohortgeneratormodule" && identical(m$status, "FAILED"), TRUE))
     modules <- lapply(value, function(m) list(
       module = m$moduleName,
       status = m$status,
-      skippedAsCompleted = identical(m$status, "SKIPPED") && identical(m$errorMessage, "Matching completed execution record found")
+      skippedAsCompleted = identical(m$status, "SKIPPED") && !cohortGenerationFailed &&
+        identical(executionRecordState(m$moduleName), "COMPLETED")
     ))
     bad <- vapply(modules, function(m) identical(m$status, "FAILED") || (identical(m$status, "SKIPPED") && !m$skippedAsCompleted), TRUE)
     if (any(bad) && status == "completed") {

@@ -87,7 +87,14 @@ err <- withCallingHandlers(
 check(identical(err, "module failed") && warned, "write failure warns, run error kept")
 
 # Strategus 1.x returns module statuses instead of stopping: a failed or blocked module fails the run.
+# A skip counts as "completed earlier" from the module's execution_status.json, not the message text.
 strategusLike <- function(...) list(...)
+writeExecutionStatus <- function(module, state) {
+  dir.create(file.path(results, module), recursive = TRUE, showWarnings = FALSE)
+  writeLines(sprintf('{"schemaVersion":1,"operation":"EXECUTION","moduleName":"%s","state":"%s","attr_class":"OperationStatusRecord"}', module, state),
+             file.path(results, module, "execution_status.json"))
+}
+writeExecutionStatus("CohortGeneratorModule", "COMPLETED")
 recordStrategusRun(
   strategusLike(
     list(moduleName = "CohortGeneratorModule", status = "SKIPPED", errorMessage = "Matching completed execution record found", executionTime = "SKIPPED"),
@@ -110,6 +117,45 @@ bad <- rec$runs[[length(rec$runs)]]
 check(identical(ok$status, "completed") && isTRUE(ok$modules[[1]]$skippedAsCompleted), "modules skipped as completed keep the run completed")
 check(identical(bad$status, "failed") && identical(bad$errorClass, "StrategusModuleFailure") && identical(bad$modules[[2]]$status, "SKIPPED"), "a failed module fails the run")
 check(!grepl("db01", paste(readLines(file.path(results, "run_record.json")), collapse = "\n")), "module error messages not written")
+
+# The message text alone no longer counts: without a COMPLETED execution record the skip fails the run.
+skipRun <- function(module, message = "Matching completed execution record found") {
+  suppressWarnings(recordStrategusRun(
+    strategusLike(list(moduleName = module, status = "SKIPPED", errorMessage = message, executionTime = "SKIPPED")),
+    resultsFolder = results, analysisSpecificationsFile = spec, executionScriptFile = script, renvLockFile = lock
+  ))
+  rec <- jsonlite::fromJSON(file.path(results, "run_record.json"), simplifyVector = FALSE)
+  rec$runs[[length(rec$runs)]]
+}
+r1 <- skipRun("SelfControlledCaseSeriesModule")
+check(identical(r1$status, "failed") && isFALSE(r1$modules[[1]]$skippedAsCompleted), "skip message without an execution record does not count as completed")
+writeExecutionStatus("SelfControlledCaseSeriesModule", "FAILED")
+r2 <- skipRun("SelfControlledCaseSeriesModule")
+check(identical(r2$status, "failed") && isFALSE(r2$modules[[1]]$skippedAsCompleted), "skip with a FAILED execution record does not count as completed")
+writeExecutionStatus("SelfControlledCaseSeriesModule", "COMPLETED")
+r3 <- skipRun("SelfControlledCaseSeriesModule", message = "some other wording")
+check(identical(r3$status, "completed") && isTRUE(r3$modules[[1]]$skippedAsCompleted), "COMPLETED execution record counts, whatever the message")
+
+# A module skipped because cohort generation failed is not "completed earlier", even with an old COMPLETED record.
+writeExecutionStatus("CohortMethodModule", "COMPLETED")
+suppressWarnings(recordStrategusRun(
+  strategusLike(
+    list(moduleName = "CohortGeneratorModule", status = "FAILED", errorMessage = "x", executionTime = "0 secs"),
+    list(moduleName = "CohortMethodModule", status = "SKIPPED", errorMessage = "Cohort generation failed", executionTime = "SKIPPED")
+  ),
+  resultsFolder = results, analysisSpecificationsFile = spec, executionScriptFile = script, renvLockFile = lock
+))
+rec <- jsonlite::fromJSON(file.path(results, "run_record.json"), simplifyVector = FALSE)
+check(isFALSE(rec$runs[[length(rec$runs)]]$modules[[2]]$skippedAsCompleted), "skip after failed cohort generation does not count as completed")
+
+# resultsFolder may be a parent of the Strategus results folder.
+parent <- dirname(results)
+suppressWarnings(recordStrategusRun(
+  strategusLike(list(moduleName = "CohortGeneratorModule", status = "SKIPPED", errorMessage = "", executionTime = "SKIPPED")),
+  resultsFolder = parent, analysisSpecificationsFile = spec, executionScriptFile = script, renvLockFile = lock
+))
+rec <- jsonlite::fromJSON(file.path(parent, "run_record.json"), simplifyVector = FALSE)
+check(isTRUE(rec$runs[[length(rec$runs)]]$modules[[1]]$skippedAsCompleted), "execution record found below a parent results folder")
 
 # An unreadable record is moved aside and a new one is started.
 writeLines("{ not json", file.path(results, "run_record.json"))

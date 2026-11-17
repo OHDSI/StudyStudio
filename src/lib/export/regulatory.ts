@@ -171,7 +171,7 @@ function dispositionRows(i: ReportInput) {
 }
 
 const LIMITATIONS = [
-  'Seal, signature and decision times come from device clocks, which the study’s SOPs require to be synchronised to an external standard and not changeable by users (EMA computerised systems guideline §5.5; FDA Q&A 2024 Q14); the tool cannot verify this, but warns when a loaded file is dated in the device’s future. Seal times are bounded by the protocol issue time and the coordinator receipt time. Where optional RFC 3161 tokens over the protocol and the disposition log were obtained, those bounds are also on a time-stamp authority’s clock (see each site’s seal-time window); the TSA’s certificate chain is not checked by the tool.',
+  'Seal, signature and decision times come from device clocks, which the study’s SOPs require to be synchronised to an external standard and not changeable by users (EMA computerised systems guideline §5.5; FDA Q&A 2024 Q14); the tool cannot verify this, but warns when a loaded file is dated in the device’s future. Seal times are bounded by the protocol issue time and the coordinator receipt time.',
   'Masked results and redacted logs are represented by salted commitments; the originals and their salts are retained at each site.',
   'Data-quality evaluation checks the CDM’s internal consistency (OHDSI DQD); source-to-CDM reconciliation is documented by each data holder.',
   'Exported datasets contain aggregate Strategus results, not patient-level SDTM/ADaM data.',
@@ -230,13 +230,11 @@ function siteIssues(r: SiteRow): string[] {
   ]
 }
 
-/** "after T (TSA X) and before T (coordinator device clock)". */
+/** "after T (protocol issue) and before T (coordinator receipt)", on the coordinator's device clock. */
 function sealWindow(r: SiteRow): string | undefined {
   const w = r.evidence?.timeline.trustedWindow
   if (!w) return undefined
-  const clock = (src?: string, tsa?: string) => (src === 'tsa' ? `time-stamp authority${tsa ? ` ${tsa}` : ''}` : 'coordinator device clock')
-  const tsaName = r.site.protocolTimestamp?.valid ? r.site.protocolTimestamp.tsa : undefined
-  return [w.from && `after ${w.from} (${clock(w.fromSource, tsaName)})`, w.to && `before ${w.to} (${clock(w.toSource)})`].filter(Boolean).join(' and ')
+  return [w.from && `after ${w.from} (protocol issue)`, w.to && `before ${w.to} (coordinator receipt)`].filter(Boolean).join(' and ')
 }
 
 const PLAUSIBILITY_NOTE =
@@ -328,7 +326,6 @@ export function buildMarkdownReport(i: ReportInput): string {
     if (s.exportedMinCellCount !== undefined) L.push(`- Exported with minCellCount ${s.exportedMinCellCount} (executionSettings.json)`)
     const w = sealWindow(r)
     if (w) L.push(`- Seal-time window: ${w}`)
-    if (s.protocolTimestamp && !s.protocolTimestamp.valid) L.push(`- ❌ Invalid time-stamp token on the sealed protocol: ${s.protocolTimestamp.error}`)
     if (s.reAudit) {
       L.push(`- Coordinator re-audit of ${s.reAudit.files} ${isRScriptStudy(i.config ?? s.sealedProtocol) ? '' : 'Strategus '}result file(s): ${s.reAudit.scannedCells} cells scanned, ${s.reAudit.smallCellCount} small cells, ${s.reAudit.identifierCount} identifier columns`)
       for (const f of s.reAudit.failing) L.push(`  - ❌ \`results/${f.path}\`: ${f.smallCellCount} small cell(s), ${f.identifierCount} identifier column(s)`)

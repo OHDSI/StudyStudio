@@ -132,16 +132,12 @@ export function EvidenceView({ evidence: e }: { evidence: SiteEvidence }) {
   )
 }
 
-/** Which clock each bound of the seal time is on. */
+/** The window the seal time lies in, on the coordinator's device clock. */
 function TrustedWindow({ w }: { w: NonNullable<SiteEvidence['timeline']['trustedWindow']> }) {
-  const tsa = (src?: string) => src === 'tsa'
-  const bound = (label: string, at?: string, src?: string) => (at ? `${label} ${at} (${tsa(src) ? "time-stamp authority's clock" : "coordinator's device clock"})` : undefined)
-  const parts = [bound('after', w.from, w.fromSource), bound('before', w.to, w.toSource)].filter(Boolean)
+  const parts = [w.from && `after the protocol issue (${w.from})`, w.to && `before the coordinator's receipt (${w.to})`].filter(Boolean)
   return (
     <div className="text-muted-foreground">
-      The seal time can be trusted only within this window: {parts.join(' and ')}.
-      {' '}The times rely on controlled device clocks (synchronised, not changeable by users — SOP-3).
-      {!(tsa(w.fromSource) && (!w.to || tsa(w.toSource))) && ' Optional RFC 3161 tokens over the protocol and the disposition log can add a time-stamp authority’s clock to the bounds.'}
+      The seal time lies within this window: {parts.join(' and ')}. The times rely on controlled device clocks (synchronised, not changeable by users — SOP-3).
     </div>
   )
 }

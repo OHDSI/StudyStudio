@@ -96,18 +96,12 @@ export class DispositionLog {
   private lines: string[] = []
   private head = GENESIS
   private cache: DispositionEntry[] = []
-  /** SHA-256 of each line: the head as it was right after that entry. */
-  private hashes: string[] = []
 
   get entries(): readonly DispositionEntry[] {
     return this.cache
   }
   get headHash(): string {
     return this.head
-  }
-  /** The head hash right after entry `seq` (what a time-stamp over that point covers). */
-  hashAt(seq: number): string | undefined {
-    return this.hashes[seq]
   }
   get size(): number {
     return this.lines.length
@@ -145,7 +139,6 @@ export class DispositionLog {
     this.lines.push(line)
     this.cache = [...this.cache, entry]
     this.head = await sha256Hex(enc.encode(line))
-    this.hashes.push(this.head)
     return entry
   }
 
@@ -164,7 +157,6 @@ export class DispositionLog {
     let prev = GENESIS
     const lines = text.split('\n').filter((l) => l.trim())
     const entries: DispositionEntry[] = []
-    const hashes: string[] = []
     for (const [i, line] of lines.entries()) {
       let e: DispositionEntry
       try {
@@ -177,7 +169,6 @@ export class DispositionLog {
       if (problem) throw new DispositionError(`Entry ${i + 1}: ${problem}`)
       if (e.prevHash !== prev) throw new DispositionError(`Entry ${i + 1}: the chain is broken (an earlier entry was changed or removed)`)
       prev = await sha256Hex(enc.encode(line))
-      hashes.push(prev)
       entries.push(e)
     }
     if (expected && (expected.headHash !== prev || expected.entries !== lines.length))
@@ -185,7 +176,6 @@ export class DispositionLog {
     log.lines = lines
     log.head = prev
     log.cache = entries
-    log.hashes = hashes
     return log
   }
 }

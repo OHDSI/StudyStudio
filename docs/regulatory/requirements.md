@@ -29,7 +29,7 @@ interpretation and should be confirmed in a PMDA consultation.
 
 ## Design constraints that shape every answer
 
-- **No network.** No TSA, no IdP, no certificate authority can be reached at the site. (Optional RFC 3161 tokens are obtained by the coordinator outside the tool and exchanged as files.)
+- **No network.** No TSA, no IdP, no certificate authority can be reached at the site.
 - **No persistent storage.** The tool keeps nothing between sessions. Anything that must last is a file
   the user saves; anything that must not be lost is chained or signed so that loss is detectable.
 - **Assurance level is a protocol choice.** `study_config.assurance` is `standard` (academic OHDSI studies:
@@ -54,7 +54,7 @@ interpretation and should be confirmed in a PMDA consultation.
 | ID | Requirement | Source | Implementation |
 |---|---|---|---|
 | R2.1 | Times are unambiguous: UTC or time + time zone | E6 §4.2.2(d); FDA-P11 Q14; EMA-CS §5.5 | All recorded times ISO-8601 UTC + local offset |
-| R2.2 | Clock set by an external standard, not user-modifiable; discrepancies detected and reported | EMA-CS §5.5; FDA-P11 Q14; JP-ERES 2.(6) | **The device's clock, controlled by procedure** — the approach both texts describe. SOP-3: seal and receive on institution-managed workstations synchronised to an external standard (e.g. NTP), where only administrators can change the clock and changes are documented. The tool runs in the browser and cannot verify this. It helps in three ways: `provenance/deviceClock.ts` warns when a loaded file is dated in the device's future (the clock runs behind; FDA Q14 asks that discrepancies be detected); `provenance/timeline.ts` labels every time by source (`coordinator-signed`, `device-clock`, `tsa`, `derived`), bounds the seal between protocol issue and coordinator receipt, and checks ordering (CDM release ≤ DQD ≤ Strategus run ≤ seal ≤ receipt). **Optional supplement, not required by either text:** RFC 3161 time-stamps, exchanged as files because the tool sends nothing (`integrity/timestamp.ts`) — a token over `study_config.json` travels in the protocol ZIP and is sealed into every pack (the seal is later than its time), and a token over the disposition log head covers every receipt recorded up to it (`network/logTimestamp.ts`). The tool checks the token's imprint, signed attributes and signature with the certificate it carries; the TSA's certificate chain is checked outside the tool (`openssl ts -verify`) |
+| R2.2 | Clock set by an external standard, not user-modifiable; discrepancies detected and reported | EMA-CS §5.5; FDA-P11 Q14; JP-ERES 2.(6) | **The device's clock, controlled by procedure** — the approach both texts describe. SOP-3: seal and receive on institution-managed workstations synchronised to an external standard (e.g. NTP), where only administrators can change the clock and changes are documented. The tool runs in the browser and cannot verify this. It helps in two ways: `provenance/deviceClock.ts` warns when a loaded file is dated in the device's future (the clock runs behind; FDA Q14 asks that discrepancies be detected); `provenance/timeline.ts` labels every time by source (`coordinator-signed`, `device-clock`, `derived`), bounds the seal between protocol issue and coordinator receipt, and checks ordering (CDM release ≤ DQD ≤ Strategus run ≤ seal ≤ receipt). |
 | R2.3 | Transfer time is recorded | EMA-CS §4.5 (ALCOA++ “contemporaneous”: time of observation and of storage kept as metadata); FDA-P11 Q8 (records not altered during transfer); FDA-P11 Q22 by analogy (transfer time from a DHT in the audit trail) | Aggregator records receipt time in the disposition log; the pack carries its seal time |
 
 ### R3 — Traceable provenance: CDM, vocabulary, software versions
@@ -136,9 +136,7 @@ signature, sealed protocol, coordinator signature and blocking evidence) and `bu
 1. Seal and signature times come from the site's device clock (R2.2). That the clocks are synchronised and
    not changeable by users rests on SOP-3; the tool cannot verify it and only warns when a loaded file is dated
    in the device's future. The window the seal time lies in is [protocol issue time, coordinator receipt
-   time], on the coordinator's device clock. Optional RFC 3161 tokens over the protocol and the disposition
-   log head add a time-stamp authority's clock to both bounds; the tool does not build the TSA's certificate
-   chain, so record which TSA was used and check its chain (`openssl ts -verify -CAfile …`).
+   time], on the coordinator's device clock.
 2. Account controls (lockout after failed attempts, inactivity logout) do not exist in a single offline HTML
    file without accounts. Signing requires the key file (something you have) and the passphrase (something you
    know) every time, which is two-factor in EMA's definition (EMA-CS A4.12).

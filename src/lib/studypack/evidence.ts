@@ -3,7 +3,6 @@
  * data-quality gate (R4), CDM/vocabulary/software provenance (R3), execution log (R5.1), run record (R5.5)
  * and the time evidence (R2). One pure function so both sides evaluate a pack the same way.
  */
-import type { TimestampCheck } from '@/lib/integrity/timestamp'
 import { clockDiscrepancyMessage, type ClockDiscrepancy } from '@/lib/provenance/deviceClock'
 import { defaultDqdPolicy, evaluateDqdGate, studyTablesFor, type DqdGateResult } from '@/lib/audit/dqdAuditor'
 import { auditLog, type LogAudit } from '@/lib/audit/logAuditor'
@@ -63,10 +62,6 @@ export interface EvidenceInput {
   sealedAt?: string
   /** Receipt time (coordinator). */
   receivedAt?: string
-  /** Verified RFC 3161 token over the protocol the pack contains (its time is a lower bound for the seal). */
-  protocolTimestamp?: Pick<TimestampCheck, 'valid' | 'genTime'>
-  /** Earliest verified RFC 3161 token over a disposition log head that covers this pack's receipt. */
-  receiptTimestamp?: Pick<TimestampCheck, 'valid' | 'genTime'>
   /** The site device's clock appeared to run behind when files were loaded. */
   clockDiscrepancy?: ClockDiscrepancy
   /** Hashes of the files (and, at the site, of masked originals) for the run-record comparison. */
@@ -75,7 +70,7 @@ export interface EvidenceInput {
   declaredModified?: string[]
 }
 
-export function evaluateEvidence({ config, files, sealedAt, receivedAt, protocolTimestamp, receiptTimestamp, clockDiscrepancy, hashes, declaredModified }: EvidenceInput): SiteEvidence {
+export function evaluateEvidence({ config, files, sealedAt, receivedAt, clockDiscrepancy, hashes, declaredModified }: EvidenceInput): SiteEvidence {
   const assurance: AssuranceLevel = config?.assurance ?? 'standard'
   const regulatory = assurance === 'regulatory'
   const spec = files[PROTOCOL_PATHS.analysisSpecifications]
@@ -100,7 +95,6 @@ export function evaluateEvidence({ config, files, sealedAt, receivedAt, protocol
     event('sourceRelease', 'Source data release', provenance.cdmSource?.sourceReleaseDate, 'site-tool'),
     event('cdmRelease', 'CDM release', provenance.cdmSource?.cdmReleaseDate, 'site-tool'),
     event('protocolIssued', 'Protocol issued', config?.issuedAt, 'coordinator-signed'),
-    event('protocolTimestamped', 'Protocol time-stamped (TSA)', protocolTimestamp?.valid ? protocolTimestamp.genTime : undefined, 'tsa'),
     event('dqdStart', 'DQD started', dqdGate.metadata.startTimestamp, 'site-tool'),
     event('dqdEnd', 'DQD finished', dqdGate.metadata.endTimestamp, 'site-tool'),
     event('logFirst', 'Strategus log start', log?.firstTimestamp, 'site-tool'),
@@ -109,7 +103,6 @@ export function evaluateEvidence({ config, files, sealedAt, receivedAt, protocol
     event('runEnd', 'Recorded run end', lastRun?.finishedAt, 'site-tool'),
     event('sealed', 'StudyPack sealed', sealedAt, 'device-clock'),
     event('received', 'Received by coordinator', receivedAt, 'device-clock'),
-    event('receiptTimestamped', 'Receipt time-stamped (TSA)', receiptTimestamp?.valid ? receiptTimestamp.genTime : undefined, 'tsa'),
   ].filter((e): e is TimelineEvent => !!e)
 
   const timeline = buildTimeline(events, regulatory)

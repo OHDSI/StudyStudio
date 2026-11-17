@@ -12,11 +12,10 @@ export function EvidencePanel() {
   const config = useStudyStore((s) => s.config)
   const slots = useStudyStore((s) => s.slots)
   const results = useStudyStore((s) => s.results)
-  const protocolTimestamp = useStudyStore((s) => s.protocol?.timestampCheck)
   const clockDiscrepancy = useStudyStore((s) => s.clockDiscrepancy)
   const evidence = React.useMemo(
-    () => evaluateEvidence({ config, files: siteFiles({ slots, results }), hashes: siteHashes({ slots, results }), protocolTimestamp, clockDiscrepancy }),
-    [config, slots, results, protocolTimestamp, clockDiscrepancy],
+    () => evaluateEvidence({ config, files: siteFiles({ slots, results }), hashes: siteHashes({ slots, results }), clockDiscrepancy }),
+    [config, slots, results, clockDiscrepancy],
   )
   // DQD, provenance, log and run record come from Strategus studies; an R script study has none of them.
   if (!config || !results || isRScriptStudy(config)) return null

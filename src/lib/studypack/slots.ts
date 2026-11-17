@@ -67,8 +67,6 @@ export const GENERATED_PATHS = {
   /** The protocol exactly as the site received it, and the coordinator's signature over it. */
   protocol: 'protocol/study_config.json',
   protocolSignature: 'protocol/study_config.jws.json',
-  /** RFC 3161 time-stamp token over study_config.json, when the coordinator obtained one. */
-  protocolTimestamp: 'protocol/study_config.tsr',
 } as const
 
 /** Guess the slot for a dropped file by its name (used for bulk drop). */

@@ -1,5 +1,4 @@
 import * as React from 'react'
-import { TimestampLine } from '@/features/common/TimestampExchange'
 import { FileCog, FileJson, RotateCcw, ShieldAlert, ShieldCheck } from 'lucide-react'
 import { kidFingerprint } from '@/lib/security/signer'
 import { useStudyStore } from '@/store/useStudyStore'
@@ -115,7 +114,6 @@ function ConfigSummary({ config, onReset }: { config: StudyConfig; onReset: () =
         </Button>
       </div>
       <ProtocolSignature />
-      <ProtocolTimestampLine />
       {config.framework?.modules.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
           <span className="text-muted-foreground">Modules</span>
@@ -158,17 +156,6 @@ function ConfigSummary({ config, onReset }: { config: StudyConfig; onReset: () =
           </CardContent>
         </Card>
       )}
-    </div>
-  )
-}
-
-function ProtocolTimestampLine() {
-  const check = useStudyStore((s) => s.protocol?.timestampCheck)
-  if (!check) return null
-  return (
-    <div className="text-xs">
-      <TimestampLine check={check} />
-      {check.valid && <span className="text-muted-foreground">The token is sealed into the StudyPack, so the pack provably postdates this time.</span>}
     </div>
   )
 }

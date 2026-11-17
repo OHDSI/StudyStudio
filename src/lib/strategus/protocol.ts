@@ -10,7 +10,6 @@
 import JSZip from 'jszip'
 import { openZip } from '@/lib/security/zip'
 import { sha256Hex } from '@/lib/integrity/hasher'
-import { verifyTimestamp, type TimestampCheck } from '@/lib/integrity/timestamp'
 import type { AssuranceLevel, FrameworkName, StudyConfig } from '@/types/studypack'
 import { defaultDqdPolicy, studyTablesFor } from '@/lib/audit/dqdAuditor'
 import { DEFAULT_REASON_CODES } from '@/lib/network/dispositionLog'
@@ -127,14 +126,11 @@ export interface IssuedProtocol {
   /** study_config.json exactly as distributed (the bytes the signature covers). */
   configBytes: Uint8Array
   signature?: DetachedJws
-  /** RFC 3161 time-stamp reply over configBytes, added after issue (the coordinator obtains it from a TSA). */
-  timestamp?: Uint8Array
   files: Record<string, Uint8Array>
   summary: AnalysisSpecSummary
 }
 
 export const PROTOCOL_SIGNATURE_FILE = 'study_config.jws.json'
-export const PROTOCOL_TIMESTAMP_FILE = 'study_config.tsr'
 
 export async function issueProtocol(repo: StudyRepo, meta: ProtocolMeta): Promise<IssuedProtocol> {
   if (repo.kind === 'R script') return issueRScriptProtocol(repo, meta)
@@ -241,7 +237,6 @@ export async function protocolZip(p: IssuedProtocol): Promise<Blob> {
   const zip = new JSZip()
   zip.file('study_config.json', p.configBytes)
   if (p.signature) zip.file(PROTOCOL_SIGNATURE_FILE, JSON.stringify(p.signature, null, 2) + '\n')
-  if (p.timestamp) zip.file(PROTOCOL_TIMESTAMP_FILE, p.timestamp)
   for (const [path, bytes] of Object.entries(p.files)) zip.file(path, bytes)
   return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' })
 }
@@ -279,9 +274,6 @@ export interface ProtocolRead {
   signatureBytes?: Uint8Array
   /** Coordinator signature checks over the received bytes. */
   signatureChecks?: SignatureCheck[]
-  /** RFC 3161 token over configBytes, and its check. */
-  timestampBytes?: Uint8Array
-  timestampCheck?: TimestampCheck
   files: Record<string, Uint8Array>
   errors: string[]
 }
@@ -291,7 +283,6 @@ export async function readProtocolFile(name: string, data: ArrayBuffer | Uint8Ar
   const files: Record<string, Uint8Array> = {}
   let configBytes: Uint8Array | undefined
   let signatureBytes: Uint8Array | undefined
-  let timestampBytes: Uint8Array | undefined
   if (/\.zip$/i.test(name)) {
     const zip = await openZip(data)
     for (const [p, e] of Object.entries(zip.files)) {
@@ -299,7 +290,6 @@ export async function readProtocolFile(name: string, data: ArrayBuffer | Uint8Ar
       const rel = p.replace(/^[^/]+_protocol\//, '')
       if (/(^|\/)study_config\.json$/.test(rel)) configBytes = await e.async('uint8array')
       else if (rel.endsWith(PROTOCOL_SIGNATURE_FILE)) signatureBytes = await e.async('uint8array')
-      else if (rel.endsWith(PROTOCOL_TIMESTAMP_FILE)) timestampBytes = await e.async('uint8array')
       else if ((Object.values(PROTOCOL_PATHS) as string[]).includes(rel)) files[rel] = await e.async('uint8array')
     }
     if (!configBytes) return { files, errors: ['study_config.json not found in the ZIP'] }
@@ -319,12 +309,7 @@ export async function readProtocolFile(name: string, data: ArrayBuffer | Uint8Ar
     } else if (config?.assurance === 'regulatory') {
       errors.push('This regulatory protocol is not signed by the coordinator (study_config.jws.json missing)')
     }
-    let timestampCheck: TimestampCheck | undefined
-    if (timestampBytes) {
-      timestampCheck = await verifyTimestamp(timestampBytes, await sha256Hex(configBytes))
-      if (!timestampCheck.valid) errors.push(`The time-stamp token on study_config.json is invalid: ${timestampCheck.error}`)
-    }
-    return { config, configBytes, signatureBytes, signatureChecks, timestampBytes, timestampCheck, files, errors }
+    return { config, configBytes, signatureBytes, signatureChecks, files, errors }
   } catch (e) {
     return { files, errors: [`Cannot parse JSON: ${String(e)}`] }
   }

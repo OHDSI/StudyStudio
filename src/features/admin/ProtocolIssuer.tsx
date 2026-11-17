@@ -18,9 +18,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { DropZone, type DroppedFile } from '@/features/common/DropZone'
 import { Hash } from '@/features/common/Hash'
 import { download } from '@/lib/utils'
-import { sha256Hex } from '@/lib/integrity/hasher'
-import { verifyTimestamp, type TimestampCheck } from '@/lib/integrity/timestamp'
-import { TimestampExchange } from '@/features/common/TimestampExchange'
 
 const num = (v: string, d: number) => (v === '' || Number.isNaN(Number(v)) ? d : Number(v))
 const TEMPLATE_URL = 'https://github.com/ohdsi-studies/StrategusStudyRepoTemplate'
@@ -294,7 +291,6 @@ export function ProtocolIssuer() {
                   <div className="text-xs text-muted-foreground">Not signed.</div>
                 )}
                 <div className="text-xs text-muted-foreground">Issued {new Date(issued.config.issuedAt).toLocaleString()} · this config is also used as the Multi-Site Aggregator reference</div>
-                <ProtocolTimestamp />
                 <Table>
                   <TableBody>
                     {Object.keys(issued.files).map((p) => (
@@ -317,43 +313,6 @@ export function ProtocolIssuer() {
           </CardContent>
         </Card>
       </div>
-    </div>
-  )
-}
-
-/**
- * Time-stamp the issued study_config.json. The token goes into the protocol ZIP and is sealed into every
- * pack, so each pack provably postdates the TSA's time: do this before sending the ZIP to sites.
- */
-function ProtocolTimestamp() {
-  const issued = useStudyStore((s) => s.issued)
-  const setIssued = useStudyStore((s) => s.setIssued)
-  const [sha256, setSha256] = React.useState<string>()
-  const [check, setCheck] = React.useState<TimestampCheck>()
-  React.useEffect(() => {
-    let live = true
-    setCheck(undefined)
-    if (issued) sha256Hex(issued.configBytes).then((h) => live && setSha256(h))
-    return () => {
-      live = false
-    }
-  }, [issued?.configBytes]) // eslint-disable-line react-hooks/exhaustive-deps
-  if (!issued || !sha256) return null
-  return (
-    <div className="flex flex-col gap-1">
-      <TimestampExchange
-        stem="study_config"
-        sha256={sha256}
-        what="study_config.json"
-        check={check}
-        onReply={async (tsr) => {
-          const c = await verifyTimestamp(tsr, sha256)
-          setCheck(c)
-          if (c.valid) setIssued({ ...issued, timestamp: tsr })
-          return c
-        }}
-      />
-      {issued.timestamp && <div className="text-xs text-muted-foreground">The protocol ZIP now carries study_config.tsr. Download it again before sending it to sites: each pack then seals the token, which bounds its seal time from below on the TSA's clock.</div>}
     </div>
   )
 }

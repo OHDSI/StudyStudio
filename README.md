@@ -186,7 +186,6 @@ Designed with reference to ICH M14, ICH E6(R3), the FDA RWD and Part 11 Q&A guid
 | **Originals of modified files** | Masked results and redacted logs carry a salted commitment to the original (a plain hash would let anyone brute-force the masked values). The salts stay at the site in a retention receipt |
 | **Run record** | `recordStrategusRun()` records what the R run read and wrote; the pack must match it (see [Run record](#run-record)). Required in regulatory studies. It is written on the site's machine, so it detects changes between run and seal and runs that did not use the protocol's inputs, not deliberate fabrication |
 | **Time** | Times are taken from the device clock in UTC with the local offset. As EMA (computerised systems guideline §5.5) and FDA (Q&A 2024, Q14) describe, that clock must be synchronised to an external standard and not changeable by users; this is set out in the SOPs (institution-managed workstations), and the tool warns when a loaded file is dated in the device's future (a clock running behind) |
-| **Additional time assurance (optional)** | Not required by FDA or EMA. RFC 3161 time-stamps, exchanged as files because the tool sends nothing: it saves a request (`.tsq`), you send it to a time-stamp authority with `curl`, and drop the reply (`.tsr`) back in. A token over `study_config.json` goes into the protocol ZIP and is sealed into every pack, so each seal is later than the TSA's time; a token over the disposition log head covers every receipt recorded up to it. The seal-time window then also rests on the TSA's clock, independent of the coordinator's. The tool checks the token's signature with the certificate it carries; check the TSA's chain with `openssl ts -verify` |
 | **Plausibility checks** | The Aggregator compares the sites for traces of copied or edited results: count tables equal to another site's apart from `database_id`, the same database or DQD run at two sites, and counts that cannot occur together (more subjects than entries, more subjects in an analysis than in its cohort). Findings are listed for review and in the audit report; they never exclude a site by themselves. A careful fabrication passes them, so the SOPs cover witnessed runs or re-execution at a sample of sites ([validation-plan.md](docs/regulatory/validation-plan.md) §9.1) |
 | **Disposition audit trail** | Every receipt, adoption, exclusion, lock and export is a hash-chained entry with who / when / old → new / why; edits, removals and truncation are detectable as long as the exported head is kept outside the tool. Exclusions need a pre-specified reason code. In regulatory studies the dispositions must be locked, with the coordinator's attestation that comparative results were not viewed (the tool records it but cannot verify it), before the submission package is generated |
 
@@ -199,7 +198,7 @@ Offline the tool cannot verify the site's clock settings (they rest on the SOPs)
 ├── manifest.jws.json             # signatures over manifest.json (when signed)
 ├── ro-crate-metadata.json        # RO-Crate 1.1
 ├── audit_report.json             # site self-audit: small cells / identifiers, protocol checks, DQD gate, provenance, log, run record, time, modifications
-├── protocol/study_config.json    # the protocol exactly as received (+ study_config.jws.json, + study_config.tsr if time-stamped)
+├── protocol/study_config.json    # the protocol exactly as received (+ study_config.jws.json)
 ├── etl/                          # ScanReport_sanitized.xlsx, mapping_specification.json, vocabulary_version.json
 ├── evidence/dqd_results.json
 ├── evidence/run_record.json      # run record from recordStrategusRun() (hashes of masked files withheld)
@@ -255,7 +254,7 @@ The sample `renv.lock` and result values are illustrative. They are not a tested
 r/recordStrategusRun.R           R function that writes run_record.json after Strategus::execute()
 src/lib/strategus/               analysis spec, protected section of the execution script, results + RDMS audit, run record, protocol issuance
 src/lib/audit/                   small-cell / identifier audit + masking, DQD gate, execution-log audit + redaction
-src/lib/integrity/               SHA-256 (Web Crypto), salted commitments, RFC 3161 time-stamp requests and token checks
+src/lib/integrity/               SHA-256 (Web Crypto), salted commitments
 src/lib/security/                zero-network guard, key files + JWS signatures + signer roster
 src/lib/provenance/              cdm_source / vocabulary / software provenance, time evidence
 src/lib/studypack/               slots, readiness checks, evidence, pack builder (manifest, RO-Crate, audit_report)

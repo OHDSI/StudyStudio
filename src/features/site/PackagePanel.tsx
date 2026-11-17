@@ -23,8 +23,8 @@ export function PackagePanel() {
   const exportedMin = React.useMemo(() => exportedMinCellCount(slots), [slots])
   const clockDiscrepancy = useStudyStore((s) => s.clockDiscrepancy)
   const evidence = React.useMemo(
-    () => evaluateEvidence({ config, files: siteFiles({ slots, results }), hashes: siteHashes({ slots, results }), protocolTimestamp: protocol?.timestampCheck, clockDiscrepancy }),
-    [config, slots, results, protocol, clockDiscrepancy],
+    () => evaluateEvidence({ config, files: siteFiles({ slots, results }), hashes: siteHashes({ slots, results }), clockDiscrepancy }),
+    [config, slots, results, clockDiscrepancy],
   )
   const readiness = React.useMemo(
     () =>
@@ -71,9 +71,8 @@ export function PackagePanel() {
         framework: config.framework?.name,
         protocolBytes: protocol?.bytes,
         protocolSignatureBytes: protocol?.signatureBytes,
-        protocolTimestampBytes: protocol?.timestampCheck?.valid ? protocol.timestampBytes : undefined,
         // An R script study has no Strategus evidence (DQD, log, run record) to seal.
-        evidence: isRScriptStudy(config) ? undefined : evaluateEvidence({ config, files: siteFiles({ slots, results }), hashes: siteHashes({ slots, results }), sealedAt: now.toISOString(), protocolTimestamp: protocol?.timestampCheck, clockDiscrepancy }),
+        evidence: isRScriptStudy(config) ? undefined : evaluateEvidence({ config, files: siteFiles({ slots, results }), hashes: siteHashes({ slots, results }), sealedAt: now.toISOString(), clockDiscrepancy }),
         signers,
         studyId: config.studyId,
         studyTitle: config.studyTitle,

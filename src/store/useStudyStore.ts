@@ -15,6 +15,7 @@ import { auditResultFiles, collectRdms, auditOptionsFor, type ResultFile } from 
 import { loadStudyPack, type LoadedSitePack } from '@/lib/network/aggregator'
 import { DEFAULT_REASON_CODES, DispositionLog, type Actor } from '@/lib/network/dispositionLog'
 import { logTimestampNote, verifyLogTimestamps, type LogTimestamp } from '@/lib/network/logTimestamp'
+import { clockDiscrepancy, type ClockDiscrepancy } from '@/lib/provenance/deviceClock'
 import { addSignature, protocolIssuerKids, rosterBytes, verifyRoster, type DetachedJws, type RosterStatus, type SignatureCheck, type SignatureMeaning, type SignerRoster, type UnlockedSigner } from '@/lib/security/signer'
 import type { RoleMode, StudyConfig } from '@/types/studypack'
 import type { RunRecordHashes } from '@/lib/strategus/runRecord'
@@ -86,6 +87,9 @@ interface StudyState {
   logRev: number
   /** RFC 3161 time-stamps found in the log, re-verified after every change. */
   logTimestamps: LogTimestamp[]
+  /** A dropped file dated in this device's future: the device clock appears to run behind. */
+  clockDiscrepancy?: ClockDiscrepancy
+  noteDroppedFiles: (files: readonly { name: string; lastModified?: number }[]) => void
 
   setMode: (m: RoleMode) => void
   setSiteId: (s: string) => void
@@ -234,6 +238,10 @@ export const useStudyStore = create<StudyState>((set, get) => {
     log: new DispositionLog(),
     logRev: 0,
     logTimestamps: [],
+    noteDroppedFiles: (files) => {
+      const d = clockDiscrepancy(files)
+      if (d && (!get().clockDiscrepancy || d.behindMinutes > get().clockDiscrepancy!.behindMinutes)) set({ clockDiscrepancy: d })
+    },
 
     setMode: (mode) => set({ mode }),
     setSiteId: (siteId) => set({ siteId }),

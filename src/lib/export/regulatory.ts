@@ -171,7 +171,7 @@ function dispositionRows(i: ReportInput) {
 }
 
 const LIMITATIONS = [
-  'Seal, signature and decision times come from device clocks; no trusted time source is available offline. Seal times are only bounded by the protocol issue time and the coordinator receipt time — on a time-stamp authority’s clock where RFC 3161 tokens over the protocol and the disposition log were obtained (see each site’s seal-time window), otherwise on the coordinator’s device clock. The TSA’s certificate chain is not checked by the tool.',
+  'Seal, signature and decision times come from device clocks, which the study’s SOPs require to be synchronised to an external standard and not changeable by users (EMA computerised systems guideline §5.5; FDA Q&A 2024 Q14); the tool cannot verify this, but warns when a loaded file is dated in the device’s future. Seal times are bounded by the protocol issue time and the coordinator receipt time. Where optional RFC 3161 tokens over the protocol and the disposition log were obtained, those bounds are also on a time-stamp authority’s clock (see each site’s seal-time window); the TSA’s certificate chain is not checked by the tool.',
   'Masked results and redacted logs are represented by salted commitments; the originals and their salts are retained at each site.',
   'Data-quality evaluation checks the CDM’s internal consistency (OHDSI DQD); source-to-CDM reconciliation is documented by each data holder.',
   'Exported datasets contain aggregate Strategus results, not patient-level SDTM/ADaM data.',

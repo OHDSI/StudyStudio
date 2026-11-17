@@ -24,9 +24,9 @@ export function TimestampExchange({ stem, sha256, what, onReply, check }: { stem
   const shown = check ?? last
   return (
     <div className="flex flex-col gap-2 rounded-md border p-3 text-xs">
-      <div className="font-medium">Trusted time (optional): RFC 3161 time-stamp</div>
+      <div className="font-medium">Additional assurance (optional): RFC 3161 time-stamp</div>
       <div className="text-muted-foreground">
-        A time-stamp authority (TSA) signs the SHA-256 of {what} with its own clock. This tool sends nothing: save the request, send it from a machine with network access, and drop the reply here.
+        FDA and EMA ask for controlled device clocks (synchronised, not changeable by users), which the study's SOPs cover; a time-stamp is not required. It adds a second, independent clock: a time-stamp authority (TSA) signs the SHA-256 of {what}. This tool sends nothing: save the request, send it from a machine with network access, and drop the reply here.
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" variant="outline" onClick={() => download(`${stem}.tsq`, timeStampRequest(sha256), TSQ_CONTENT_TYPE)}><Download /> {stem}.tsq</Button>

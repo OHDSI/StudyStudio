@@ -4,6 +4,7 @@
  * and the time evidence (R2). One pure function so both sides evaluate a pack the same way.
  */
 import type { TimestampCheck } from '@/lib/integrity/timestamp'
+import { clockDiscrepancyMessage, type ClockDiscrepancy } from '@/lib/provenance/deviceClock'
 import { defaultDqdPolicy, evaluateDqdGate, studyTablesFor, type DqdGateResult } from '@/lib/audit/dqdAuditor'
 import { auditLog, type LogAudit } from '@/lib/audit/logAuditor'
 import { evaluateProvenance, type ProvenanceReport } from '@/lib/provenance/cdmSource'
@@ -66,13 +67,15 @@ export interface EvidenceInput {
   protocolTimestamp?: Pick<TimestampCheck, 'valid' | 'genTime'>
   /** Earliest verified RFC 3161 token over a disposition log head that covers this pack's receipt. */
   receiptTimestamp?: Pick<TimestampCheck, 'valid' | 'genTime'>
+  /** The site device's clock appeared to run behind when files were loaded. */
+  clockDiscrepancy?: ClockDiscrepancy
   /** Hashes of the files (and, at the site, of masked originals) for the run-record comparison. */
   hashes?: RunRecordHashes
   /** Paths the manifest declares as masked/redacted (coordinator side). */
   declaredModified?: string[]
 }
 
-export function evaluateEvidence({ config, files, sealedAt, receivedAt, protocolTimestamp, receiptTimestamp, hashes, declaredModified }: EvidenceInput): SiteEvidence {
+export function evaluateEvidence({ config, files, sealedAt, receivedAt, protocolTimestamp, receiptTimestamp, clockDiscrepancy, hashes, declaredModified }: EvidenceInput): SiteEvidence {
   const assurance: AssuranceLevel = config?.assurance ?? 'standard'
   const regulatory = assurance === 'regulatory'
   const spec = files[PROTOCOL_PATHS.analysisSpecifications]
@@ -109,7 +112,9 @@ export function evaluateEvidence({ config, files, sealedAt, receivedAt, protocol
     event('receiptTimestamped', 'Receipt time-stamped (TSA)', receiptTimestamp?.valid ? receiptTimestamp.genTime : undefined, 'tsa'),
   ].filter((e): e is TimelineEvent => !!e)
 
-  return { assurance, dqdPolicy: policy, dqdPolicySource: source, dqdGate, provenance, log, runRecord, timeline: buildTimeline(events, regulatory) }
+  const timeline = buildTimeline(events, regulatory)
+  if (clockDiscrepancy) timeline.issues.push({ severity: 'warn', message: clockDiscrepancyMessage(clockDiscrepancy) })
+  return { assurance, dqdPolicy: policy, dqdPolicySource: source, dqdGate, provenance, log, runRecord, timeline }
 }
 
 /** Pre-specified exclusion reason a blocking finding maps to (DEFAULT_REASON_CODES). */

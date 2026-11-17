@@ -15,6 +15,7 @@ import { kidFingerprint, protocolIssuerKids, type SignatureCheck } from '@/lib/s
 import type { SiteRow } from '@/lib/export/regulatory'
 import { EvidenceView } from '@/features/common/EvidenceView'
 import { TimestampLine } from '@/features/common/TimestampExchange'
+import { clockDiscrepancyMessage } from '@/lib/provenance/deviceClock'
 import { ActorCard, DecisionCell, DispositionLogCard, LockCard, RosterCard } from './DispositionPanel'
 
 function SignatureBadge({ checks }: { checks?: SignatureCheck[] }) {
@@ -87,6 +88,7 @@ export function Aggregator() {
   const removeSite = useStudyStore((s) => s.removeSite)
   const clearSites = useStudyStore((s) => s.clearSites)
   const actor = useStudyStore((s) => s.actor)
+  const clock = useStudyStore((s) => s.clockDiscrepancy)
   const decide = useStudyStore((s) => s.decide)
   const { sites, cross, rows, paths, locked, reasonCodes, regulatory } = useNetworkAnalysis()
   const [expanded, setExpanded] = React.useState<string>()
@@ -112,6 +114,12 @@ export function Aggregator() {
 
   return (
     <div className="flex flex-col gap-4">
+      {clock && (
+        <Alert variant="warning">
+          <AlertTriangle />
+          <AlertDescription>{clockDiscrepancyMessage(clock).replace('before sealing', 'before recording receipts and decisions')}</AlertDescription>
+        </Alert>
+      )}
       <div className="grid gap-4 lg:grid-cols-2">
         <ActorCard />
         <RosterCard />

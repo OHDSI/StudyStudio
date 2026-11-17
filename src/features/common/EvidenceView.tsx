@@ -140,7 +140,8 @@ function TrustedWindow({ w }: { w: NonNullable<SiteEvidence['timeline']['trusted
   return (
     <div className="text-muted-foreground">
       The seal time can be trusted only within this window: {parts.join(' and ')}.
-      {!(tsa(w.fromSource) && (!w.to || tsa(w.toSource))) && ' RFC 3161 tokens over the protocol and the disposition log put both bounds on a time-stamp authority’s clock.'}
+      {' '}The times rely on controlled device clocks (synchronised, not changeable by users — SOP-3).
+      {!(tsa(w.fromSource) && (!w.to || tsa(w.toSource))) && ' Optional RFC 3161 tokens over the protocol and the disposition log can add a time-stamp authority’s clock to the bounds.'}
     </div>
   )
 }

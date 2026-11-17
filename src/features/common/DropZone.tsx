@@ -1,16 +1,19 @@
 import * as React from 'react'
 import { Upload } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useStudyStore } from '@/store/useStudyStore'
 
 export interface DroppedFile {
   name: string
   bytes: Uint8Array
+  /** File modification time (ms since epoch), used to detect a device clock that runs behind. */
+  lastModified?: number
 }
 
 /** Files keep their relative path as name when they come from a folder (picker or drag & drop). */
 async function readAll(list: FileList | File[]): Promise<DroppedFile[]> {
   return Promise.all(
-    Array.from(list).map(async (f) => ({ name: f.webkitRelativePath || f.name, bytes: new Uint8Array(await f.arrayBuffer()) })),
+    Array.from(list).map(async (f) => ({ name: f.webkitRelativePath || f.name, bytes: new Uint8Array(await f.arrayBuffer()), lastModified: f.lastModified })),
   )
 }
 
@@ -21,7 +24,7 @@ const isDir = (e: Entry): e is FileSystemDirectoryEntry => e.isDirectory
 async function walk(entry: Entry): Promise<DroppedFile[]> {
   if (isFile(entry)) {
     const file = await new Promise<File>((res, rej) => entry.file(res, rej))
-    return [{ name: entry.fullPath.replace(/^\//, ''), bytes: new Uint8Array(await file.arrayBuffer()) }]
+    return [{ name: entry.fullPath.replace(/^\//, ''), bytes: new Uint8Array(await file.arrayBuffer()), lastModified: file.lastModified }]
   }
   if (isDir(entry)) {
     const reader = entry.createReader()
@@ -35,6 +38,12 @@ async function walk(entry: Entry): Promise<DroppedFile[]> {
     return (await Promise.all(children.map(walk))).flat()
   }
   return []
+}
+
+/** Every drop is checked for files dated in this device's future (a clock running behind). */
+function noted(files: DroppedFile[]): DroppedFile[] {
+  useStudyStore.getState().noteDroppedFiles(files)
+  return files
 }
 
 /** Read a drop, descending into dropped folders. */
@@ -86,7 +95,7 @@ export function DropZone({
         e.preventDefault()
         e.stopPropagation()
         setOver(false)
-        if (e.dataTransfer.files.length) await onFiles(await readDrop(e.dataTransfer))
+        if (e.dataTransfer.files.length) await onFiles(noted(await readDrop(e.dataTransfer)))
       }}
       className={cn(
         'flex cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed text-center transition-colors',
@@ -103,7 +112,7 @@ export function DropZone({
         multiple={multiple || directory}
         {...(directory ? { webkitdirectory: '', directory: '' } : {})}
         onChange={async (e) => {
-          if (e.target.files?.length) await onFiles(await readAll(e.target.files))
+          if (e.target.files?.length) await onFiles(noted(await readAll(e.target.files)))
           e.target.value = ''
         }}
       />

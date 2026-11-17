@@ -7,6 +7,7 @@ import type { CrossSiteResult, LoadedSitePack, SiteVerdict } from '@/lib/network
 import type { SiteEvidence } from '@/lib/studypack/evidence'
 import { kidFingerprint, type DetachedJws, type SignatureCheck } from '@/lib/security/signer'
 import type { DispositionEntry } from '@/lib/network/dispositionLog'
+import type { PlausibilityFinding } from '@/lib/network/plausibility'
 import { buildDefineXml, columnSasNames, datasetFiles, DEFAULT_ADAM_CT_VERSION, xmlEscape, type DatasetFormat, type DefineXmlVersion } from '@/lib/cdisc/defineXml'
 import { writeXpt, xptLimitIssues } from '@/lib/cdisc/xpt'
 import { simplifiedTsFor, writeSimplifiedTs, type SimplifiedTs } from '@/lib/cdisc/simplifiedTs'
@@ -32,6 +33,8 @@ export interface SiteRow {
   evidence?: SiteEvidence
   /** Signature checks with roster enrollment applied. */
   signatures?: SignatureCheck[]
+  /** Plausibility findings for review (never exclude a site by themselves). */
+  plausibility?: PlausibilityFinding[]
   /** Explicit decision recorded in the disposition log (undefined = following the recommendation, not yet decided). */
   decision?: 'adopt' | 'exclude'
 }
@@ -172,7 +175,7 @@ const LIMITATIONS = [
   'Masked results and redacted logs are represented by salted commitments; the originals and their salts are retained at each site.',
   'Data-quality evaluation checks the CDM’s internal consistency (OHDSI DQD); source-to-CDM reconciliation is documented by each data holder.',
   'Exported datasets contain aggregate Strategus results, not patient-level SDTM/ADaM data.',
-  'Run records are written by R on each site’s machine. They show that the sealed results are the ones the recorded run wrote from the protocol’s inputs; they cannot rule out a record produced some other way. Masked results are compared with the record at the site only.',
+  'Run records are written by R on each site’s machine. They show that the sealed results are the ones the recorded run wrote from the protocol’s inputs; they cannot rule out a record produced some other way. Plausibility checks across sites look for traces of copied or edited results; they cannot rule it out either. Masked results are compared with the record at the site only.',
 ]
 
 /** "Dataset-JSON v1.1" or "SAS V5 transport (XPT)". */
@@ -217,6 +220,18 @@ function conformanceSection(c: Conformance | undefined, agency: Agency | undefin
   }
   return { md, html }
 }
+
+/** Provenance, run-record and time issues, then the plausibility findings to review. */
+function siteIssues(r: SiteRow): string[] {
+  const e = r.evidence
+  return [
+    ...(e ? [...e.provenance.issues.map((x) => x.message), ...(e.runRecord?.issues ?? []).map((x) => `Run record: ${x.message}`), ...e.timeline.issues.map((x) => x.message)] : []),
+    ...(r.plausibility ?? []).map((f) => `Review: ${f.message}`),
+  ]
+}
+
+const PLAUSIBILITY_NOTE =
+  'Findings marked “Review” come from plausibility checks (counts shared with another site, the same database or DQD run, counts that cannot occur together). They are for the coordinator’s review and never exclude a site by themselves.'
 
 const short = (h?: string) => (h ? `${h.slice(0, 12)}…` : '—')
 const pct = (n?: number) => (n === undefined ? '—' : `${n.toFixed(1)}%`)
@@ -324,11 +339,12 @@ export function buildMarkdownReport(i: ReportInput): string {
   L.push('')
 
   L.push('## 5. Signatures, data quality and provenance', '')
+  if (i.rows.some((r) => r.plausibility?.length)) L.push(PLAUSIBILITY_NOTE, '')
   L.push('| Site | Signatures | DQD gate (block/warn) | CDM / vocabulary | Log errors | Run record | Provenance, run & time issues |', '|---|---|---|---|---|---|---|')
   for (const r of i.rows) {
     const e = r.evidence
     const cs = e?.provenance.cdmSource
-    const issues = e ? [...e.provenance.issues.map((x) => x.message), ...(e.runRecord?.issues ?? []).map((x) => `Run record: ${x.message}`), ...e.timeline.issues.map((x) => x.message)] : []
+    const issues = siteIssues(r)
     L.push(
       `| ${mdCell(r.site.siteId)} | ${mdCell(signatureLine(r.signatures))} | ${e ? `${e.dqdGate.counts.block}/${e.dqdGate.counts.warn} (${e.dqdGate.checksEvaluated} checks, policy ${e.dqdPolicy.policyVersion})` : '—'} | ${cs ? mdCell(`${cs.cdmSourceName ?? '?'} · CDM ${cs.cdmVersion ?? '?'} · ${cs.vocabularyVersion ?? '?'}`) : '—'} | ${e?.log ? e.log.counts.ERROR + e.log.counts.FATAL : 'no log'} | ${mdCell(runRecordCell(e))} | ${mdCell(issues.join('; ') || '—')} |`,
     )
@@ -412,7 +428,7 @@ function htmlDisposition(i: ReportInput): string {
     .map((r) => {
       const e = r.evidence
       const cs = e?.provenance.cdmSource
-      const issues = e ? [...e.provenance.issues.map((x) => x.message), ...(e.runRecord?.issues ?? []).map((x) => `Run record: ${x.message}`), ...e.timeline.issues.map((x) => x.message)] : []
+      const issues = siteIssues(r)
       return `<tr><td>${xmlEscape(r.site.siteId)}</td><td>${xmlEscape(signatureLine(r.signatures))}</td><td>${e ? `${e.dqdGate.counts.block}/${e.dqdGate.counts.warn}` : '—'}</td><td>${cs ? xmlEscape(`${cs.cdmSourceName ?? '?'} · CDM ${cs.cdmVersion ?? '?'} · ${cs.vocabularyVersion ?? '?'}`) : '—'}</td><td>${e?.log ? e.log.counts.ERROR + e.log.counts.FATAL : 'no log'}</td><td>${xmlEscape(runRecordCell(e))}</td><td>${xmlEscape(issues.join('; ') || '—')}</td></tr>`
     })
     .join('\n')
@@ -423,6 +439,7 @@ function htmlDisposition(i: ReportInput): string {
 <p>Assurance: ${xmlEscape(i.config?.assurance ?? 'standard')} · Dispositions locked: ${lock ? `yes — ${xmlEscape(lock.actor.name)} at ${xmlEscape(lock.at)}` : 'no'}</p>
 <table><tr><th>Site</th><th>Pack</th><th>Recommended</th><th>Decision</th><th>Code</th><th>Justification / reasons</th><th>Decided by</th><th>When (UTC)</th></tr>${disp}</table>
 <h2>5. Signatures, data quality and provenance</h2>
+${i.rows.some((r) => r.plausibility?.length) ? `<p>${xmlEscape(PLAUSIBILITY_NOTE)}</p>` : ''}
 <table><tr><th>Site</th><th>Signatures</th><th>DQD block/warn</th><th>CDM / vocabulary</th><th>Log errors</th><th>Run record</th><th>Issues</th></tr>${ev}</table>
 ${trail ? `<h2>6. Disposition audit trail</h2><p>Head <code>${xmlEscape(i.dispositionHead ?? '—')}</code></p><table><tr><th>#</th><th>When (UTC)</th><th>Who</th><th>Action</th><th>Site</th><th>Change</th><th>Reason</th></tr>${trail}</table>` : ''}
 <h2>Limitations</h2><ul>${LIMITATIONS.map((l) => `<li>${xmlEscape(l)}</li>`).join('')}</ul>`

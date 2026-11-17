@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { useStudyStore } from '@/store/useStudyStore'
 import { crossCheckSites, protocolKeyPaths, siteVerdict } from '@/lib/network/aggregator'
+import { checkPlausibility } from '@/lib/network/plausibility'
 import { evaluateEvidence } from '@/lib/studypack/evidence'
 import { withEnrollment } from '@/lib/security/signer'
 import { DEFAULT_REASON_CODES } from '@/lib/network/dispositionLog'
@@ -20,6 +21,7 @@ export function useNetworkAnalysis() {
     const sections = config?.protectedSections ?? {}
     const paths = protocolKeyPaths(config, sites)
     const cross = crossCheckSites(sites, expected, sections, paths)
+    const plausibility = checkPlausibility(sites)
     const decisions = log.decisions()
     // In a regulatory study an enrollment only counts if the roster is signed by the protocol issuer.
     const regulatory = config?.assurance === 'regulatory'
@@ -38,7 +40,7 @@ export function useNetworkAnalysis() {
       const signatures = withEnrollment(site.signatureChecks, roster, site.siteId, site.receivedAt, rosterIssue)
       const verdict = siteVerdict(site, cross, config?.studyId, sites, { config, evidence, signatures })
       const decision = decisions.get(site.zipSha256)
-      return { site, verdict, evidence, signatures, decision, adopted: decision ? decision === 'adopt' : verdict.recommended === 'adopt' }
+      return { site, verdict, evidence, signatures, plausibility: plausibility.get(site.key) ?? [], decision, adopted: decision ? decision === 'adopt' : verdict.recommended === 'adopt' }
     })
     const reasonCodes = config?.adoptionPolicy?.reasonCodes ?? DEFAULT_REASON_CODES
     return { sites, cross, rows, paths, config, log, locked: log.locked, reasonCodes, regulatory }

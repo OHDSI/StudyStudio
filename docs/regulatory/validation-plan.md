@@ -90,7 +90,7 @@ Residual risk is assessed after the controls.
 | 1 | Small-cell audit | Count 0 < n < min leaves the site | 3 | 2 | 2 | 12 | RDMS-driven audit, library refuses to seal, coordinator re-audit | `cellAuditor.test.ts`, `strategus.test.ts` (Strategus results), `builder.test.ts` | Low |
 | 2 | Masking record | Original values recoverable from the pack | 3 | 2 | 3 | 18 | Salted commitments; salts only in the site receipt | `commitment.test.ts`, `aggregator.test.ts` (signs, verifies …) | Low |
 | 3 | Sealing | Change after sealing goes undetected | 3 | 2 | 1 | 6 | SHA-256 manifest of every file; manifest signature (required in regulatory mode) | `aggregator.test.ts` (detects tampering …) | Low when signed — an unsigned manifest can be rewritten together with the file |
-| 4 | Protocol conformance | Site runs different code or settings | 3 | 2 | 2 | 12 | Pinned hashes, protected section, sealed protocol copy; run record compared with the sealed inputs, results and `renv.lock`; results must be written by the last run or an earlier completed one; the run must have loaded Strategus | `strategus.test.ts` (protected section), `aggregator.test.ts` (cross-site), `runRecord.test.ts`, `r/tests/test-recordStrategusRun.R`, `runRecord.r.test.ts` (R-written record, CI) | **Medium** — the run record detects changes after the run and runs on other inputs, but is written at the site; deliberate fabrication needs SOP-7 |
+| 4 | Protocol conformance | Site runs different code or settings | 3 | 2 | 2 | 12 | Pinned hashes, protected section, sealed protocol copy; run record compared with the sealed inputs, results and `renv.lock`; results must be written by the last run or an earlier completed one; the run must have loaded Strategus; plausibility checks across sites (counts shared with another site, same database or DQD run, impossible counts) for review | `strategus.test.ts` (protected section), `aggregator.test.ts` (cross-site), `runRecord.test.ts`, `r/tests/test-recordStrategusRun.R`, `runRecord.r.test.ts` (R-written record, CI), `plausibility.test.ts` | **Medium** — the run record detects changes after the run and runs on other inputs, but is written at the site; plausibility checks catch careless copying only; deliberate fabrication needs SOP-7 (§9.1) |
 | 5 | Signatures | Forged or misattributed signature | 3 | 1 | 2 | 6 | ES256 JWS over manifest bytes; kid ↔ key check; roster enrollment | `signer.test.ts` | Low |
 | 6 | Signer roster | Roster altered to enroll an attacker's key | 3 | 2 | 2 | 12 | Roster signed by the protocol issuer key with meaning `roster-approved`; changes invalidate it | `signer.test.ts` (roster trust), `aggregator.test.ts` (regulatory demo set) | Low |
 | 7 | Key compromise | Revoked key used with a back-dated clock | 3 | 1 | 2 | 6 | Revocation judged by coordinator receipt time | `signer.test.ts` (revocation …) | Medium — depends on prompt revocation (SOP) |
@@ -116,7 +116,7 @@ Residual risk is assessed after the controls.
 | R3.1–R3.4 | `provenance.test.ts` › cdm_source and software provenance (all) |
 | R4.1–R4.5 | `dqdAuditor.test.ts` (all); `readiness.test.ts` › *turns regulatory evidence findings into blockers*; `builder.test.ts` › *refuses evidence that blocks* |
 | R5.1 | `logAuditor.test.ts` › auditLog; `readiness.test.ts` › regulatory evidence |
-| R5.5 | `runRecord.test.ts` (all); `r/tests/test-recordStrategusRun.R` (R side); `runRecord.r.test.ts` with `r/tests/cross-check.R` (a record written by R, checked by the TypeScript code; both run in `.github/workflows/r-run-record.yml`); `runRecord.eunomia.test.ts` with `r/tests/eunomia/run-eunomia.R` (a real Strategus 1.6 run on Eunomia, full and `skipCompletedTasks` re-run, and its `zipResults()` ZIP; `.github/workflows/strategus-eunomia.yml`, run by hand); `evidence.test.ts` (exclusion reasons); `aggregator.test.ts` › *sample packs carry clean evidence …*, *adopts the signed, enrolled sites …* |
+| R5.5 | `runRecord.test.ts` (all); `plausibility.test.ts` and `regulatory.test.ts` › *plausibility findings in the audit report*; `r/tests/test-recordStrategusRun.R` (R side); `runRecord.r.test.ts` with `r/tests/cross-check.R` (a record written by R, checked by the TypeScript code; both run in `.github/workflows/r-run-record.yml`); `runRecord.eunomia.test.ts` with `r/tests/eunomia/run-eunomia.R` (a real Strategus 1.6 run on Eunomia, full and `skipCompletedTasks` re-run, and its `zipResults()` ZIP; `.github/workflows/strategus-eunomia.yml`, run by hand); `evidence.test.ts` (exclusion reasons); `aggregator.test.ts` › *sample packs carry clean evidence …*, *adopts the signed, enrolled sites …* |
 | R5.2–R5.4 | `logAuditor.test.ts` › redactLog; `commitment.test.ts` (all); `aggregator.test.ts` › *signs, verifies against the roster …* (retention receipt) |
 | R6.1–R6.2 | `dispositionLog.test.ts` › *requires identity, a pre-specified reason, and justification for overrides*, *chains entries* |
 | R6.3 | `dispositionLog.test.ts` › *refuses decisions after lock*; `regulatory.test.ts` › disposition audit trail (export refused before lock / with undecided sites) |
@@ -179,7 +179,32 @@ e.g. all packs verify; no unexpected blockers; time per site ≤ ‹x› minutes
 | ‹SOP-4› Retention | Site: originals + retention receipt for ‹period›; coordinator: received packs, roster + signature, disposition log + signed head in the TMF | R5.4, R6.4 |
 | ‹SOP-5› Disposition review | Pre-specified criteria, review of overrides, lock before unblinding | R6.1–R6.3 |
 | ‹SOP-6› Log review | Site reviews the redacted log before sealing | R5.2 |
-| ‹SOP-7› Study execution | Run the protocol's `ExecuteAnalyses.R` (with `recordStrategusRun()`) as a whole (`source()` or `Rscript`, not line by line from an unsaved editor) after `renv::restore()`; keep `run_record.json` with the results; ‹witnessed run or re-execution of a sample of sites› | R5.5 |
+| ‹SOP-7› Study execution and its verification | Run the protocol's `ExecuteAnalyses.R` (with `recordStrategusRun()`) as a whole (`source()` or `Rscript`, not line by line from an unsaved editor) after `renv::restore()`; keep `run_record.json` with the results; verify the execution at a sample of sites (§9.1) | R5.5 |
+
+### 9.1 SOP-7 outline: verifying the execution at a sample of sites
+
+The run record and the plausibility checks are written or computed from what the site sends, so they cannot
+rule out results produced some other way (requirements, limitation 7). This procedure adds evidence that
+does not come from the site alone. Fill in the ‹ › values in the protocol, before any pack is received.
+
+1. **Pre-specify** in the protocol: the method (witnessed run, re-execution, or both), the sample (‹n› sites
+   or ‹x›% of the sites that submit, at least one), and the acceptance criteria (step 5).
+2. **Select the sample after all packs are received**, so that neither the sites nor the coordinator can
+   choose it in advance: ‹e.g. order the sites by the SHA-256 of the disposition log head followed by the
+   site ID, and take the first ‹n››. Add every site with a plausibility finding or a run-record warning that
+   the coordinator has not resolved. Record the method, the inputs and the selected sites in the disposition
+   log as a note.
+3. **Witnessed run.** A monitor who is independent of the site's analysts observes, in person or by screen
+   share, `renv::restore()`, the run of the whole `ExecuteAnalyses.R` and the writing of `run_record.json`.
+   The monitor records the date, the people present, the CDM snapshot and the SHA-256 of `run_record.json`
+   on a witness form.
+4. **Re-execution.** The site runs the protocol again on the same CDM snapshot, under step 3's observation
+   or with the monitor's own account, and seals a second pack.
+5. **Compare.** Witnessed run: the SHA-256 on the form matches `evidence/run_record.json` in the sealed pack,
+   and the run record checks pass. Re-execution: the result tables of the two packs match (counts equal;
+   estimates equal within ‹tolerance›; any other difference explained in writing).
+6. **Decide.** A site that fails step 5 is excluded or kept with a justification, recorded in the
+   disposition log with its reason code. File the witness forms and the comparison in the TMF (SOP-4).
 
 ## 10. Deviations
 

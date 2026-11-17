@@ -336,3 +336,19 @@ describe('audit report HTML', () => {
     expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;')
   })
 })
+
+describe('plausibility findings in the audit report', () => {
+  it('lists them as findings to review, without changing the decision', async () => {
+    const dir = path.join(samples, 'standard/packs')
+    const sites = await Promise.all(readdirSync(dir).slice(0, 1).map((f) => loadStudyPack(f, readFileSync(path.join(dir, f)))))
+    const cross = crossCheckSites(sites)
+    const verdict = siteVerdict(sites[0], cross, undefined, sites)
+    const plausibility = [{ code: 'duplicate-results' as const, otherSites: ['Site_X'], message: '1 result table(s) have the same counts as <Site_X>' }]
+    const input = { studyId: 'S', studyTitle: 'T', cross, rows: [{ site: sites[0], verdict, adopted: true, plausibility }], generatedAt: 'now' }
+    const md = buildMarkdownReport(input)
+    expect(md).toContain('Review: 1 result table(s) have the same counts as <Site_X>')
+    expect(md).toContain('never exclude a site by themselves')
+    const html = buildHtmlReport(input)
+    expect(html).toContain('Review: 1 result table(s) have the same counts as &lt;Site_X&gt;')
+  })
+})

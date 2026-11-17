@@ -185,6 +185,7 @@ Designed with reference to ICH M14, ICH E6(R3), the FDA RWD and Part 11 Q&A guid
 | **Signer roster** | The coordinator enrolls each site's public key after verifying identity out of band, then signs the roster with the key that issued the protocol. Only enrolled, unrevoked keys in a roster signed that way count; revocation is judged against the coordinator's receipt time |
 | **Originals of modified files** | Masked results and redacted logs carry a salted commitment to the original (a plain hash would let anyone brute-force the masked values). The salts stay at the site in a retention receipt |
 | **Run record** | `recordStrategusRun()` records what the R run read and wrote; the pack must match it (see [Run record](#run-record)). Required in regulatory studies. It is written on the site's machine, so it detects changes between run and seal and runs that did not use the protocol's inputs, not deliberate fabrication |
+| **Plausibility checks** | The Aggregator compares the sites for traces of copied or edited results: count tables equal to another site's apart from `database_id`, the same database or DQD run at two sites, and counts that cannot occur together (more subjects than entries, more subjects in an analysis than in its cohort). Findings are listed for review and in the audit report; they never exclude a site by themselves. A careful fabrication passes them, so the SOPs cover witnessed runs or re-execution at a sample of sites ([validation-plan.md](docs/regulatory/validation-plan.md) §9.1) |
 | **Disposition audit trail** | Every receipt, adoption, exclusion, lock and export is a hash-chained entry with who / when / old → new / why; edits, removals and truncation are detectable as long as the exported head is kept outside the tool. Exclusions need a pre-specified reason code. In regulatory studies the dispositions must be locked, with the coordinator's attestation that comparative results were not viewed (the tool records it but cannot verify it), before the submission package is generated |
 
 Offline there is no trusted clock, no two-factor login and no single place to keep a log; the requirements document says how each gap is mitigated and what belongs in the study's SOPs.
@@ -256,7 +257,7 @@ src/lib/integrity/               SHA-256 (Web Crypto), salted commitments
 src/lib/security/                zero-network guard, key files + JWS signatures + signer roster
 src/lib/provenance/              cdm_source / vocabulary / software provenance, time evidence
 src/lib/studypack/               slots, readiness checks, evidence, pack builder (manifest, RO-Crate, audit_report)
-src/lib/network/                 pack verification, cross-site hash checks, DQD summary, disposition audit trail
+src/lib/network/                 pack verification, cross-site hash and plausibility checks, DQD summary, disposition audit trail
 src/lib/cdisc/                   Define-XML v2.1/v2.0, Dataset-JSON v1.1/v1.0, SAS V5 transport (XPT), ScanReport / mapping parsers
 src/lib/export/                  audit reports (+ Markdown preview parser), regulatory submission ZIP
 src/store/useStudyStore.ts       Zustand store

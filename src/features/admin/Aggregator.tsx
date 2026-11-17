@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, FileJson, ListChecks, PenLine, Trash2, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, FileJson, ListChecks, PenLine, Search, Trash2, XCircle } from 'lucide-react'
 import { useStudyStore } from '@/store/useStudyStore'
 import { readProtocolFile } from '@/lib/strategus/protocol'
 import { useNetworkAnalysis } from './useNetworkAnalysis'
@@ -27,9 +27,16 @@ function SignatureBadge({ checks }: { checks?: SignatureCheck[] }) {
   )
 }
 
+/** Plausibility findings to review; they never change the recommendation. */
+function ReviewBadge({ row }: { row: SiteRow }) {
+  const n = row.plausibility?.length ?? 0
+  if (!n) return null
+  return <Badge variant="warning" title={row.plausibility!.map((f) => f.message).join('\n')}><Search /> {n} to review</Badge>
+}
+
 function EvidenceBadge({ row }: { row: SiteRow }) {
   const e = row.evidence
-  if (!e) return <span>—</span>
+  if (!e) return row.plausibility?.length ? <ReviewBadge row={row} /> : <span>—</span>
   const blocks = e.dqdGate.counts.block + e.provenance.issues.filter((i) => i.severity === 'block').length + e.timeline.issues.filter((i) => i.severity === 'block').length
   const warns = e.dqdGate.counts.warn + e.provenance.issues.filter((i) => i.severity === 'warn').length + e.timeline.issues.filter((i) => i.severity === 'warn').length
   const regulatory = e.assurance === 'regulatory'
@@ -37,6 +44,7 @@ function EvidenceBadge({ row }: { row: SiteRow }) {
     <div className="flex flex-col gap-0.5">
       {blocks + warns === 0 ? <Badge variant="success"><CheckCircle2 /> Clean</Badge> : <Badge variant={blocks && regulatory ? 'destructive' : 'warning'}>{blocks ? `${blocks} blocking · ` : ''}{warns} warning(s)</Badge>}
       {row.site.dqd && <span className="text-[10px] text-muted-foreground">DQD {row.site.dqd.percentPassed.toFixed(1)}% passed</span>}
+      <ReviewBadge row={row} />
     </div>
   )
 }
@@ -246,6 +254,7 @@ export function Aggregator() {
                         <TableCell colSpan={10} className="bg-muted/30">
                           <SiteDetails site={site} reasons={verdict.reasons} />
                           <SignatureList checks={row.signatures} />
+                          <PlausibilityList row={row} />
                           {row.evidence && <div className="mt-3"><EvidenceView evidence={row.evidence} /></div>}
                         </TableCell>
                       </TableRow>
@@ -311,6 +320,19 @@ function SiteDetails({ site, reasons }: { site: LoadedSitePack; reasons: string[
             )
           })}
         </div>
+      </div>
+    </div>
+  )
+}
+
+function PlausibilityList({ row }: { row: SiteRow }) {
+  if (!row.plausibility?.length) return null
+  return (
+    <div className="mt-3 flex flex-col gap-1 text-xs">
+      <div className="font-medium">To review — plausibility checks</div>
+      {row.plausibility.map((f) => <div key={f.message} className="text-amber-700">⚠️ {f.message}</div>)}
+      <div className="text-muted-foreground">
+        These checks look for traces of copied or edited results. A shared data source or a coincidence can explain them, so they do not change the recommendation; record your decision and its reason below.
       </div>
     </div>
   )

@@ -125,13 +125,22 @@ export function EvidenceView({ evidence: e }: { evidence: SiteEvidence }) {
         {e.timeline.events.map((t) => (
           <Row key={t.key} k={t.label} v={<>{t.at} <span className="text-muted-foreground">({t.source}{t.zoneKnown ? '' : ', local time'})</span></>} />
         ))}
-        {e.timeline.trustedWindow && (
-          <div className="text-muted-foreground">
-            Without a trusted clock offline, the seal time is only bounded by the protocol issue time{e.timeline.trustedWindow.to ? ' and the coordinator receipt time' : ''}.
-          </div>
-        )}
+        {e.timeline.trustedWindow && <TrustedWindow w={e.timeline.trustedWindow} />}
         {e.timeline.issues.map((i, n) => <Issue key={n} severity={i.severity} regulatory={regulatory}>{i.message}</Issue>)}
       </Section>
+    </div>
+  )
+}
+
+/** Which clock each bound of the seal time is on. */
+function TrustedWindow({ w }: { w: NonNullable<SiteEvidence['timeline']['trustedWindow']> }) {
+  const tsa = (src?: string) => src === 'tsa'
+  const bound = (label: string, at?: string, src?: string) => (at ? `${label} ${at} (${tsa(src) ? "time-stamp authority's clock" : "coordinator's device clock"})` : undefined)
+  const parts = [bound('after', w.from, w.fromSource), bound('before', w.to, w.toSource)].filter(Boolean)
+  return (
+    <div className="text-muted-foreground">
+      The seal time can be trusted only within this window: {parts.join(' and ')}.
+      {!(tsa(w.fromSource) && (!w.to || tsa(w.toSource))) && ' RFC 3161 tokens over the protocol and the disposition log put both bounds on a time-stamp authority’s clock.'}
     </div>
   )
 }

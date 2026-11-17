@@ -21,7 +21,10 @@ import { download, formatBytes } from '@/lib/utils'
 export function PackagePanel() {
   const { siteId, config, slots, results, signers, protocol } = useStudyStore()
   const exportedMin = React.useMemo(() => exportedMinCellCount(slots), [slots])
-  const evidence = React.useMemo(() => evaluateEvidence({ config, files: siteFiles({ slots, results }), hashes: siteHashes({ slots, results }) }), [config, slots, results])
+  const evidence = React.useMemo(
+    () => evaluateEvidence({ config, files: siteFiles({ slots, results }), hashes: siteHashes({ slots, results }), protocolTimestamp: protocol?.timestampCheck }),
+    [config, slots, results, protocol],
+  )
   const readiness = React.useMemo(
     () =>
       evaluateReadiness({
@@ -67,8 +70,9 @@ export function PackagePanel() {
         framework: config.framework?.name,
         protocolBytes: protocol?.bytes,
         protocolSignatureBytes: protocol?.signatureBytes,
+        protocolTimestampBytes: protocol?.timestampCheck?.valid ? protocol.timestampBytes : undefined,
         // An R script study has no Strategus evidence (DQD, log, run record) to seal.
-        evidence: isRScriptStudy(config) ? undefined : evaluateEvidence({ config, files: siteFiles({ slots, results }), hashes: siteHashes({ slots, results }), sealedAt: now.toISOString() }),
+        evidence: isRScriptStudy(config) ? undefined : evaluateEvidence({ config, files: siteFiles({ slots, results }), hashes: siteHashes({ slots, results }), sealedAt: now.toISOString(), protocolTimestamp: protocol?.timestampCheck }),
         signers,
         studyId: config.studyId,
         studyTitle: config.studyTitle,

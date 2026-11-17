@@ -52,7 +52,7 @@ interpretation and should be confirmed in a PMDA consultation.
 | ID | Requirement | Source | Implementation |
 |---|---|---|---|
 | R2.1 | Times are unambiguous: UTC or time + time zone | E6 §4.2.2(d); FDA-P11 Q14; EMA-CS §5.5 | All recorded times ISO-8601 UTC + local offset |
-| R2.2 | Clock set by an external standard, not user-modifiable | EMA-CS §5.5; FDA-P11 Q14 | **Not achievable offline.** Mitigation: `provenance/timeline.ts` labels every time by source (`coordinator-signed`, `device-clock`, `derived`), bounds the seal between protocol issue and coordinator receipt, and checks ordering (CDM release ≤ DQD ≤ Strategus run ≤ seal ≤ receipt) |
+| R2.2 | Clock set by an external standard, not user-modifiable | EMA-CS §5.5; FDA-P11 Q14 | **Not achievable offline for the seal itself.** Mitigation: `provenance/timeline.ts` labels every time by source (`coordinator-signed`, `device-clock`, `tsa`, `derived`), bounds the seal between protocol issue and coordinator receipt, and checks ordering (CDM release ≤ DQD ≤ Strategus run ≤ seal ≤ receipt). Both bounds can be put on an external clock with RFC 3161 time-stamps, exchanged as files because the tool sends nothing (`integrity/timestamp.ts`): a token over `study_config.json` travels in the protocol ZIP and is sealed into every pack (the seal is later than its time), and a token over the disposition log head covers every receipt recorded up to it (`network/logTimestamp.ts`). The tool checks the token's imprint, signed attributes and signature with the certificate it carries; the TSA's certificate chain is checked outside the tool (`openssl ts -verify`) |
 | R2.3 | Transfer time is recorded | FDA-P11 Q22; EMA-CS A1 | Aggregator records receipt time in the disposition log |
 
 ### R3 — Traceable provenance: CDM, vocabulary, software versions
@@ -104,7 +104,10 @@ signature, sealed protocol, coordinator signature and blocking evidence) and `bu
 ## Known limitations (state them in the study's data management plan)
 
 1. Seal and signature times come from the site's device clock (R2.2). The trustworthy window is
-   [protocol issue time, coordinator receipt time].
+   [protocol issue time, coordinator receipt time]. Without RFC 3161 tokens both bounds are on the
+   coordinator's device clock; with a token over the protocol and one over the disposition log head they are
+   on the time-stamp authority's clock. The tool does not build the TSA's certificate chain: record which TSA
+   was used and check its chain (`openssl ts -verify -CAfile …`) as part of SOP-3.
 2. Login-level controls (two-factor, lockout, inactivity logout) do not exist in a single offline HTML
    file. Signing requires the key file and passphrase every time instead.
 3. A hash chain detects alteration and truncation only when its signed head is retained outside the

@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { TimestampExchange, TimestampLine } from '@/features/common/TimestampExchange'
 import { Check, Download, History, Lock, ScrollText, UserCheck, Users, X } from 'lucide-react'
 import { useStudyStore } from '@/store/useStudyStore'
 import { kidFingerprint, parseEnrollmentCard, parseJws, type EnrollmentCard, type SignerRoster } from '@/lib/security/signer'
@@ -290,6 +291,8 @@ export function DispositionLogCard() {
   const log = useStudyStore((s) => s.log)
   useStudyStore((s) => s.logRev)
   const importLog = useStudyStore((s) => s.importLog)
+  const addLogTimestamp = useStudyStore((s) => s.addLogTimestamp)
+  const stamps = useStudyStore((s) => s.logTimestamps)
   const config = useStudyStore((s) => s.config)
   const [error, setError] = React.useState<string>()
   const [head, setHead] = React.useState<{ headHash: string; entries: number }>()
@@ -327,6 +330,26 @@ export function DispositionLogCard() {
           </DropZone>
         )}
         {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+        {stamps.map((s) => (
+          <div key={s.seq}>
+            Entries 0–{s.coversSeq}: <TimestampLine check={s.check} />
+          </div>
+        ))}
+        {log.size > 0 && (
+          <TimestampExchange
+            key={log.headHash}
+            stem={`${id}_disposition_head_${log.size - 1}`}
+            sha256={log.headHash}
+            what={`the log head (entries 0–${log.size - 1}, including every receipt so far)`}
+            onReply={async (tsr) => {
+              try {
+                return await addLogTimestamp(tsr)
+              } catch (e) {
+                return { valid: false, error: errText(e) }
+              }
+            }}
+          />
+        )}
         {log.size > 0 && (
           <div className="max-h-72 overflow-auto rounded border">
             <Table>

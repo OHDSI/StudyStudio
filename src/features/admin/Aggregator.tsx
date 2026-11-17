@@ -14,6 +14,7 @@ import type { HashCheckStatus, LoadedSitePack } from '@/lib/network/aggregator'
 import { kidFingerprint, protocolIssuerKids, type SignatureCheck } from '@/lib/security/signer'
 import type { SiteRow } from '@/lib/export/regulatory'
 import { EvidenceView } from '@/features/common/EvidenceView'
+import { TimestampLine } from '@/features/common/TimestampExchange'
 import { ActorCard, DecisionCell, DispositionLogCard, LockCard, RosterCard } from './DispositionPanel'
 
 function SignatureBadge({ checks }: { checks?: SignatureCheck[] }) {
@@ -288,6 +289,7 @@ function SiteDetails({ site, reasons }: { site: LoadedSitePack; reasons: string[
         <div><span className="text-muted-foreground">ZIP SHA-256:</span> <Hash value={site.zipSha256} full /></div>
         {site.dqd?.cdmSourceName && <div><span className="text-muted-foreground">CDM source:</span> {site.dqd.cdmSourceName}</div>}
         {site.exportedMinCellCount !== undefined && <div><span className="text-muted-foreground">Exported minCellCount:</span> {site.exportedMinCellCount}</div>}
+        {site.protocolTimestamp && <div><span className="text-muted-foreground">Sealed protocol:</span> <TimestampLine check={site.protocolTimestamp} /></div>}
         {site.reAudit && (
           <div>
             <span className="text-muted-foreground">Results re-audit:</span> {site.reAudit.files} files, {site.reAudit.scannedCells.toLocaleString()} cells

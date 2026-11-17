@@ -69,7 +69,7 @@ describe('timeline', () => {
       true,
     )
     expect(t.issues).toEqual([])
-    expect(t.trustedWindow).toEqual({ from: '2026-10-01T00:00:00Z', to: '2026-11-01T00:00:00Z' })
+    expect(t.trustedWindow).toEqual({ from: '2026-10-01T00:00:00Z', to: '2026-11-01T00:00:00Z', fromSource: 'coordinator-signed', toSource: 'device-clock' })
     expect(t.events[0].key).toBe('cdmRelease')
   })
 
@@ -80,6 +80,33 @@ describe('timeline', () => {
     )
     expect(t.issues).toHaveLength(1)
     expect(t.issues[0].severity).toBe('block')
+  })
+
+  it('puts the window on the time-stamp authority clock when tokens are present', () => {
+    const t = buildTimeline(
+      [
+        event('protocolIssued', 'Protocol issued', '2026-10-01T00:00:00Z', 'coordinator-signed'),
+        event('protocolTimestamped', 'Protocol time-stamped', '2026-10-01T00:05:00Z', 'tsa'),
+        event('sealed', 'Sealed', '2026-10-30T00:00:00Z', 'device-clock'),
+        event('received', 'Received', '2026-11-01T00:00:00Z', 'device-clock'),
+        event('receiptTimestamped', 'Receipt time-stamped', '2026-11-01T00:10:00Z', 'tsa'),
+      ].filter((e) => !!e),
+      true,
+    )
+    expect(t.issues).toEqual([])
+    expect(t.trustedWindow).toEqual({ from: '2026-10-01T00:05:00Z', to: '2026-11-01T00:10:00Z', fromSource: 'tsa', toSource: 'tsa' })
+  })
+
+  it('blocks a seal before the time-stamp it contains, allowing a few minutes of drift', () => {
+    const at = (sealed: string) =>
+      buildTimeline([event('protocolTimestamped', 'Protocol time-stamped', '2026-10-01T12:00:00Z', 'tsa'), event('sealed', 'Sealed', sealed, 'device-clock')].filter((e) => !!e), true).issues
+    expect(at('2026-10-01T11:58:00Z')).toEqual([])
+    expect(at('2026-10-01T10:00:00Z')).toEqual([expect.objectContaining({ severity: 'block' })])
+  })
+
+  it('does not block the site for the coordinator clock running ahead of the TSA', () => {
+    const t = buildTimeline([event('received', 'Received', '2026-11-01T12:00:00Z', 'device-clock'), event('receiptTimestamped', 'Receipt time-stamped', '2026-11-01T10:00:00Z', 'tsa')].filter((e) => !!e), true)
+    expect(t.issues).toEqual([expect.objectContaining({ severity: 'warn' })])
   })
 
   it('tolerates zone-less local times within a day', () => {

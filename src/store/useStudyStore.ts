@@ -8,11 +8,13 @@ import { redactLog } from '@/lib/audit/logAuditor'
 import { sha256Hex } from '@/lib/integrity/hasher'
 import { SLOT_BY_ID, type SlotId } from '@/lib/studypack/slots'
 import type { FileModification } from '@/lib/studypack/builder'
+import { verifyTimestamp, type TimestampCheck } from '@/lib/integrity/timestamp'
 import type { IssuedProtocol, ProtocolRead, StudyRepo } from '@/lib/strategus/protocol'
 import { executionSettingsMinCellCount, inputMinCellCount, protectedSectionHash } from '@/lib/strategus/executeScript'
 import { auditResultFiles, collectRdms, auditOptionsFor, type ResultFile } from '@/lib/strategus/results'
 import { loadStudyPack, type LoadedSitePack } from '@/lib/network/aggregator'
 import { DEFAULT_REASON_CODES, DispositionLog, type Actor } from '@/lib/network/dispositionLog'
+import { logTimestampNote, verifyLogTimestamps, type LogTimestamp } from '@/lib/network/logTimestamp'
 import { addSignature, protocolIssuerKids, rosterBytes, verifyRoster, type DetachedJws, type RosterStatus, type SignatureCheck, type SignatureMeaning, type SignerRoster, type UnlockedSigner } from '@/lib/security/signer'
 import type { RoleMode, StudyConfig } from '@/types/studypack'
 import type { RunRecordHashes } from '@/lib/strategus/runRecord'
@@ -47,6 +49,9 @@ export interface ReceivedProtocol {
   bytes: Uint8Array
   signatureBytes?: Uint8Array
   signatureChecks?: SignatureCheck[]
+  /** RFC 3161 token over the protocol (sealed into the pack, so the seal is later than its time). */
+  timestampBytes?: Uint8Array
+  timestampCheck?: TimestampCheck
 }
 
 export interface ActiveSigner {
@@ -79,6 +84,8 @@ interface StudyState {
   log: DispositionLog
   /** Bumped on every log change so subscribers re-render. */
   logRev: number
+  /** RFC 3161 time-stamps found in the log, re-verified after every change. */
+  logTimestamps: LogTimestamp[]
 
   setMode: (m: RoleMode) => void
   setSiteId: (s: string) => void
@@ -108,6 +115,8 @@ interface StudyState {
   lockDispositions: (statement: string) => Promise<void>
   logExport: (details: Record<string, unknown>) => Promise<void>
   importLog: (jsonl: string, head?: { headHash: string; entries: number }) => Promise<void>
+  /** Check a TSA reply over the current log head and, if valid, record it in the log. */
+  addLogTimestamp: (tsr: Uint8Array) => Promise<TimestampCheck>
   clearSites: () => Promise<void>
 }
 
@@ -190,6 +199,12 @@ export const useStudyStore = create<StudyState>((set, get) => {
     const codes = get().config?.adoptionPolicy?.reasonCodes ?? DEFAULT_REASON_CODES
     await get().log.append(e, codes)
     set((s) => ({ logRev: s.logRev + 1 }))
+    await refreshTimestamps()
+  }
+  const refreshTimestamps = async () => {
+    const log = get().log
+    const stamps = await verifyLogTimestamps(log)
+    if (get().log === log) set({ logTimestamps: stamps })
   }
   /** Regulatory studies require a named person for every entry; standard studies record "not identified". */
   const actorOrThrow = (): Actor => {
@@ -218,6 +233,7 @@ export const useStudyStore = create<StudyState>((set, get) => {
     sites: [],
     log: new DispositionLog(),
     logRev: 0,
+    logTimestamps: [],
 
     setMode: (mode) => set({ mode }),
     setSiteId: (siteId) => set({ siteId }),
@@ -225,7 +241,7 @@ export const useStudyStore = create<StudyState>((set, get) => {
     setConfig: async (config, protocolFiles, received) => {
       set({
         config,
-        protocol: config && received?.configBytes ? { bytes: received.configBytes, signatureBytes: received.signatureBytes, signatureChecks: received.signatureChecks } : undefined,
+        protocol: config && received?.configBytes ? { bytes: received.configBytes, signatureBytes: received.signatureBytes, signatureChecks: received.signatureChecks, timestampBytes: received.timestampBytes, timestampCheck: received.timestampCheck } : undefined,
       })
       // Pre-fill protocol-distributed artifacts (analysis specification, execution script, renv.lock).
       for (const [path, bytes] of Object.entries(protocolFiles ?? {})) {
@@ -440,7 +456,16 @@ export const useStudyStore = create<StudyState>((set, get) => {
 
     importLog: async (jsonl, head) => {
       const log = await DispositionLog.fromJsonl(jsonl, head)
-      set((s) => ({ log, logRev: s.logRev + 1 }))
+      set((s) => ({ log, logRev: s.logRev + 1, logTimestamps: [] }))
+      await refreshTimestamps()
+    },
+
+    addLogTimestamp: async (tsr) => {
+      const log = get().log
+      if (!log.size) return { valid: false, error: 'The log is empty' }
+      const check = await verifyTimestamp(tsr, log.headHash)
+      if (check.valid) await append(logTimestampNote(log, tsr, check, actorOrThrow()))
+      return check
     },
 
     clearSites: async () => {

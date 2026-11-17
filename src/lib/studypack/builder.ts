@@ -69,6 +69,7 @@ export interface BuildPackParams {
   /** study_config.json exactly as received, and the coordinator's signature over it, if any. */
   protocolBytes?: Uint8Array
   protocolSignatureBytes?: Uint8Array
+  protocolTimestampBytes?: Uint8Array
   evidence?: SiteEvidence
   /** Each unlocked key signs manifest.json with the given meaning. */
   signers?: { signer: UnlockedSigner; meaning: SignatureMeaning }[]
@@ -386,6 +387,7 @@ export async function buildStudyPack(params: BuildPackParams): Promise<BuiltPack
   }))
   if (p.protocolBytes) content.push({ path: GENERATED_PATHS.protocol, bytes: p.protocolBytes, role: 'definition' })
   if (p.protocolSignatureBytes) content.push({ path: GENERATED_PATHS.protocolSignature, bytes: p.protocolSignatureBytes, role: 'definition' })
+  if (p.protocolTimestampBytes) content.push({ path: GENERATED_PATHS.protocolTimestamp, bytes: p.protocolTimestampBytes, role: 'definition' })
   content.push({ path: GENERATED_PATHS.auditReport, bytes: json(auditReport), role: 'evidence' })
 
   const roCrate = buildRoCrate(p, generatedAt, content.map((c) => ({ path: c.path, size: c.bytes.byteLength, role: c.role })))

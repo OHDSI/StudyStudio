@@ -14,6 +14,7 @@ import { isRScriptStudy, type ProtectedSection, type StudyConfig, type StudyPack
 import { summarizeDqd, type DqdSummary } from './dqd'
 import { parseJws, verifyDetachedJws, type DetachedJws, type SignatureCheck } from '@/lib/security/signer'
 import { judgeEvidence, type SiteEvidence } from '@/lib/studypack/evidence'
+import { verifyTimestamp, type TimestampCheck } from '@/lib/integrity/timestamp'
 
 /** Artifacts every site must share. */
 export const PROTOCOL_KEY_PATHS = [PROTOCOL_PATHS.analysisSpecifications, PROTOCOL_PATHS.executeAnalyses, PROTOCOL_PATHS.renvLock] as const
@@ -74,6 +75,8 @@ export interface LoadedSitePack {
   signatureChecks: SignatureCheck[]
   /** The protocol the site sealed with (protocol/study_config.json), when included. */
   sealedProtocol?: StudyConfig
+  /** RFC 3161 token sealed with the protocol, checked against the sealed study_config.json. */
+  protocolTimestamp?: TimestampCheck
 }
 
 const dec = new TextDecoder()
@@ -199,6 +202,8 @@ export async function loadStudyPack(fileName: string, data: ArrayBuffer | Uint8A
       signatureChecks = [{ kid: '?', valid: false, enrolled: false, error: e instanceof Error ? e.message : String(e) }]
     }
   }
+  const tsr = files[GENERATED_PATHS.protocolTimestamp]
+  const protocolTimestamp = tsr ? await verifyTimestamp(tsr, fileHashes[GENERATED_PATHS.protocol] ?? '') : undefined
   const resultFiles = Object.entries(files)
     .filter(([p]) => p.startsWith(RESULTS_DIR + '/') && p.endsWith('.csv'))
     .map(([p, b]) => ({ path: p.slice(RESULTS_DIR.length + 1), bytes: b }))
@@ -225,6 +230,7 @@ export async function loadStudyPack(fileName: string, data: ArrayBuffer | Uint8A
     signature,
     signatureChecks,
     sealedProtocol,
+    protocolTimestamp,
   }
 }
 
@@ -315,6 +321,7 @@ export function siteVerdict(site: LoadedSitePack, cross: CrossSiteResult, expect
   if (!site.reAudit) add('INTEGRITY', isRScriptStudy(cfg ?? site.sealedProtocol) ? 'No results' : 'No Strategus results')
   else if (!site.reAudit.passed) add('PRIVACY', `${site.reAudit.smallCellCount + site.reAudit.identifierCount} small-cell/identifier finding(s) in ${site.reAudit.failing.length} result file(s)`)
 
+  if (site.protocolTimestamp && !site.protocolTimestamp.valid) add('INTEGRITY', `Invalid time-stamp token on the sealed protocol (${site.protocolTimestamp.error})`)
   const sigs = ctx.signatures ?? site.signatureChecks
   for (const s of sigs.filter((x) => !x.valid)) add('INTEGRITY', `Invalid signature${s.signer ? ` by ${s.signer.name}` : ''}${s.error ? ` (${s.error})` : ''}`)
   if (cfg?.assurance === 'regulatory') {

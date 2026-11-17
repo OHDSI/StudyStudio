@@ -2,6 +2,7 @@ import * as React from 'react'
 import { useStudyStore } from '@/store/useStudyStore'
 import { crossCheckSites, protocolKeyPaths, siteVerdict } from '@/lib/network/aggregator'
 import { checkPlausibility } from '@/lib/network/plausibility'
+import { receiptTimestamp } from '@/lib/network/logTimestamp'
 import { evaluateEvidence } from '@/lib/studypack/evidence'
 import { withEnrollment } from '@/lib/security/signer'
 import { DEFAULT_REASON_CODES } from '@/lib/network/dispositionLog'
@@ -16,6 +17,7 @@ export function useNetworkAnalysis() {
   const rosterStatus = useStudyStore((s) => s.rosterStatus)
   const log = useStudyStore((s) => s.log)
   const logRev = useStudyStore((s) => s.logRev)
+  const logTimestamps = useStudyStore((s) => s.logTimestamps)
   return React.useMemo(() => {
     const expected = config?.expectedHashes ?? {}
     const sections = config?.protectedSections ?? {}
@@ -34,6 +36,8 @@ export function useNetworkAnalysis() {
         files: site.files,
         sealedAt: site.manifest?.sealedAt?.utc ?? site.manifest?.generatedAt,
         receivedAt: site.receivedAt,
+        protocolTimestamp: site.protocolTimestamp,
+        receiptTimestamp: receiptTimestamp(log, logTimestamps, site.zipSha256),
         hashes: { file: site.fileHashes, section: site.sectionHashes },
         declaredModified: (site.manifest?.files ?? []).filter((f) => f.originalCommitment).map((f) => f.path),
       })
@@ -46,5 +50,5 @@ export function useNetworkAnalysis() {
     return { sites, cross, rows, paths, config, log, locked: log.locked, reasonCodes, regulatory }
     // logRev changes whenever the (mutable) log is appended to.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sites, config, roster, rosterStatus, log, logRev])
+  }, [sites, config, roster, rosterStatus, log, logRev, logTimestamps])
 }

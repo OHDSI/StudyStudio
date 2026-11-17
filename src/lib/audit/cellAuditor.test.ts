@@ -46,8 +46,6 @@ describe('cellAuditor', () => {
     const fixed = remediateCsvText(dirty)
     expect(fixed).toBe('subject_count\n-5\n40\n')
     expect(auditCsvText(fixed).passed).toBe(true)
-    expect(remediateCsvText(dirty, {}, 'lt')).toBe('subject_count\n<5\n40\n')
-    expect(remediateCsvText(dirty, {}, 'na')).toBe('subject_count\nNA\n40\n')
   })
 
   it('audits and remediates Excel workbooks (WhiteRabbit layout)', () => {

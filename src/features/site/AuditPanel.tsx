@@ -1,13 +1,10 @@
-import * as React from 'react'
 import { ShieldAlert, ShieldCheck, Wand2 } from 'lucide-react'
 import { useStudyStore, type SlotFile } from '@/store/useStudyStore'
 import { SLOT_BY_ID, type SlotId } from '@/lib/studypack/slots'
-import type { MaskStyle } from '@/lib/audit/cellAuditor'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Select } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 const MAX_ROWS = 200
@@ -23,7 +20,6 @@ export function AuditPanel() {
   const results = useStudyStore((s) => s.results)
   const min = useStudyStore((s) => s.config?.minCellCount ?? 5)
   const remediateAll = useStudyStore((s) => s.remediateAll)
-  const [style, setStyle] = React.useState<MaskStyle>('negative')
 
   const audited: { path: string; file: SlotFile }[] = [
     ...(Object.entries(slots) as [SlotId, SlotFile][]).filter(([, f]) => f.audit).map(([id, file]) => ({ path: SLOT_BY_ID[id].path, file })),
@@ -69,20 +65,10 @@ export function AuditPanel() {
                   {findings.length} small cell(s) (0 &lt; n &lt; {min}) or direct identifier(s) detected. The StudyPack cannot be generated until they are resolved.
                 </p>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <Select value={style} onChange={(e) => setStyle(e.target.value as MaskStyle)} className="h-8 w-auto text-xs" aria-label="Masking style">
-                    <option value="negative">-{min} (HADES convention, keeps columns numeric)</option>
-                    <option value="lt">&lt;{min}</option>
-                    <option value="na">NA</option>
-                  </Select>
-                  <Button variant="destructive" size="sm" onClick={() => remediateAll(style)}>
-                    <Wand2 /> One-click auto-masking (drop identifier columns)
+                  <Button variant="destructive" size="sm" onClick={() => remediateAll()}>
+                    <Wand2 /> One-click auto-masking: -{min} (HADES convention), drop identifier columns
                   </Button>
                 </div>
-                {style !== 'negative' && (
-                  <p className="mt-2 text-xs">
-                    Note: Strategus result tables declare these columns as integers, so “{style === 'lt' ? `<${min}` : 'NA'}” may not load into the OHDSI results database. -{min} is the convention HADES itself uses.
-                  </p>
-                )}
               </AlertDescription>
             </Alert>
             <Table>

@@ -10,12 +10,10 @@ import Papa from 'papaparse'
 import * as XLSX from 'xlsx'
 
 /**
- * How suppressed cells are written:
- *  - 'negative': -minCellCount (HADES / Strategus convention; keeps the column numeric so results upload still works)
- *  - 'lt':       "<minCellCount"
- *  - 'na':       NA
+ * Suppressed cells are written as -minCellCount: the HADES / Strategus convention. It keeps the column
+ * numeric (results upload, CDISC datasets) and is what define.xml and the reviewer's guide describe.
+ * Values a site already censored another way (e.g. "<5", NA) still pass the audit.
  */
-export type MaskStyle = 'negative' | 'lt' | 'na'
 
 export interface AuditOptions {
   /** Minimum reportable count. Values 1..minCellCount-1 are violations. */
@@ -240,8 +238,8 @@ export function auditWorkbook(data: ArrayBuffer | Uint8Array, fileName = 'ScanRe
   return finalize(fileName, 'xlsx', min, workbookTables(wb).map(([name, t]) => auditTable(t, name, min, extra)))
 }
 
-export function maskValue(min: number, style: MaskStyle): string {
-  return style === 'negative' ? `-${min}` : style === 'lt' ? `<${min}` : 'NA'
+export function maskValue(min: number): string {
+  return `-${min}`
 }
 
 /** Returns column indexes to drop: identifier columns plus their paired WhiteRabbit "Frequency" column. */
@@ -256,29 +254,29 @@ function columnsToDrop(table: Table): Set<number> {
   return drop
 }
 
-function remediateTable(table: Table, min: number, style: MaskStyle, extra: RegExp[], explicit?: string[]): Table {
+function remediateTable(table: Table, min: number, extra: RegExp[], explicit?: string[]): Table {
   const { indexes } = detectCountColumns(table, extra, explicit)
   const drop = columnsToDrop(table)
-  const mask = maskValue(min, style)
+  const mask = maskValue(min)
   return table.map((row, r) => {
     const out = row.map((c, i) => (r > 0 && indexes.includes(i) && isSmall(parseCount(c), min) ? mask : c))
     return out.filter((_, i) => !drop.has(i))
   })
 }
 
-export function remediateCsvText(text: string, opts: AuditOptions = {}, style: MaskStyle = 'negative'): string {
+export function remediateCsvText(text: string, opts: AuditOptions = {}): string {
   const min = opts.minCellCount ?? DEFAULT_MIN_CELL_COUNT
-  const fixed = remediateTable(parseCsv(text), min, style, compilePatterns(opts.countColumnPatterns), opts.countColumns)
+  const fixed = remediateTable(parseCsv(text), min, compilePatterns(opts.countColumnPatterns), opts.countColumns)
   return Papa.unparse(fixed as unknown[][], { newline: '\n' }) + '\n'
 }
 
-export function remediateWorkbook(data: ArrayBuffer | Uint8Array, opts: AuditOptions = {}, style: MaskStyle = 'negative'): ArrayBuffer {
+export function remediateWorkbook(data: ArrayBuffer | Uint8Array, opts: AuditOptions = {}): ArrayBuffer {
   const min = opts.minCellCount ?? DEFAULT_MIN_CELL_COUNT
   const extra = compilePatterns(opts.countColumnPatterns)
   const wb = XLSX.read(data, { type: 'array' })
   const out = XLSX.utils.book_new()
   for (const [name, table] of workbookTables(wb)) {
-    XLSX.utils.book_append_sheet(out, XLSX.utils.aoa_to_sheet(remediateTable(table, min, style, extra)), name)
+    XLSX.utils.book_append_sheet(out, XLSX.utils.aoa_to_sheet(remediateTable(table, min, extra)), name)
   }
   return XLSX.write(out, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer
 }

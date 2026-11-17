@@ -53,7 +53,7 @@ Everything under `samples/` is synthetic. Switch roles with **Site Mode / Admin 
 To see the safety lock, drop `samples/site-inputs/small-cells/` instead of `clean/`: the same files, but the results were exported uncensored and its `executionSettings.json` records `minCellCount: 0`. Then:
 - The audit finds small cells and blocks the download.
 - A warning says the results were exported with a lower `minCellCount` (0) than the protocol requires (5).
-- **One-click auto-masking** fixes the cells (`-5` by default), and the download unlocks.
+- **One-click auto-masking** fixes the cells (`-5`), and the download unlocks.
 
 ### 3. Coordinator: verify and export
 1. **Admin Mode → Multi-Site Aggregator**. Optionally enter who you are (required in regulatory studies; every receipt and decision is attributed to that person).
@@ -139,7 +139,7 @@ These checks show which files were sealed into the pack. The [run record](#run-r
 ### Small cells in Strategus results
 - **Input:** results are read as `<Module>/<table>.csv`, from the folder written by `Strategus::execute()` or the ZIP from `Strategus::zipResults()`.
 - **What is checked:** the columns that each module's `resultsDataModelSpecification.csv` flags `min_cell_count = Yes`. Values with 0 < n < minCellCount fail. Tables without that file fall back to column-name heuristics. Direct identifier columns are also flagged.
-- **Masking:** censored values follow the HADES convention `-minCellCount`, which keeps the columns numeric for the OHDSI results database. `<5` and `NA` are also available.
+- **Masking:** censored values follow the HADES convention `-minCellCount`, which keeps the columns numeric for the OHDSI results database and CDISC datasets, and is what define.xml and the reviewer's guide describe. It is the only masking the tool applies; values a site already censored another way (`<5`, `NA`) still pass the audit.
 - **Export settings:** if `executionSettings.json` records a lower `minCellCount` than the protocol, the site is warned before packaging.
 
 ### Data quality, provenance and logs

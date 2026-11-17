@@ -171,7 +171,7 @@ describe('run record', () => {
     for (const f of resultList) {
       if (audits.get(f.path)!.passed) continue
       originals[`results/${f.path}`] = f.bytes
-      site[`results/${f.path}`] = enc.encode(remediateCsvText(dec.decode(f.bytes), auditOptionsFor(f.path, rdms, { minCellCount: 5 }), 'negative'))
+      site[`results/${f.path}`] = enc.encode(remediateCsvText(dec.decode(f.bytes), auditOptionsFor(f.path, rdms, { minCellCount: 5 })))
     }
     const masked = Object.keys(originals)
     expect(masked.length).toBeGreaterThan(0)

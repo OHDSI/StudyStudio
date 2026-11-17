@@ -3,7 +3,7 @@
  * Everything lives in memory only (no persistence, no network).
  */
 import { create } from 'zustand'
-import { auditWorkbook, remediateCsvText, remediateWorkbook, type AuditOptions, type AuditResult, type MaskStyle } from '@/lib/audit/cellAuditor'
+import { auditWorkbook, remediateCsvText, remediateWorkbook, type AuditOptions, type AuditResult } from '@/lib/audit/cellAuditor'
 import { redactLog } from '@/lib/audit/logAuditor'
 import { sha256Hex } from '@/lib/integrity/hasher'
 import { SLOT_BY_ID, type SlotId } from '@/lib/studypack/slots'
@@ -91,8 +91,8 @@ interface StudyState {
   remove: (slotId: SlotId) => void
   ingestResults: (source: string, files: ResultFile[]) => Promise<void>
   removeResults: () => void
-  remediate: (slotId: SlotId, style: MaskStyle) => Promise<void>
-  remediateAll: (style: MaskStyle) => Promise<void>
+  remediate: (slotId: SlotId) => Promise<void>
+  remediateAll: () => Promise<void>
   resetSite: () => void
   addSigner: (s: UnlockedSigner) => void
   removeSigner: (kid: string) => void
@@ -140,9 +140,9 @@ async function toSlotFile(name: string, bytes: Uint8Array, extra: Partial<SlotFi
   return { name, bytes, sha256: await sha256Hex(bytes), size: bytes.byteLength, remediated: false, fromProtocol: false, ...extra, originalSha256 }
 }
 
-const maskingRecord = (audit: AuditResult | undefined, min: number, style: MaskStyle): FileModification => ({
+const maskingRecord = (audit: AuditResult | undefined, min: number): FileModification => ({
   kind: 'small-cell-masking',
-  rule: `Counts with 0 < n < ${min} replaced by ${style === 'negative' ? `-${min}` : style === 'lt' ? `<${min}` : 'NA'}; direct-identifier columns dropped`,
+  rule: `Counts with 0 < n < ${min} replaced by -${min}; direct-identifier columns dropped`,
   counts: { maskedCells: audit?.smallCellCount ?? 0, droppedIdentifierColumns: audit?.identifierCount ?? 0 },
   reason: `Small-cell suppression required by the protocol (minCellCount ${min})`,
 })
@@ -318,17 +318,17 @@ export const useStudyStore = create<StudyState>((set, get) => {
 
     removeResults: () => set({ results: undefined }),
 
-    remediate: async (slotId, style) => {
+    remediate: async (slotId) => {
       const f = get().slots[slotId]
       if (!f || slotId !== 'scanReport') return
       const min = get().config?.minCellCount ?? 5
-      const fixed = new Uint8Array(remediateWorkbook(f.bytes, auditOpts(get().config), style))
-      await get().ingest(slotId, f.name, fixed, { remediated: true, fromProtocol: f.fromProtocol, original: f.original ?? f.bytes, modification: maskingRecord(f.audit, min, style) })
+      const fixed = new Uint8Array(remediateWorkbook(f.bytes, auditOpts(get().config)))
+      await get().ingest(slotId, f.name, fixed, { remediated: true, fromProtocol: f.fromProtocol, original: f.original ?? f.bytes, modification: maskingRecord(f.audit, min) })
     },
 
-    remediateAll: async (style) => {
+    remediateAll: async () => {
       const scan = get().slots.scanReport
-      if (scan?.audit && !scan.audit.passed) await get().remediate('scanReport', style)
+      if (scan?.audit && !scan.audit.passed) await get().remediate('scanReport')
       const r = get().results
       if (!r) return
       const base = auditOpts(get().config)
@@ -339,8 +339,8 @@ export const useStudyStore = create<StudyState>((set, get) => {
       const fixed = list.map((f) => {
         const old = r.files[f.path]
         if (!old.audit || old.audit.passed) return f
-        changed.set(f.path, { original: old.original ?? old.bytes, originalSha256: old.originalSha256 ?? old.sha256, modification: maskingRecord(old.audit, min, style) })
-        return { path: f.path, bytes: enc.encode(remediateCsvText(dec.decode(f.bytes), auditOptionsFor(f.path, rdms, base), style)) }
+        changed.set(f.path, { original: old.original ?? old.bytes, originalSha256: old.originalSha256 ?? old.sha256, modification: maskingRecord(old.audit, min) })
+        return { path: f.path, bytes: enc.encode(remediateCsvText(dec.decode(f.bytes), auditOptionsFor(f.path, rdms, base))) }
       })
       await get().ingestResults(r.source, fixed)
       set((s) => {

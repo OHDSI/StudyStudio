@@ -44,8 +44,12 @@ export const SLOTS: SlotDef[] = [
  * The slots a study uses. An R script study has no analysis specification, DQD, Strategus log or run
  * record: only the pinned script (and renv.lock when the protocol pins one) plus its result CSVs.
  */
-export function slotsFor(config?: Pick<StudyConfig, 'framework' | 'expectedHashes'>): SlotDef[] {
-  if (!isRScriptStudy(config)) return SLOTS
+/**
+ * The slots a study uses. DQD results are required only with regulatory assurance: a standard study
+ * treats data quality as warnings, so it must not stop a site from sealing.
+ */
+export function slotsFor(config?: Pick<StudyConfig, 'framework' | 'expectedHashes' | 'assurance'>): SlotDef[] {
+  if (!isRScriptStudy(config)) return config?.assurance === 'regulatory' ? SLOTS : SLOTS.map((s) => (s.id === 'dqdResults' ? { ...s, required: false } : s))
   return [
     { ...SLOT_BY_ID.executeAnalyses, label: 'R script', description: 'The study script (e.g. CodeToRun.R) from the protocol. If the protocol pins it below a marker line, only the settings above that line may differ.' },
     { ...SLOT_BY_ID.renvLock, required: !!config?.expectedHashes?.[SLOT_BY_ID.renvLock.path] },

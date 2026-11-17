@@ -29,6 +29,12 @@ describe('evaluateReadiness', () => {
     expect(clean.canPackage).toBe(true)
     expect(clean.warnings).toEqual([])
   })
+  it('requires DQD results only with regulatory assurance', () => {
+    const { dqdResults: _dqd, ...withoutDqd } = slots
+    const missing = (c: StudyConfig) => evaluateReadiness({ siteId: 'A', config: c, slots: withoutDqd, signers, results: result('cohort_id,cohort_subjects\n1,9\n') }).blockers
+    expect(missing(config)).not.toContainEqual(expect.stringContaining('dqd_results.json'))
+    expect(missing({ ...config, assurance: 'regulatory' } as StudyConfig)).toContainEqual('Required file evidence/dqd_results.json is missing')
+  })
   it('requires protocol, site id, required slots and results', () => {
     const r = evaluateReadiness({ siteId: '', slots: {}, results: {} })
     expect(r.canPackage).toBe(false)

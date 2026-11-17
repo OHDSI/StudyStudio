@@ -180,7 +180,7 @@ Designed with reference to ICH M14, ICH E6(R3), the FDA RWD and Part 11 Q&A guid
 
 | Control | What it does |
 |---|---|
-| **Assurance level** | `study_config.assurance`: `standard` (everything below is a warning) or `regulatory` (the rules block, and the data-quality gate, CDM requirements and exclusion reasons are pre-specified in the protocol) |
+| **Assurance level** | `study_config.assurance`: `standard` (everything below is a warning, and DQD results are optional) or `regulatory` (the rules block, DQD results are required, and the data-quality gate, CDM requirements and exclusion reasons are pre-specified in the protocol). Choose `regulatory` when the protocol is issued if the results may be submitted to a regulator: the evidence cannot be added to a standard study afterwards |
 | **Electronic signatures** | ECDSA P-256 keys generated in the browser and kept as passphrase-protected key files. Detached JWS (ES256) over `manifest.json` and `study_config.json`, showing name, role, time, time zone and meaning. Verifiable with standard JOSE libraries that support detached payloads |
 | **Signer roster** | The coordinator enrolls each site's public key after verifying identity out of band, then signs the roster with the key that issued the protocol. Only enrolled, unrevoked keys in a roster signed that way count; revocation is judged against the coordinator's receipt time |
 | **Originals of modified files** | Masked results and redacted logs carry a salted commitment to the original (a plain hash would let anyone brute-force the masked values). The salts stay at the site in a retention receipt |

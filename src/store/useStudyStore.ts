@@ -12,7 +12,7 @@ import type { IssuedProtocol, ProtocolRead, StudyRepo } from '@/lib/strategus/pr
 import { executionSettingsMinCellCount, inputMinCellCount, protectedSectionHash } from '@/lib/strategus/executeScript'
 import { auditResultFiles, collectRdms, auditOptionsFor, type ResultFile } from '@/lib/strategus/results'
 import { loadStudyPack, type LoadedSitePack } from '@/lib/network/aggregator'
-import { DEFAULT_REASON_CODES, DispositionLog, type Actor } from '@/lib/network/dispositionLog'
+import { DEFAULT_REASON_CODES, DispositionError, DispositionLog, unaccountedSites, type Actor } from '@/lib/network/dispositionLog'
 import { clockDiscrepancy, type ClockDiscrepancy } from '@/lib/provenance/deviceClock'
 import { addSignature, protocolIssuerKids, rosterBytes, verifyRoster, type DetachedJws, type RosterStatus, type SignatureCheck, type SignatureMeaning, type SignerRoster, type UnlockedSigner } from '@/lib/security/signer'
 import type { RoleMode, StudyConfig } from '@/types/studypack'
@@ -112,6 +112,8 @@ interface StudyState {
   removeSite: (key: string) => Promise<void>
   decide: (key: string, to: 'adopt' | 'exclude', recommended: 'adopt' | 'exclude', reasonCode?: string, reasonText?: string) => Promise<void>
   lockDispositions: (statement: string) => Promise<void>
+  /** Record that no pack was received from a site in the protocol's site list (A1). */
+  recordNotReceived: (siteId: string, reasonCode: string, reasonText: string) => Promise<void>
   logExport: (details: Record<string, unknown>) => Promise<void>
   importLog: (jsonl: string, head?: { headHash: string; entries: number }) => Promise<void>
   clearSites: () => Promise<void>
@@ -436,12 +438,21 @@ export const useStudyStore = create<StudyState>((set, get) => {
 
     lockDispositions: async (statement) => {
       const decisions = get().log.decisions()
+      const config = get().config
+      // A1: in a regulatory study every site in the protocol's site list is accounted for before the lock.
+      const missing = unaccountedSites(config?.sites, get().sites, get().log.entries)
+      if (config?.assurance === 'regulatory' && missing.length) throw new DispositionError(`Record a decision or "not received" for ${missing.join(', ')} (protocol site list) before locking`)
+      const notReceived = [...get().log.notReceived().keys()]
       await append({
         actor: actorOrThrow(),
         action: 'lock',
         reasonText: statement,
-        details: { sites: get().sites.map((s) => ({ siteId: s.siteId, packSha256: s.zipSha256, decision: decisions.get(s.zipSha256) ?? 'undecided' })) },
+        details: { sites: get().sites.map((s) => ({ siteId: s.siteId, packSha256: s.zipSha256, decision: decisions.get(s.zipSha256) ?? 'undecided' })), ...(notReceived.length ? { notReceived } : {}) },
       })
+    },
+
+    recordNotReceived: async (siteId, reasonCode, reasonText) => {
+      await append({ actor: actorOrThrow(), action: 'not-received', siteId, reasonCode, reasonText })
     },
 
     logExport: async (details) => {

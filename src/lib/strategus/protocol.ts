@@ -10,7 +10,7 @@
 import JSZip from 'jszip'
 import { openZip } from '@/lib/security/zip'
 import { sha256Hex } from '@/lib/integrity/hasher'
-import type { AssuranceLevel, FrameworkName, StudyConfig } from '@/types/studypack'
+import type { AssuranceLevel, ExpectedSite, FrameworkName, StudyConfig } from '@/types/studypack'
 import { defaultDqdPolicy, studyTablesFor } from '@/lib/audit/dqdAuditor'
 import { DEFAULT_REASON_CODES } from '@/lib/network/dispositionLog'
 import { addSignature, parseJws, verifyDetachedJws, type DetachedJws, type SignatureCheck, type UnlockedSigner } from '@/lib/security/signer'
@@ -114,6 +114,8 @@ export interface ProtocolMeta {
   vocabularyVersion?: string
   /** Coordinator key: signs study_config.json so sites can verify who issued it. */
   signer?: UnlockedSigner
+  /** Participating sites (C2). Required for regulatory assurance. */
+  sites?: ExpectedSite[]
   /**
    * R script studies: the comment line below which the script is pinned. Undefined picks
    * suggestMarker(); null pins the whole file. Strategus studies always use the template marker.
@@ -132,7 +134,43 @@ export interface IssuedProtocol {
 
 export const PROTOCOL_SIGNATURE_FILE = 'study_config.jws.json'
 
+/** One site per line: site ID, role, CDM source name, source release date (only the site ID is needed). */
+export function parseSiteList(text: string): ExpectedSite[] {
+  return text
+    .split('\n')
+    .map((line) => line.split(',').map((x) => x.trim()))
+    .filter((f) => f[0])
+    .map(([siteId, role, cdmSourceName, sourceReleaseDate]) => ({ siteId, role, cdmSourceName, sourceReleaseDate }))
+}
+
+/** Trim the site list; empty fields are dropped so they are not compared. */
+export function normalizeSites(sites?: ExpectedSite[]): ExpectedSite[] | undefined {
+  const out = (sites ?? [])
+    .map((s) => ({
+      siteId: s.siteId.trim(),
+      ...(s.role?.trim() ? { role: s.role.trim() } : {}),
+      ...(s.cdmSourceName?.trim() ? { cdmSourceName: s.cdmSourceName.trim() } : {}),
+      ...(s.sourceReleaseDate?.trim() ? { sourceReleaseDate: s.sourceReleaseDate.trim() } : {}),
+    }))
+    .filter((s) => s.siteId)
+  return out.length ? out : undefined
+}
+
+/** Why a protocol cannot be issued with these settings (checked at issue, never first at lock or export). */
+export function issueRefusals(meta: Pick<ProtocolMeta, 'assurance' | 'sites'>): string[] {
+  const reasons: string[] = []
+  const sites = normalizeSites(meta.sites)
+  if (meta.assurance === 'regulatory' && !sites) reasons.push('Regulatory protocols must list the participating sites (site ID, and optionally role, CDM source name and source release date)')
+  const ids = (sites ?? []).map((s) => s.siteId)
+  const dup = ids.filter((x, i) => ids.indexOf(x) !== i)
+  if (dup.length) reasons.push(`Site ID listed more than once: ${[...new Set(dup)].join(', ')}`)
+  for (const s of sites ?? []) if (s.sourceReleaseDate && !/^\d{4}-\d{2}-\d{2}$/.test(s.sourceReleaseDate)) reasons.push(`${s.siteId}: source release date must be YYYY-MM-DD`)
+  return reasons
+}
+
 export async function issueProtocol(repo: StudyRepo, meta: ProtocolMeta): Promise<IssuedProtocol> {
+  const refused = issueRefusals(meta)
+  if (repo.kind !== 'R script' && refused.length) throw new Error(refused.join('; '))
   if (repo.kind === 'R script') return issueRScriptProtocol(repo, meta)
   if (!repo.specText || !repo.executeText || !repo.renvText) throw new Error(repo.errors.join('; ') || 'Incomplete study repository')
   const summary = parseAnalysisSpecification(repo.specText)
@@ -178,6 +216,8 @@ export async function issueProtocol(repo: StudyRepo, meta: ProtocolMeta): Promis
   } else if (meta.vocabularyVersion?.trim()) {
     config.cdmRequirements = { vocabularyVersion: meta.vocabularyVersion.trim() }
   }
+  const sites = normalizeSites(meta.sites)
+  if (sites) config.sites = sites
   const configBytes = enc.encode(JSON.stringify(config, null, 2) + '\n')
   const signature = meta.signer ? await addSignature(undefined, configBytes, meta.signer, 'protocol-issued', meta.now) : undefined
   return { config, configBytes, signature, files, summary }
@@ -228,6 +268,10 @@ async function issueRScriptProtocol(repo: StudyRepo, meta: ProtocolMeta): Promis
     protectedSections: sectionHash && marker ? { [PROTOCOL_PATHS.executeAnalyses]: { marker, sha256: sectionHash } } : {},
   }
   if (meta.vocabularyVersion?.trim()) config.cdmRequirements = { vocabularyVersion: meta.vocabularyVersion.trim() }
+  const refused = issueRefusals({ sites: meta.sites })
+  if (refused.length) throw new Error(refused.join('; '))
+  const sites = normalizeSites(meta.sites)
+  if (sites) config.sites = sites
   const configBytes = enc.encode(JSON.stringify(config, null, 2) + '\n')
   const signature = meta.signer ? await addSignature(undefined, configBytes, meta.signer, 'protocol-issued', meta.now) : undefined
   return { config, configBytes, signature, files, summary: { modules: [], cohorts: [], negativeControlOutcomes: 0 } }

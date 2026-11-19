@@ -14,6 +14,7 @@ import { isRScriptStudy, type ProtectedSection, type StudyConfig, type StudyPack
 import { summarizeDqd, type DqdSummary } from './dqd'
 import { parseJws, verifyDetachedJws, type DetachedJws, type SignatureCheck } from '@/lib/security/signer'
 import { judgeEvidence, type SiteEvidence } from '@/lib/studypack/evidence'
+import { DATABASE_META_DATA, parseDatabaseMetaData } from '@/lib/provenance/cdmSource'
 
 /** Artifacts every site must share. */
 export const PROTOCOL_KEY_PATHS = [PROTOCOL_PATHS.analysisSpecifications, PROTOCOL_PATHS.executeAnalyses, PROTOCOL_PATHS.renvLock] as const
@@ -282,6 +283,8 @@ export function crossCheckSites(
 export interface SiteVerdict {
   recommended: 'adopt' | 'exclude'
   reasons: string[]
+  /** Findings that do not exclude the site (e.g. a site-list mismatch in a standard study). */
+  warnings?: string[]
   /** Pre-specified reason codes (dispositionLog DEFAULT_REASON_CODES) the reasons fall under. */
   codes: string[]
 }
@@ -317,11 +320,34 @@ export function siteVerdict(site: LoadedSitePack, cross: CrossSiteResult, expect
 
   const sigs = ctx.signatures ?? site.signatureChecks
   for (const s of sigs.filter((x) => !x.valid)) add('INTEGRITY', `Invalid signature${s.signer ? ` by ${s.signer.name}` : ''}${s.error ? ` (${s.error})` : ''}`)
+  const warnings: string[] = []
+  // C2: the protocol's site list. A mismatch excludes in a regulatory study and is a warning otherwise.
+  for (const m of siteListMismatches(site, cfg)) {
+    if (cfg?.assurance === 'regulatory') add('CDM_REQUIREMENT', m)
+    else warnings.push(m)
+  }
   if (cfg?.assurance === 'regulatory') {
     if (!sigs.some((s) => s.valid && s.enrolled)) add('INTEGRITY', sigs.some((s) => s.valid) ? `No signature by an enrolled signer (${sigs.map((s) => s.enrollmentIssue).filter(Boolean).join('; ')})` : 'Not signed')
     if (ctx.evidence) {
       for (const b of judgeEvidence(ctx.evidence).blocking) add(b.reason, b.message)
     }
   }
-  return { recommended: reasons.length ? 'exclude' : 'adopt', reasons, codes: [...codes] }
+  return { recommended: reasons.length ? 'exclude' : 'adopt', reasons, codes: [...codes], ...(warnings.length ? { warnings } : {}) }
+}
+
+const dec10 = (s?: string) => s?.trim().slice(0, 10)
+
+/** How a pack differs from its entry in the protocol's site list (C2). No list, nothing to compare. */
+export function siteListMismatches(site: LoadedSitePack, cfg?: StudyConfig): string[] {
+  if (!cfg?.sites?.length) return []
+  const entry = cfg.sites.find((s) => s.siteId === site.siteId)
+  if (!entry) return [`Site ${site.siteId} is not in the protocol's site list`]
+  const out: string[] = []
+  const dbm = site.files[`${RESULTS_DIR}/${DATABASE_META_DATA}`]
+  const cs = dbm ? parseDatabaseMetaData(dec.decode(dbm)) : undefined
+  if (entry.cdmSourceName && cs?.cdmSourceName?.trim() !== entry.cdmSourceName)
+    out.push(`CDM source is "${cs?.cdmSourceName ?? '—'}", the protocol's site list expects "${entry.cdmSourceName}"`)
+  if (entry.sourceReleaseDate && dec10(cs?.sourceReleaseDate) !== dec10(entry.sourceReleaseDate))
+    out.push(`Source release date is ${cs?.sourceReleaseDate ?? '—'}, the protocol's site list expects ${entry.sourceReleaseDate}`)
+  return out
 }

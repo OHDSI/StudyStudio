@@ -15,7 +15,7 @@ import { kidFingerprint, protocolIssuerKids, type SignatureCheck } from '@/lib/s
 import type { SiteRow } from '@/lib/export/regulatory'
 import { EvidenceView } from '@/features/common/EvidenceView'
 import { clockDiscrepancyMessage } from '@/lib/provenance/deviceClock'
-import { ActorCard, DecisionCell, DispositionLogCard, LockCard, RosterCard } from './DispositionPanel'
+import { ActorCard, DecisionCell, DispositionLogCard, LockCard, NotReceivedCard, RosterCard } from './DispositionPanel'
 
 function SignatureBadge({ checks }: { checks?: SignatureCheck[] }) {
   if (!checks?.length) return <Badge variant="outline">Unsigned</Badge>
@@ -260,7 +260,7 @@ export function Aggregator() {
                     {expanded === site.key && (
                       <TableRow>
                         <TableCell colSpan={10} className="bg-muted/30">
-                          <SiteDetails site={site} reasons={verdict.reasons} />
+                          <SiteDetails site={site} reasons={[...verdict.reasons, ...(verdict.warnings ?? []).map((w) => `Warning (site list): ${w}`)]} />
                           <SignatureList checks={row.signatures} />
                           <PlausibilityList row={row} />
                           {row.evidence && <div className="mt-3"><EvidenceView evidence={row.evidence} /></div>}
@@ -281,6 +281,7 @@ export function Aggregator() {
           </CardContent>
         </Card>
       )}
+      <NotReceivedCard rows={rows} reasonCodes={reasonCodes} locked={locked} />
       {sites.length > 0 && <LockCard rows={rows} regulatory={regulatory} />}
       <DispositionLogCard />
     </div>

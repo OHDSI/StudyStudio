@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { BookOpen, Download, FileCode2, FolderGit2, Loader2, Stamp } from 'lucide-react'
 import { useStudyStore } from '@/store/useStudyStore'
-import { issueProtocol, locateStudyRepo, protocolZip, PROTOCOL_PATHS, repoErrors, unzipRepo, type RepoFile } from '@/lib/strategus/protocol'
+import { issueProtocol, issueRefusals, locateStudyRepo, parseSiteList, protocolZip, PROTOCOL_PATHS, repoErrors, unzipRepo, type RepoFile } from '@/lib/strategus/protocol'
 import { parseAnalysisSpecification, type AnalysisSpecSummary } from '@/lib/strategus/spec'
 import { commentLines, protectedSection, inputMinCellCount, PROTECTED_MARKER, suggestMarker } from '@/lib/strategus/executeScript'
 import { describeCohort } from '@/lib/codegen/circe'
@@ -29,7 +29,7 @@ export function ProtocolIssuer() {
   const setIssued = useStudyStore((s) => s.setIssued)
   const setConfig = useStudyStore((s) => s.setConfig)
 
-  const [meta, setMeta] = React.useState({ studyId: '', studyTitle: '', description: '', principalInvestigator: '', sponsor: '', cdmVersion: '5.4', minCellCount: 5, assurance: 'standard' as AssuranceLevel, vocabularyVersion: '' })
+  const [meta, setMeta] = React.useState({ studyId: '', studyTitle: '', description: '', principalInvestigator: '', sponsor: '', cdmVersion: '5.4', minCellCount: 5, assurance: 'standard' as AssuranceLevel, vocabularyVersion: '', sites: '' })
   const coordinator = useStudyStore((s) => s.signers.find((x) => x.signer.signer.role === 'coordinator')?.signer)
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string>()
@@ -84,7 +84,7 @@ export function ProtocolIssuer() {
     setBusy(true)
     setError(undefined)
     try {
-      const p = await issueProtocol(repo, { ...meta, studyId: meta.studyId.trim(), studyTitle: meta.studyTitle.trim(), signer: coordinator, ...(rScript ? { marker: marker ?? null } : {}) })
+      const p = await issueProtocol(repo, { ...meta, sites: parseSiteList(meta.sites), studyId: meta.studyId.trim(), studyTitle: meta.studyTitle.trim(), signer: coordinator, ...(rScript ? { marker: marker ?? null } : {}) })
       setIssued(p)
       const signatureChecks = p.signature ? await verifyDetachedJws(p.signature, p.configBytes) : undefined
       const signatureBytes = p.signature ? new TextEncoder().encode(JSON.stringify(p.signature, null, 2) + '\n') : undefined
@@ -101,6 +101,7 @@ export function ProtocolIssuer() {
     ...(summary.error ? [summary.error] : []),
     ...(!meta.studyId.trim() ? ['Enter a Study ID'] : []),
     ...(meta.assurance === 'regulatory' && !coordinator ? ['Regulatory protocols must be signed: unlock the coordinator key'] : []),
+    ...issueRefusals({ assurance: meta.assurance, sites: parseSiteList(meta.sites) }),
   ]
   const id = safeId(meta.studyId || 'study')
   const dec = new TextDecoder()
@@ -222,6 +223,14 @@ export function ProtocolIssuer() {
             </Field>
             <Field label="Required vocabulary version (optional)" className="md:col-span-2">
               <Input value={meta.vocabularyVersion} onChange={(e) => setMeta({ ...meta, vocabularyVersion: e.target.value })} placeholder="e.g. v5.0 30-AUG-26 — sites on another vocabulary are flagged" />
+            </Field>
+            <Field label={`Participating sites${meta.assurance === 'regulatory' ? ' (required for regulatory assurance)' : ' (optional)'}`} className="md:col-span-3">
+              <Textarea
+                value={meta.sites}
+                onChange={(e) => setMeta({ ...meta, sites: e.target.value })}
+                placeholder={'One site per line: site ID, role, CDM source name, source release date (YYYY-MM-DD)\nSite_A, treated, Site A EHR, 2026-09-30\nSite_B'}
+              />
+              <span className="text-[11px] text-muted-foreground">Signed with the protocol. Each pack is compared with its line (CDM source name and source release date when given), and in a regulatory study every listed site needs a decision or a “not received” entry before the dispositions are locked. Sites enter nothing new.</span>
             </Field>
             {meta.assurance === 'regulatory' && (
               <Alert className="md:col-span-3">

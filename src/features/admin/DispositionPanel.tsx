@@ -2,7 +2,7 @@ import * as React from 'react'
 import { Check, Download, History, Lock, ScrollText, UserCheck, Users, X } from 'lucide-react'
 import { useStudyStore } from '@/store/useStudyStore'
 import { kidFingerprint, parseEnrollmentCard, parseJws, type EnrollmentCard, type SignerRoster } from '@/lib/security/signer'
-import type { DispositionEntry } from '@/lib/network/dispositionLog'
+import { unaccountedSites, type DispositionEntry } from '@/lib/network/dispositionLog'
 import type { SiteRow } from '@/lib/export/regulatory'
 import type { ReasonCode } from '@/types/studypack'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -242,6 +242,8 @@ export function LockCard({ rows, regulatory }: { rows: SiteRow[]; regulatory: bo
   const [error, setError] = React.useState<string>()
   const undecided = rows.filter((r) => !r.decision)
   const lockEntry = log.entries.find((e) => e.action === 'lock')
+  const config = useStudyStore((s) => s.config)
+  const unaccounted = regulatory ? unaccountedSites(config?.sites, rows.map((r) => r.site), log.entries) : []
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -256,6 +258,7 @@ export function LockCard({ rows, regulatory }: { rows: SiteRow[]; regulatory: bo
         ) : (
           <>
             {undecided.length > 0 && <div className="text-amber-700">Undecided: {undecided.map((r) => r.site.siteId).join(', ')}</div>}
+            {unaccounted.length > 0 && <div className="text-amber-700">No pack and no “not received” entry yet: {unaccounted.join(', ')} (protocol site list)</div>}
             <label className="flex items-start gap-2">
               <input type="checkbox" checked={attest} onChange={(e) => setAttest(e.target.checked)} className="mt-0.5" />
               <span>{LOCK_STATEMENT}<span className="block text-muted-foreground">Recorded, not verified by the tool</span></span>
@@ -263,7 +266,7 @@ export function LockCard({ rows, regulatory }: { rows: SiteRow[]; regulatory: bo
             <Button
               size="sm"
               className="w-fit"
-              disabled={!attest || (regulatory && !actor) || rows.length === 0 || undecided.length > 0}
+              disabled={!attest || (regulatory && !actor) || rows.length === 0 || undecided.length > 0 || unaccounted.length > 0}
               onClick={() => lock(LOCK_STATEMENT).catch((e) => setError(errText(e)))}
             >
               <Lock /> Lock {rows.length} site disposition(s)
@@ -278,6 +281,7 @@ export function LockCard({ rows, regulatory }: { rows: SiteRow[]; regulatory: bo
 
 const ACTION_VARIANT: Record<DispositionEntry['action'], 'success' | 'destructive' | 'secondary' | 'outline' | 'default'> = {
   received: 'secondary',
+  'not-received': 'outline',
   adopt: 'success',
   exclude: 'destructive',
   lock: 'default',
@@ -349,6 +353,60 @@ export function DispositionLogCard() {
             </Table>
           </div>
         )}
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
+ * Sites in the protocol's site list from which no pack has been received (A1). Each can be recorded as
+ * "not received" with a pre-specified reason, so a site that dropped out stays visible in the record.
+ */
+export function NotReceivedCard({ rows, reasonCodes, locked }: { rows: SiteRow[]; reasonCodes: ReasonCode[]; locked: boolean }) {
+  const config = useStudyStore((s) => s.config)
+  const log = useStudyStore((s) => s.log)
+  useStudyStore((s) => s.logRev)
+  const actor = useStudyStore((s) => s.actor)
+  const record = useStudyStore((s) => s.recordNotReceived)
+  const [form, setForm] = React.useState<Record<string, { code: string; text: string }>>({})
+  const [error, setError] = React.useState<string>()
+  const received = new Set(rows.map((r) => r.site.siteId))
+  const missing = (config?.sites ?? []).filter((s) => !received.has(s.siteId))
+  if (!missing.length) return null
+  const recorded = log.notReceived()
+  const defaultCode = reasonCodes.some((r) => r.code === 'NOT_RECEIVED') ? 'NOT_RECEIVED' : ''
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm"><Users className="size-4" /> Listed sites without a pack</CardTitle>
+        <CardDescription className="text-xs">Sites in the protocol's site list from which no StudyPack has been loaded in this session. Record each one that will not send a pack, with a reason, so it stays in the disposition record.</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2 text-xs">
+        {missing.map((s) => {
+          const done = recorded.get(s.siteId)
+          const f = form[s.siteId] ?? { code: defaultCode, text: '' }
+          return (
+            <div key={s.siteId} className="flex flex-wrap items-center gap-2 rounded border p-2">
+              <span className="font-medium">{s.siteId}</span>
+              {s.role && <Badge variant="outline">{s.role}</Badge>}
+              {done ? (
+                <span className="text-muted-foreground">Recorded as not received by {done.actor.name} at {done.at}: {done.reasonCode}{done.reasonText ? ` — ${done.reasonText}` : ''}</span>
+              ) : locked || !actor ? (
+                <span className="text-muted-foreground">{locked ? 'Not recorded (dispositions are locked)' : 'Identify yourself above to record it'}</span>
+              ) : (
+                <>
+                  <Select className="h-7 w-56 text-xs" value={f.code} onChange={(e) => setForm({ ...form, [s.siteId]: { ...f, code: e.target.value } })}>
+                    <option value="">Select a reason…</option>
+                    {reasonCodes.map((r) => <option key={r.code} value={r.code}>{r.code} — {r.label}</option>)}
+                  </Select>
+                  <Input className="h-7 w-64 text-xs" placeholder="Justification" value={f.text} onChange={(e) => setForm({ ...form, [s.siteId]: { ...f, text: e.target.value } })} />
+                  <Button size="sm" className="h-7" onClick={() => record(s.siteId, f.code, f.text).then(() => setError(undefined)).catch((e) => setError(errText(e)))}>Record as not received</Button>
+                </>
+              )}
+            </div>
+          )
+        })}
+        {error && <div className="text-destructive">{error}</div>}
       </CardContent>
     </Card>
   )

@@ -95,6 +95,22 @@ export interface StudyConfig {
   cdmRequirements?: { cdmVersion?: string; vocabularyVersion?: string }
   /** Pre-specified reasons a site may be excluded (R6.1). */
   adoptionPolicy?: { reasonCodes: ReasonCode[] }
+  /**
+   * Participating sites and their data sources, pre-specified at issue (assessment C2). Required for regulatory
+   * protocols; optional otherwise. Each pack is compared with its entry, and in a regulatory study every listed site
+   * needs a decision or a `not-received` entry before the dispositions can be locked (A1).
+   */
+  sites?: ExpectedSite[]
+}
+
+export interface ExpectedSite {
+  siteId: string
+  /** Free text, e.g. "treated" or "external-comparator". */
+  role?: string
+  /** Expected cdm_source.cdm_source_name. */
+  cdmSourceName?: string
+  /** Expected cdm_source.source_release_date (YYYY-MM-DD). */
+  sourceReleaseDate?: string
 }
 
 export type GateSeverity = 'block' | 'warn' | 'info'

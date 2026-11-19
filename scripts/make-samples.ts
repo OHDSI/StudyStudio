@@ -637,6 +637,8 @@ async function main() {
     assurance: 'regulatory',
     vocabularyVersion: 'v5.0 30-AUG-26',
     signer: coord,
+    // Regulatory protocols list their participating sites (C2).
+    sites: ['Site_A', 'Site_B', 'Site_C', 'Site_D'].map((siteId) => ({ siteId })),
   })
   out('regulatory/protocol/study_config.json', regProtocol.configBytes)
   out('regulatory/protocol/study_config.jws.json', JSON.stringify(regProtocol.signature, null, 2) + '\n')

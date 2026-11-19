@@ -6,7 +6,7 @@ import JSZip from 'jszip'
 import type { CrossSiteResult, LoadedSitePack, SiteVerdict } from '@/lib/network/aggregator'
 import type { SiteEvidence } from '@/lib/studypack/evidence'
 import { kidFingerprint, type DetachedJws, type SignatureCheck } from '@/lib/security/signer'
-import type { DispositionEntry } from '@/lib/network/dispositionLog'
+import { unaccountedSites, type DispositionEntry } from '@/lib/network/dispositionLog'
 import type { PlausibilityFinding } from '@/lib/network/plausibility'
 import { buildDefineXml, columnSasNames, datasetFiles, DEFAULT_ADAM_CT_VERSION, xmlEscape, type DatasetFormat, type DefineXmlVersion } from '@/lib/cdisc/defineXml'
 import { writeXpt, xptLimitIssues } from '@/lib/cdisc/xpt'
@@ -157,7 +157,7 @@ function signatureLine(c?: SignatureCheck[]): string {
 }
 
 function dispositionRows(i: ReportInput) {
-  return i.rows.map((r) => {
+  const packs = i.rows.map((r) => {
     const d = lastDecision(i.disposition, r.site.zipSha256)
     return {
       siteId: r.site.siteId,
@@ -171,6 +171,35 @@ function dispositionRows(i: ReportInput) {
       deviates: !!d?.deviatesFromRecommendation,
     }
   })
+  // A1: sites from the protocol's site list recorded as not received (no pack).
+  const received = new Set(i.rows.map((r) => r.site.siteId))
+  const notReceived = (i.disposition ?? [])
+    .filter((e) => e.action === 'not-received' && e.siteId && !received.has(e.siteId))
+    .map((e) => ({
+      siteId: e.siteId!,
+      pack: undefined as string | undefined,
+      recommended: '—',
+      decision: 'not received',
+      code: e.reasonCode ?? '—',
+      text: e.reasonText ?? '—',
+      by: `${e.actor.name} (${e.actor.role}${e.actor.organization ? `, ${e.actor.organization}` : ''})`,
+      at: e.at,
+      deviates: false,
+    }))
+  return [...packs, ...notReceived]
+}
+
+/** "Sites in the protocol's site list" line of the disposition section (C2/A1); undefined without a list. */
+export function siteListLine(i: Pick<ReportInput, 'config' | 'rows' | 'disposition'>): string | undefined {
+  const list = i.config?.sites
+  if (!list?.length) return undefined
+  const received = new Set(i.rows.map((r) => r.site.siteId))
+  const without = list.filter((s) => !received.has(s.siteId)).map((s) => s.siteId)
+  const recorded = new Set((i.disposition ?? []).filter((e) => e.action === 'not-received').map((e) => e.siteId))
+  const unaccounted = unaccountedSites(list, i.rows.map((r) => r.site), i.disposition ?? [])
+  const parts = [`${list.length} listed`, `${without.length} without a pack${without.length ? ` (${without.map((s) => `${s}${recorded.has(s) ? ': recorded as not received' : ''}`).join(', ')})` : ''}`]
+  if (unaccounted.length) parts.push(`not yet accounted for: ${unaccounted.join(', ')}`)
+  return parts.join('; ')
 }
 
 const LIMITATIONS = [
@@ -229,6 +258,7 @@ function siteIssues(r: SiteRow): string[] {
   const e = r.evidence
   return [
     ...(e ? [...e.provenance.issues.map((x) => x.message), ...(e.runRecord?.issues ?? []).map((x) => `Run record: ${x.message}`), ...e.timeline.issues.map((x) => x.message)] : []),
+    ...(r.verdict.warnings ?? []).map((w) => `Site list: ${w}`),
     ...(r.plausibility ?? []).map((f) => `Review: ${f.message}`),
   ]
 }
@@ -345,6 +375,8 @@ export function buildMarkdownReport(i: ReportInput): string {
   L.push('## 4. Site disposition', '')
   L.push(`- **Assurance level:** ${i.config?.assurance ?? 'standard'}`)
   L.push(`- **Exclusion reasons pre-specified in the protocol:** ${(i.config?.adoptionPolicy?.reasonCodes ?? []).map((r) => r.code).join(', ') || '— (default reason codes)'}`)
+  const sitesLine = siteListLine(i)
+  if (sitesLine) L.push(`- **Sites in the protocol's site list:** ${sitesLine}`)
   L.push(`- **Dispositions locked:** ${lock ? `yes — by ${lock.actor.name} at ${lock.at}. Attestation: “${lock.reasonText ?? ''}”` : 'no'}`, '')
   L.push('| Site | Pack SHA-256 | Recommended | Decision | Reason code | Justification / reasons | Decided by | When (UTC) |', '|---|---|---|---|---|---|---|---|')
   for (const d of dispositionRows(i))
@@ -353,13 +385,13 @@ export function buildMarkdownReport(i: ReportInput): string {
 
   L.push('## 5. Signatures, data quality and provenance', '')
   if (i.rows.some((r) => r.plausibility?.length)) L.push(PLAUSIBILITY_NOTE, '')
-  L.push('| Site | Signatures | DQD gate (block/warn) | CDM / vocabulary | Log errors | Run record | Provenance, run & time issues |', '|---|---|---|---|---|---|---|')
+  L.push('| Site | Signatures | DQD gate (block/warn) | CDM / vocabulary | Source release | Data cut-off | Log errors | Run record | Provenance, run & time issues |', '|---|---|---|---|---|---|---|---|---|')
   for (const r of i.rows) {
     const e = r.evidence
     const cs = e?.provenance.cdmSource
     const issues = siteIssues(r)
     L.push(
-      `| ${mdCell(r.site.siteId)} | ${mdCell(signatureLine(r.signatures))} | ${e ? `${e.dqdGate.counts.block}/${e.dqdGate.counts.warn} (${e.dqdGate.checksEvaluated} checks, policy ${e.dqdPolicy.policyVersion})` : '—'} | ${cs ? mdCell(`${cs.cdmSourceName ?? '?'} · CDM ${cs.cdmVersion ?? '?'} · ${cs.vocabularyVersion ?? '?'}`) : '—'} | ${e?.log ? e.log.counts.ERROR + e.log.counts.FATAL : 'no log'} | ${mdCell(runRecordCell(e))} | ${mdCell(issues.join('; ') || '—')} |`,
+      `| ${mdCell(r.site.siteId)} | ${mdCell(signatureLine(r.signatures))} | ${e ? `${e.dqdGate.counts.block}/${e.dqdGate.counts.warn} (${e.dqdGate.checksEvaluated} checks, policy ${e.dqdPolicy.policyVersion})` : '—'} | ${cs ? mdCell(`${cs.cdmSourceName ?? '?'} · CDM ${cs.cdmVersion ?? '?'} · ${cs.vocabularyVersion ?? '?'}`) : '—'} | ${mdCell(cs?.sourceReleaseDate ?? '—')} | ${mdCell(cs?.maxObservationPeriodEndDate ?? '—')} | ${e?.log ? e.log.counts.ERROR + e.log.counts.FATAL : 'no log'} | ${mdCell(runRecordCell(e))} | ${mdCell(issues.join('; ') || '—')} |`,
     )
   }
   L.push('')
@@ -460,18 +492,18 @@ function htmlDisposition(i: ReportInput): string {
       const e = r.evidence
       const cs = e?.provenance.cdmSource
       const issues = siteIssues(r)
-      return `<tr><td>${xmlEscape(r.site.siteId)}</td><td>${xmlEscape(signatureLine(r.signatures))}</td><td>${e ? `${e.dqdGate.counts.block}/${e.dqdGate.counts.warn}` : '—'}</td><td>${cs ? xmlEscape(`${cs.cdmSourceName ?? '?'} · CDM ${cs.cdmVersion ?? '?'} · ${cs.vocabularyVersion ?? '?'}`) : '—'}</td><td>${e?.log ? e.log.counts.ERROR + e.log.counts.FATAL : 'no log'}</td><td>${xmlEscape(runRecordCell(e))}</td><td>${xmlEscape(issues.join('; ') || '—')}</td></tr>`
+      return `<tr><td>${xmlEscape(r.site.siteId)}</td><td>${xmlEscape(signatureLine(r.signatures))}</td><td>${e ? `${e.dqdGate.counts.block}/${e.dqdGate.counts.warn}` : '—'}</td><td>${cs ? xmlEscape(`${cs.cdmSourceName ?? '?'} · CDM ${cs.cdmVersion ?? '?'} · ${cs.vocabularyVersion ?? '?'}`) : '—'}</td><td>${xmlEscape(cs?.sourceReleaseDate ?? '—')}</td><td>${xmlEscape(cs?.maxObservationPeriodEndDate ?? '—')}</td><td>${e?.log ? e.log.counts.ERROR + e.log.counts.FATAL : 'no log'}</td><td>${xmlEscape(runRecordCell(e))}</td><td>${xmlEscape(issues.join('; ') || '—')}</td></tr>`
     })
     .join('\n')
   const trail = (i.disposition ?? [])
     .map((e) => `<tr><td>${xmlEscape(String(e.seq))}</td><td>${xmlEscape(e.at)}</td><td>${xmlEscape(`${e.actor.name} (${e.actor.role})`)}</td><td>${xmlEscape(e.action)}</td><td>${xmlEscape(e.siteId ?? '—')}</td><td>${e.to ? xmlEscape(`${e.from ?? '—'} → ${e.to}`) : '—'}</td><td>${xmlEscape([e.reasonCode, e.reasonText].filter(Boolean).join(': ') || '—')}</td></tr>`)
     .join('\n')
   return `<h2>4. Site disposition</h2>
-<p>Assurance: ${xmlEscape(i.config?.assurance ?? 'standard')} · Dispositions locked: ${lock ? `yes — ${xmlEscape(lock.actor.name)} at ${xmlEscape(lock.at)}` : 'no'}</p>
+<p>Assurance: ${xmlEscape(i.config?.assurance ?? 'standard')}${siteListLine(i) ? ` · Sites in the protocol's site list: ${xmlEscape(siteListLine(i)!)}` : ''} · Dispositions locked: ${lock ? `yes — ${xmlEscape(lock.actor.name)} at ${xmlEscape(lock.at)}` : 'no'}</p>
 <table><tr><th>Site</th><th>Pack</th><th>Recommended</th><th>Decision</th><th>Code</th><th>Justification / reasons</th><th>Decided by</th><th>When (UTC)</th></tr>${disp}</table>
 <h2>5. Signatures, data quality and provenance</h2>
 ${i.rows.some((r) => r.plausibility?.length) ? `<p>${xmlEscape(PLAUSIBILITY_NOTE)}</p>` : ''}
-<table><tr><th>Site</th><th>Signatures</th><th>DQD block/warn</th><th>CDM / vocabulary</th><th>Log errors</th><th>Run record</th><th>Issues</th></tr>${ev}</table>
+<table><tr><th>Site</th><th>Signatures</th><th>DQD block/warn</th><th>CDM / vocabulary</th><th>Source release</th><th>Data cut-off</th><th>Log errors</th><th>Run record</th><th>Issues</th></tr>${ev}</table>
 ${trail ? `<h2>6. Disposition audit trail</h2><p>Head <code>${xmlEscape(i.dispositionHead ?? '—')}</code></p><table><tr><th>#</th><th>When (UTC)</th><th>Who</th><th>Action</th><th>Site</th><th>Change</th><th>Reason</th></tr>${trail}</table>` : ''}
 <h2>Limitations</h2><ul>${LIMITATIONS.map((l) => `<li>${xmlEscape(l)}</li>`).join('')}</ul>`
 }
@@ -599,6 +631,9 @@ export async function buildRegulatoryExport(params: {
     if (!d?.entries.some((e) => e.action === 'lock')) throw new Error('Regulatory study: lock the site dispositions before generating the submission package')
     const undecided = params.rows.filter((r) => !r.decision).map((r) => r.site.siteId)
     if (undecided.length) throw new Error(`Regulatory study: no recorded decision for ${undecided.join(', ')}`)
+    // A1: every site in the protocol's site list has a decision or a not-received entry.
+    const missing = unaccountedSites(params.config.sites, params.rows.map((r) => r.site), d.entries)
+    if (missing.length) throw new Error(`Regulatory study: no pack decision or not-received entry for ${missing.join(', ')} (protocol site list)`)
   }
   const defineXmlVersion = params.defineXmlVersion ?? '2.1'
   const ctVersion = params.ctVersion?.trim() || DEFAULT_ADAM_CT_VERSION

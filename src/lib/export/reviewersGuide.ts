@@ -131,12 +131,19 @@ export function buildReviewersGuideMarkdown(i: ReviewersGuideInput): string {
     `Each site holds its data in the OMOP CDM and ran the study locally. The aggregated results were sealed at the site into a StudyPack whose files are listed by SHA-256, and verified by the coordinator before adoption. ${adopted.length} of ${i.rows.length} site(s) were adopted${lock ? `; the dispositions were locked by ${lock.actor.name} on ${lock.at}` : ''}. Source data never left the sites; how each site populated its CDM is summarized in the audit report (section "Data lineage").`,
     '',
   )
-  L.push('| Site | Disposition | CDM source | CDM version | Vocabulary version | Reason |', '|---|---|---|---|---|---|')
+  // Role comes from the protocol's site list (C2); source release and cut-off from each site's cdm_source (A3).
+  const listed = i.config?.sites
+  const roleOf = (id: string) => listed?.find((s) => s.siteId === id)?.role
+  const roleHead = listed?.length ? ' Role |' : ''
+  L.push(`| Site | Disposition |${roleHead} CDM source | CDM version | Vocabulary version | Source release | Data cut-off | Reason |`, `|---|---|${listed?.length ? '---|' : ''}---|---|---|---|---|---|`)
   for (const r of i.rows) {
     const cs = r.evidence?.provenance.cdmSource
     const reasons = r.adopted ? '—' : exclusionReason(r, i.disposition)
-    L.push(`| ${cell(r.site.siteId)} | ${r.adopted ? 'adopted' : 'excluded'} | ${cell(cs?.cdmSourceName)} | ${cell(cs?.cdmVersion ?? r.site.manifest?.cdmVersion)} | ${cell(cs?.vocabularyVersion)} | ${cell(reasons)} |`)
+    L.push(`| ${cell(r.site.siteId)} | ${r.adopted ? 'adopted' : 'excluded'} |${listed?.length ? ` ${cell(roleOf(r.site.siteId))} |` : ''} ${cell(cs?.cdmSourceName)} | ${cell(cs?.cdmVersion ?? r.site.manifest?.cdmVersion)} | ${cell(cs?.vocabularyVersion)} | ${cell(cs?.sourceReleaseDate)} | ${cell(cs?.maxObservationPeriodEndDate)} | ${cell(reasons)} |`)
   }
+  const received = new Set(i.rows.map((r) => r.site.siteId))
+  for (const e of (i.disposition ?? []).filter((x) => x.action === 'not-received' && x.siteId && !received.has(x.siteId)))
+    L.push(`| ${cell(e.siteId)} | not received |${listed?.length ? ` ${cell(roleOf(e.siteId!))} |` : ''} — | — | — | — | — | ${cell([e.reasonCode, e.reasonText].filter(Boolean).join(': '))} |`)
   L.push('')
   if (aggregated) {
     L.push('### 1.4 Placement in the Submission', '')

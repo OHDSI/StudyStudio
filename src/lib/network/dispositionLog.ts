@@ -7,9 +7,9 @@
  * Its head (last line hash + count) is what the coordinator signs and retains outside the tool.
  */
 import { sha256Hex } from '@/lib/integrity/hasher'
-import type { ReasonCode } from '@/types/studypack'
+import type { ExpectedSite, ReasonCode } from '@/types/studypack'
 
-export type DispositionAction = 'received' | 'adopt' | 'exclude' | 'lock' | 'export' | 'note'
+export type DispositionAction = 'received' | 'adopt' | 'exclude' | 'lock' | 'export' | 'note' | 'not-received'
 
 export interface Actor {
   name: string
@@ -54,12 +54,13 @@ export const DEFAULT_REASON_CODES: ReasonCode[] = [
   { code: 'CDM_REQUIREMENT', label: 'CDM / vocabulary version does not meet the protocol' },
   { code: 'DUPLICATE', label: 'Duplicate submission for the same site (superseded)' },
   { code: 'WITHDRAWN', label: 'Site withdrew from the study' },
+  { code: 'NOT_RECEIVED', label: 'No pack received from a site in the protocol\'s site list', requiresText: true },
   { code: 'OTHER', label: 'Other (justification required)', requiresText: true },
 ]
 
 export class DispositionError extends Error {}
 
-const ACTIONS: readonly string[] = ['received', 'adopt', 'exclude', 'lock', 'export', 'note'] satisfies DispositionAction[]
+const ACTIONS: readonly string[] = ['received', 'adopt', 'exclude', 'lock', 'export', 'note', 'not-received'] satisfies DispositionAction[]
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/
 const HEX64 = /^[a-f0-9]{64}$/i
 
@@ -117,8 +118,22 @@ export class DispositionLog {
     return m
   }
 
+  /** Sites recorded as `not-received` (A1), by site ID. */
+  notReceived(): Map<string, DispositionEntry> {
+    const m = new Map<string, DispositionEntry>()
+    for (const e of this.cache) if (e.action === 'not-received' && e.siteId) m.set(e.siteId, e)
+    return m
+  }
+
   async append(e: NewEntry, reasonCodes: readonly ReasonCode[] = DEFAULT_REASON_CODES, now = new Date()): Promise<DispositionEntry> {
     if (!e.actor?.name?.trim()) throw new DispositionError('The person making the entry must be identified')
+    if (e.action === 'not-received') {
+      if (this.locked) throw new DispositionError('Dispositions are locked; record a note explaining any later change instead')
+      if (!e.siteId?.trim()) throw new DispositionError('A not-received entry must name the site')
+      if (e.packSha256) throw new DispositionError('A not-received entry refers to no pack')
+      if (!e.reasonCode) throw new DispositionError('A not-received entry needs a pre-specified reason code')
+      if (!e.reasonText?.trim()) throw new DispositionError('A written justification is required for a site from which no pack was received')
+    }
     const decision = e.action === 'adopt' || e.action === 'exclude'
     if (decision && this.locked) throw new DispositionError('Dispositions are locked; record a note explaining any later change instead')
     if (decision && !e.packSha256) throw new DispositionError('A decision must name the pack it applies to')
@@ -178,4 +193,17 @@ export class DispositionLog {
     log.cache = entries
     return log
   }
+}
+
+/**
+ * Sites in the protocol's site list (C2) with neither a decision on one of their packs nor a `not-received`
+ * entry (A1). Without a site list there is nothing to account for.
+ */
+export function unaccountedSites(expected: readonly ExpectedSite[] | undefined, packs: readonly { siteId: string; zipSha256: string }[], entries: readonly DispositionEntry[]): string[] {
+  if (!expected?.length) return []
+  const decided = new Set<string>()
+  for (const e of entries) if ((e.action === 'adopt' || e.action === 'exclude') && e.packSha256) decided.add(e.packSha256)
+  const accounted = new Set(packs.filter((p) => decided.has(p.zipSha256)).map((p) => p.siteId))
+  for (const e of entries) if (e.action === 'not-received' && e.siteId) accounted.add(e.siteId)
+  return expected.map((s) => s.siteId).filter((id) => !accounted.has(id))
 }

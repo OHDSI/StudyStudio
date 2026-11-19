@@ -258,7 +258,7 @@ export function LockCard({ rows, regulatory }: { rows: SiteRow[]; regulatory: bo
             {undecided.length > 0 && <div className="text-amber-700">Undecided: {undecided.map((r) => r.site.siteId).join(', ')}</div>}
             <label className="flex items-start gap-2">
               <input type="checkbox" checked={attest} onChange={(e) => setAttest(e.target.checked)} className="mt-0.5" />
-              <span>{LOCK_STATEMENT}</span>
+              <span>{LOCK_STATEMENT}<span className="block text-muted-foreground">Recorded, not verified by the tool</span></span>
             </label>
             <Button
               size="sm"

@@ -266,7 +266,7 @@ src/features/{site,admin}/       screens
 ```
 
 ## Limitations
-- **CDISC validation:** the tests check that the Define-XML output is well-formed XML and that both outputs have the expected structure. This repository does **not** validate them against the official CDISC schemas (Define-XML XSD, Dataset-JSON JSON Schema), and they have **not** been run through Pinnacle 21. OMOP / Strategus tables are not SDTM/ADaM, so expect conformance-rule warnings.
+- **CDISC validation:** the tests check that the Define-XML output is well-formed XML and that both outputs have the expected structure. define.xml (v2.1 and v2.0) is also checked against the CDISC Define-XML schemas with xmllint in CI (`.github/workflows/define-xsd.yml` runs `src/lib/cdisc/defineXml.xsd.test.ts` against the schemas fetched at a pinned commit; locally the test is skipped unless `STUDYSTUDIO_DEFINE_XSD` points to them), and the Eunomia workflow checks the define.xml it exports the same way. Dataset-JSON output is **not** validated against its JSON Schema, and the repository's tests do **not** run Pinnacle 21. OMOP / Strategus tables are not SDTM/ADaM, so expect conformance-rule warnings.
 - **Define-XML v2.0:** non-standard datasets cannot be flagged, so its XSD does not check Origin Type terminology.
 - **Large results:** big Strategus outputs (e.g. covariate balance) are parsed on the main thread. Use the Export Hub table selection to keep submissions focused; the tables that copy the analysis specification (cohort definitions, analysis settings) are not selected by default.
 

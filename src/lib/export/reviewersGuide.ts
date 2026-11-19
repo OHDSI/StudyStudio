@@ -206,7 +206,7 @@ export function buildReviewersGuideMarkdown(i: ReviewersGuideInput): string {
   L.push('### 4.1 Split Datasets', '')
   L.push('None.', '')
   L.push('### 4.2 Data Dependencies', '')
-  L.push('All datasets were produced by the same Strategus execution at each site. Cohort counts (CohortGenerator) underlie the estimation and diagnostics results of the other modules; datasets can otherwise be reviewed independently.', '')
+  L.push('All datasets were produced by Strategus runs of the pinned specification at each site (see each site\'s run record, where present). Cohort counts (CohortGenerator) underlie the estimation and diagnostics results of the other modules; datasets can otherwise be reviewed independently.', '')
 
   L.push('## 5. Analysis Dataset Descriptions', '')
   L.push('### 5.1 Overview', '')

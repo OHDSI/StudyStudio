@@ -16,7 +16,7 @@ import { AGENCY_LABELS, expectedFindings, rateIssues, type Agency, type Expected
 import { bundledStylesheet, type DefineStylesheet } from '@/lib/cdisc/stylesheet'
 import { combineSiteCsvs, serializeDatasetJson, type CombinedTable, type DatasetJsonVersion } from '@/lib/cdisc/datasetJson'
 import { parseMappingSpec, parseScanReport, type MappingSpec, type SourceTable } from '@/lib/cdisc/sources'
-import { APP_VERSION, manifestEntries, safeId } from '@/lib/studypack/builder'
+import { APP_VERSION, manifestEntries, safeId, TOOL } from '@/lib/studypack/builder'
 import { parseAnalysisSpecification, type AnalysisSpecSummary } from '@/lib/strategus/spec'
 import { buildReviewersGuideHtml, buildReviewersGuideMarkdown, parseRenvLock, type ReviewersGuideInput } from './reviewersGuide'
 import type { ValidatorRun } from '@/lib/cdisc/p21Report'
@@ -734,7 +734,7 @@ export async function buildRegulatoryExport(params: {
     generatedAt,
     cdmVersion: params.config?.cdmVersion ?? adopted[0].manifest?.cdmVersion ?? 'unknown',
     assurance: params.config?.assurance ?? 'standard',
-    tool: { name: 'OHDSI Study Studio', version: APP_VERSION },
+    tool: TOOL,
     files: await manifestEntries(content),
   }
   const zip = new JSZip()
@@ -760,7 +760,7 @@ export async function buildRegulatoryExport(params: {
     disposition: d?.entries,
   }
   const reviewersGuide = reviewersGuideFor(reviewersGuideInput)
-  return { zipBlob, zipName: `${safeId(params.studyId)}_regulatory_submission.zip`, defineXml, datasets, tables, markdown, html, manifest, standards, conformance, reviewersGuide, reviewersGuideInput, dataFolder, dataDefinitionHtml }
+  return { zipBlob, zipName: `${safeId(params.studyId)}_submission_package.zip`, defineXml, datasets, tables, markdown, html, manifest, standards, conformance, reviewersGuide, reviewersGuideInput, dataFolder, dataDefinitionHtml }
 }
 
 /** The draft reviewer's guide as Markdown and HTML, optionally with the reports of validator runs. */

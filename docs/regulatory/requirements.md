@@ -64,7 +64,7 @@ interpretation and should be confirmed in a PMDA consultation.
 |---|---|---|---|
 | R3.1 | Coding systems and their versions are documented; changes over time are addressed | M14 §5.3, §5.3.2; FDA-RWD §IV.A, §VI.A; JP-DB 別添3 | `provenance/cdmSource.ts` reads `DatabaseMetaData/database_meta_data.csv`, DQD metadata and `etl/vocabulary_version.json`, cross-checks them and the protocol's `cdmRequirements` |
 | R3.2 | Transformation into a CDM is documented | FDA-RWD §VI.A; FDA-DS §III.C | Existing ETL slots (`ScanReport`, mapping specification) + CDM facts in the audit report |
-| R3.3 | Software and versions are recorded to allow replication | M14 §6.1, §7; EMA-CS §4.7 (traceability of data transformations and derivations) | R and HADES package versions from `renv.lock`, tool version + build id in `manifest.json` |
+| R3.3 | Software and versions are recorded to allow replication | M14 §6.1, §7; EMA-CS §4.7 (traceability of data transformations and derivations) | R and HADES package versions from `renv.lock`, tool name, version and build id (the git commit, set by `vite.config.ts` at build time) in `manifest.json` |
 | R3.4 | All planned analyses produced results (completeness) | E6 §4.2.6; M14 §7 | Modules in the analysis specification vs. modules present in the results |
 
 ### R4 — Data quality gate

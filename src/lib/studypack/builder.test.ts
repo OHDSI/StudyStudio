@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { auditCsvText } from '@/lib/audit/cellAuditor'
 import { createKeyFile, unlockKeyFile } from '@/lib/security/signer'
 import type { StudyConfig } from '@/types/studypack'
-import { buildStudyPack, SealRefused, sealRefusals, type BuildPackParams } from './builder'
+import { BUILD_ID, buildStudyPack, SealRefused, sealRefusals, type BuildPackParams } from './builder'
 import { evaluateEvidence } from './evidence'
 
 const enc = new TextEncoder()
@@ -51,5 +51,15 @@ describe('sealRefusals: the library refuses to seal what the UI would block', ()
     expect(reasons).toContain('Data quality (structural-conformance): isRequired on DRUG_EXPOSURE.DRUG_EXPOSURE_START_DATE')
     // Standard studies are not held to the regulatory evidence rules.
     expect(sealRefusals({ ...base, evidence: evaluateEvidence({ config: { ...config, assurance: 'standard' }, files: {} }) })).toEqual([])
+  })
+})
+
+describe('manifest.json tool entry (R3.3)', () => {
+  it('records the tool name, version and the build id set at build time', async () => {
+    const { manifest } = await buildStudyPack(base)
+    expect(manifest.tool).toMatchObject({ name: 'OHDSI Study Studio', version: expect.any(String) })
+    // vite.config.ts defines the build id from the git commit; outside a git checkout it is omitted.
+    if (BUILD_ID) expect(manifest.tool?.buildId).toBe(BUILD_ID)
+    else expect(manifest.tool).not.toHaveProperty('buildId')
   })
 })

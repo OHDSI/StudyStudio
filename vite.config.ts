@@ -5,6 +5,7 @@ import tailwindcss from '@tailwindcss/vite'
 import { viteSingleFile } from 'vite-plugin-singlefile'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
+import { execSync } from 'node:child_process'
 import { contentSecurityPolicy, inlineScripts, PRINT_HANDLER, PRINT_SCRIPT } from './src/lib/security/csp'
 
 /**
@@ -31,7 +32,17 @@ const zeroTransmissionCsp = (): Plugin => ({
   } },
 })
 
+/** Build identifier written into manifest.json (requirements R3.3): the git commit, or GITHUB_SHA in CI. */
+function buildId(): string | undefined {
+  try {
+    return execSync('git rev-parse --short=12 HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim() || undefined
+  } catch {
+    return process.env.GITHUB_SHA?.slice(0, 12) || undefined
+  }
+}
+
 export default defineConfig({
+  define: { __STUDYSTUDIO_BUILD_ID__: JSON.stringify(buildId() ?? '') },
   plugins: [react(), tailwindcss(), viteSingleFile(), zeroTransmissionCsp()],
   resolve: { alias: { '@': path.resolve(import.meta.dirname, 'src') } },
   test: { environment: 'node', include: ['src/**/*.test.ts'] },

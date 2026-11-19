@@ -216,7 +216,7 @@ export function ProtocolIssuer() {
             <Field label="Assurance level">
               <Select value={meta.assurance} onChange={(e) => setMeta({ ...meta, assurance: e.target.value as AssuranceLevel })}>
                 <option value="standard">Standard (academic network study)</option>
-                <option value="regulatory" disabled={rScript}>Regulatory (stricter controls, for submission use){rScript ? ' — Strategus studies only' : ''}</option>
+                <option value="regulatory" disabled={rScript}>Regulatory (pre-specified gates, signatures, run record){rScript ? ' — Strategus studies only' : ''}</option>
               </Select>
             </Field>
             <Field label="Required vocabulary version (optional)" className="md:col-span-2">

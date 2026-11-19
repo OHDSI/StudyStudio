@@ -19,6 +19,11 @@ import { PACK_VERSION, type AssuranceLevel, type FileRole, type FrameworkName, t
 
 export const APP_NAME = 'OHDSI Study Studio'
 export const APP_VERSION = '0.1.0'
+declare const __STUDYSTUDIO_BUILD_ID__: string | undefined
+/** Git commit of the build (vite.config.ts `define`); absent when run outside Vite (e.g. scripts via tsx). */
+export const BUILD_ID: string | undefined = typeof __STUDYSTUDIO_BUILD_ID__ === 'string' && __STUDYSTUDIO_BUILD_ID__ ? __STUDYSTUDIO_BUILD_ID__ : undefined
+/** The `tool` entry of manifest.json. */
+export const TOOL = { name: APP_NAME, version: APP_VERSION, ...(BUILD_ID ? { buildId: BUILD_ID } : {}) }
 
 /** Why and how a file differs from what the site produced (R5.2). */
 export interface FileModification {
@@ -399,7 +404,7 @@ export async function buildStudyPack(params: BuildPackParams): Promise<BuiltPack
     generatedAt,
     cdmVersion: p.cdmVersion,
     assurance: p.assurance ?? 'standard',
-    tool: { name: APP_NAME, version: APP_VERSION },
+    tool: TOOL,
     sealedAt,
     files: await manifestEntries(content),
   }

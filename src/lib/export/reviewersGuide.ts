@@ -19,6 +19,7 @@ import { REGISTRATION_LABEL, type StudyConfig, type StudyRegistration } from '@/
 import { AGENCY_LABELS } from '@/lib/cdisc/validatorProfiles'
 import type { ValidatorRun } from '@/lib/cdisc/p21Report'
 import { markdownToHtml } from './markdown'
+import { PROFILE_NOTE, profileLabel, profileRequirements } from '@/lib/strategus/profiles'
 import type { Conformance, SiteEtl, SiteRow, Standards } from './regulatory'
 
 export interface RenvSummary {
@@ -176,6 +177,10 @@ export function buildReviewersGuideMarkdown(i: ReviewersGuideInput): string {
   } else L.push(`- **Protocol versions:** ${TODO('protocol version(s) and dates')}`)
   for (const d of i.config?.documents ?? []) L.push(`- **Plan document:** ${d.title} (\`protocol/${d.path}\`, SHA-256 \`${d.sha256}\`)`)
   if (i.config?.registration) L.push(`- **Registration:** ${registrationText(i.config.registration)}`)
+  if (i.config?.profile) {
+    L.push(`- **Protocol profile:** ${profileLabel(i.config.profile)}. ${PROFILE_NOTE} Requirements in force:`)
+    for (const r of profileRequirements(i.config.profile)) L.push(`  - ${r}`)
+  }
   L.push('')
   L.push('### 2.2 Protocol Design in Relation to ADaM Concepts', '')
   L.push(

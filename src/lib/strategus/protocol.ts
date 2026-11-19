@@ -16,6 +16,7 @@ import { DEFAULT_REASON_CODES } from '@/lib/network/dispositionLog'
 import { addSignature, parseJws, verifyDetachedJws, type DetachedJws, type SignatureCheck, type UnlockedSigner } from '@/lib/security/signer'
 import { parseAnalysisSpecification, type AnalysisSpecSummary } from './spec'
 import { PROTECTED_MARKER, protectedSectionHash, suggestMarker } from './executeScript'
+import { issuedProfileRefusals, profileRefusals } from './profiles'
 
 export const PROTOCOL_PATHS = {
   analysisSpecifications: 'definitions/analysisSpecifications.json',
@@ -122,6 +123,8 @@ export interface ProtocolMeta {
   documents?: { title: string; name: string; bytes: Uint8Array }[]
   /** Registration in a public registry (P3), as declared by the coordinator. */
   registration?: StudyRegistration
+  /** Regulatory use-case profile; absent or "general" records nothing. */
+  profile?: string
   /**
    * R script studies: the comment line below which the script is pinned. Undefined picks
    * suggestMarker(); null pins the whole file. Strategus studies always use the template marker.
@@ -189,8 +192,8 @@ export function normalizeSites(sites?: ExpectedSite[]): ExpectedSite[] | undefin
 }
 
 /** Why a protocol cannot be issued with these settings (checked at issue, never first at lock or export). */
-export function issueRefusals(meta: Pick<ProtocolMeta, 'assurance' | 'sites' | 'amends' | 'documents' | 'registration'> & { studyId?: string }): string[] {
-  const reasons: string[] = []
+export function issueRefusals(meta: Pick<ProtocolMeta, 'assurance' | 'sites' | 'amends' | 'documents' | 'registration' | 'profile'> & { studyId?: string }): string[] {
+  const reasons: string[] = [...profileRefusals(meta)]
   if (meta.amends) {
     if (!meta.amends.summary.trim()) reasons.push('Summarise what the amendment changes')
     try {
@@ -269,6 +272,9 @@ export async function issueProtocol(repo: StudyRepo, meta: ProtocolMeta): Promis
   const plan = await planFields(meta)
   Object.assign(config, plan.fields)
   Object.assign(files, plan.files)
+  if (meta.profile && meta.profile !== 'general') config.profile = meta.profile
+  const profileIssues = issuedProfileRefusals(config)
+  if (profileIssues.length) throw new Error(profileIssues.join('; '))
   const configBytes = enc.encode(JSON.stringify(config, null, 2) + '\n')
   const signature = meta.signer ? await addSignature(undefined, configBytes, meta.signer, 'protocol-issued', meta.now) : undefined
   return { config, configBytes, signature, files, summary }

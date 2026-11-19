@@ -15,6 +15,7 @@ import { summarizeDqd, type DqdSummary } from './dqd'
 import { parseJws, verifyDetachedJws, type DetachedJws, type SignatureCheck } from '@/lib/security/signer'
 import { judgeEvidence, type SiteEvidence } from '@/lib/studypack/evidence'
 import { DATABASE_META_DATA, parseDatabaseMetaData } from '@/lib/provenance/cdmSource'
+import { isKnownProfile } from '@/lib/strategus/profiles'
 
 /** Artifacts every site must share. */
 export const PROTOCOL_KEY_PATHS = [PROTOCOL_PATHS.analysisSpecifications, PROTOCOL_PATHS.executeAnalyses, PROTOCOL_PATHS.renvLock] as const
@@ -343,6 +344,9 @@ export function siteVerdict(site: LoadedSitePack, cross: CrossSiteResult, expect
 
   const sigs = ctx.signatures ?? site.signatureChecks
   for (const s of sigs.filter((x) => !x.valid)) add('INTEGRITY', `Invalid signature${s.signer ? ` by ${s.signer.name}` : ''}${s.error ? ` (${s.error})` : ''}`)
+  // Stage 5: a profile this build does not know (e.g. from a newer build) is handled as general, with a warning.
+  const sealedProfile = site.sealedProtocol?.profile
+  if (sealedProfile && !isKnownProfile(sealedProfile)) warnings.push(`Sealed under protocol profile "${sealedProfile}", which this build does not know; handled as general`)
   // C2: the protocol's site list. A mismatch excludes in a regulatory study and is a warning otherwise.
   for (const m of siteListMismatches(site, cfg)) {
     if (cfg?.assurance === 'regulatory') add('CDM_REQUIREMENT', m)

@@ -129,6 +129,31 @@ JP-EDOC 3.(1)③ also describes send and receipt records (送付簿・受領簿:
 disposition log records every receipt with the receiver, time and the pack's SHA-256; at the site, the
 sealed pack (signed manifest with sealer and seal time) is kept as the record of what was sent (SOP-4).
 
+## Use-case profiles (regulatory assurance)
+
+A regulatory protocol can carry a use-case profile (`study_config.profile`, `lib/strategus/profiles.ts`). A profile is
+a Study Studio preset over the controls above: it makes some optional fields required and lists the gates in force
+in the audit report and the reviewer's guide. Its requirements are checked when the protocol is issued
+(`profileRefusals()`, `issuedProfileRefusals()`); it adds no mechanism and asks nothing new of sites. The presets are
+informed by the principles of FDA's real-world evidence guidance and PMDA's GPSP framework. They are not
+reproductions of regulatory requirements, and they do not claim that any regulator accepts a study run under them.
+
+| Profile | Label | Required at issue, beyond regulatory assurance |
+|---|---|---|
+| (absent) | Regulatory — general | Nothing: regulatory assurance as described above |
+| `eca-comparison` | Regulatory — external-control comparison (provenance emphasis) | Every listed site has a `role`, at least one is `external-comparator`; plan documents including one titled as an analysis plan ("analysis plan" or "SAP" in the title); a declared registration. The comparator's provenance is what this study shape lives or dies on |
+| `pms-db-survey` | Regulatory — post-marketing database survey | Every listed site has a `sourceReleaseDate`; a data-quality policy in the protocol (regulatory issuance always writes one). The site-list completeness check and the source-release / cut-off columns are already part of regulatory assurance. Database reliability and complete capture over the survey period are the concern |
+
+A pack sealed under a profile the coordinator's build does not know is handled as general, with a warning in the
+Aggregator; never an error or a deviation.
+
+**Not offered.** Three further profiles were considered: label expansion, fulfilment of an approval condition, and
+long-term follow-up. Each would refuse a re-issue of the protocol without an `amends` link. The tool keeps no state
+between sessions, so at issue it cannot know that an earlier issue of the study exists, and that rule cannot be
+checked with the controls above. Rather than add a mechanism for it, these profiles are left out. A pack sealed
+under an issue that the current protocol does not reach through `amends` is still reported as a protocol deviation
+by the Aggregator.
+
 ## Where the gates are enforced
 
 Every condition that stops a pack from being sealed or a submission from being generated is checked inside the

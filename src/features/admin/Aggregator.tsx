@@ -15,6 +15,7 @@ import { kidFingerprint, protocolIssuerKids, type SignatureCheck } from '@/lib/s
 import type { SiteRow } from '@/lib/export/regulatory'
 import { EvidenceView } from '@/features/common/EvidenceView'
 import { clockDiscrepancyMessage } from '@/lib/provenance/deviceClock'
+import { isKnownProfile, profileLabel } from '@/lib/strategus/profiles'
 import { ActorCard, DecisionCell, DispositionLogCard, LockCard, NotReceivedCard, RosterCard } from './DispositionPanel'
 
 function SignatureBadge({ checks }: { checks?: SignatureCheck[] }) {
@@ -135,6 +136,7 @@ export function Aggregator() {
                 <div className="font-medium">{config.studyId} — {config.studyTitle}</div>
                 <div className="text-muted-foreground">{Object.keys(config.expectedHashes).length + Object.keys(config.protectedSections ?? {}).length} pinned hashes · suppress &lt;{config.minCellCount}</div>
                 <ProtocolIssuer />
+                {config.profile && <div className={isKnownProfile(config.profile) ? 'text-muted-foreground' : 'text-amber-700'}>Profile: {profileLabel(config.profile)}</div>}
                 {config.amends && <EarlierIssues />}
                 <Button size="sm" variant="ghost" className="w-fit" onClick={() => setConfig(undefined)}>Clear</Button>
               </div>

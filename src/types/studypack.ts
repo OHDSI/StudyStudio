@@ -107,6 +107,11 @@ export interface StudyConfig {
   documents?: ProtocolDocument[]
   /** Registration in a public registry, as declared by the coordinator; not verified by the tool (P3). */
   registration?: StudyRegistration
+  /**
+   * Regulatory use-case profile (lib/strategus/profiles.ts): a preset of this tool's gates, checked at issue.
+   * Absent = general. A value this build does not know is handled as general, with a warning.
+   */
+  profile?: string
 }
 
 export interface ProtocolAmendment {

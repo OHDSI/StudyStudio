@@ -19,6 +19,7 @@ import { DropZone, type DroppedFile } from '@/features/common/DropZone'
 import { Hash } from '@/features/common/Hash'
 import { download } from '@/lib/utils'
 import { EMPTY_PLAN, PlanFields, planMeta, type PlanInput } from './PlanFields'
+import { KNOWN_PROFILES, PROFILE_NOTE, PROFILES, type ProtocolProfile } from '@/lib/strategus/profiles'
 
 const num = (v: string, d: number) => (v === '' || Number.isNaN(Number(v)) ? d : Number(v))
 const TEMPLATE_URL = 'https://github.com/ohdsi-studies/StrategusStudyRepoTemplate'
@@ -30,7 +31,7 @@ export function ProtocolIssuer() {
   const setIssued = useStudyStore((s) => s.setIssued)
   const setConfig = useStudyStore((s) => s.setConfig)
 
-  const [meta, setMeta] = React.useState({ studyId: '', studyTitle: '', description: '', principalInvestigator: '', sponsor: '', cdmVersion: '5.4', minCellCount: 5, assurance: 'standard' as AssuranceLevel, vocabularyVersion: '', sites: '' })
+  const [meta, setMeta] = React.useState({ studyId: '', studyTitle: '', description: '', principalInvestigator: '', sponsor: '', cdmVersion: '5.4', minCellCount: 5, assurance: 'standard' as AssuranceLevel, vocabularyVersion: '', sites: '', profile: 'general' })
   const coordinator = useStudyStore((s) => s.signers.find((x) => x.signer.signer.role === 'coordinator')?.signer)
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string>()
@@ -86,7 +87,7 @@ export function ProtocolIssuer() {
     setBusy(true)
     setError(undefined)
     try {
-      const p = await issueProtocol(repo, { ...meta, ...planMeta(plan), sites: parseSiteList(meta.sites), studyId: meta.studyId.trim(), studyTitle: meta.studyTitle.trim(), signer: coordinator, ...(rScript ? { marker: marker ?? null } : {}) })
+      const p = await issueProtocol(repo, { ...meta, ...planMeta(plan), profile: meta.assurance === 'regulatory' ? meta.profile : undefined, sites: parseSiteList(meta.sites), studyId: meta.studyId.trim(), studyTitle: meta.studyTitle.trim(), signer: coordinator, ...(rScript ? { marker: marker ?? null } : {}) })
       setIssued(p)
       const signatureChecks = p.signature ? await verifyDetachedJws(p.signature, p.configBytes) : undefined
       const signatureBytes = p.signature ? new TextEncoder().encode(JSON.stringify(p.signature, null, 2) + '\n') : undefined
@@ -103,7 +104,7 @@ export function ProtocolIssuer() {
     ...(summary.error ? [summary.error] : []),
     ...(!meta.studyId.trim() ? ['Enter a Study ID'] : []),
     ...(meta.assurance === 'regulatory' && !coordinator ? ['Regulatory protocols must be signed: unlock the coordinator key'] : []),
-    ...issueRefusals({ assurance: meta.assurance, sites: parseSiteList(meta.sites), studyId: meta.studyId, ...planMeta(plan) }),
+    ...issueRefusals({ assurance: meta.assurance, sites: parseSiteList(meta.sites), studyId: meta.studyId, ...planMeta(plan), profile: meta.assurance === 'regulatory' ? meta.profile : undefined }),
   ]
   const id = safeId(meta.studyId || 'study')
   const dec = new TextDecoder()
@@ -223,6 +224,14 @@ export function ProtocolIssuer() {
                 <option value="regulatory" disabled={rScript}>Regulatory (pre-specified gates, signatures, run record){rScript ? ' — Strategus studies only' : ''}</option>
               </Select>
             </Field>
+            {meta.assurance === 'regulatory' && (
+              <Field label="Use-case profile" className="md:col-span-3">
+                <Select value={meta.profile} onChange={(e) => setMeta({ ...meta, profile: e.target.value })}>
+                  {KNOWN_PROFILES.map((p) => <option key={p} value={p}>{PROFILES[p].label}</option>)}
+                </Select>
+                <span className="text-[11px] text-muted-foreground">{PROFILE_NOTE} Requirements in force: {PROFILES[meta.profile as ProtocolProfile].requirements.join('; ')}.</span>
+              </Field>
+            )}
             <Field label="Required vocabulary version (optional)" className="md:col-span-2">
               <Input value={meta.vocabularyVersion} onChange={(e) => setMeta({ ...meta, vocabularyVersion: e.target.value })} placeholder="e.g. v5.0 30-AUG-26 — sites on another vocabulary are flagged" />
             </Field>

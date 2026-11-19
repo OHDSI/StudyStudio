@@ -23,6 +23,7 @@ import { buildReviewersGuideHtml, buildReviewersGuideMarkdown, parseRenvLock, re
 import type { ValidatorRun } from '@/lib/cdisc/p21Report'
 import { buildDataDefinitionHtml } from './dataDefinition'
 import { markdownToHtml } from './markdown'
+import { PROFILE_NOTE, profileLabel, profileRequirements } from '@/lib/strategus/profiles'
 import { crossSiteEvidence, HETEROGENEITY_COLUMNS, type CrossSiteEvidence } from '@/lib/network/crossSiteEvidence'
 import { collectProtocolArtefacts, type ProtocolArtefacts, type ProtocolSource, type RosterSource } from './protocolArtefacts'
 import { moduleOf, parseRdms, RDMS_FILE, tableNameOf, type Rdms } from '@/lib/strategus/results'
@@ -538,6 +539,11 @@ function planLines(i: Pick<ReportInput, 'config' | 'chain'>): { md: string; text
   }
   for (const d of c?.documents ?? []) out.push({ md: `**Plan document:** ${mdCell(d.title)} (\`protocol/${d.path}\`, SHA-256 \`${short(d.sha256)}\`)`, text: `Plan document: ${d.title} (protocol/${d.path})` })
   if (c?.registration) out.push({ md: `**Registration:** ${mdCell(registrationText(c.registration))}`, text: `Registration: ${registrationText(c.registration)}` })
+  // Stage 5: the profile and the gates it put in force (only when the protocol records one).
+  if (c?.profile) {
+    const req = profileRequirements(c.profile).join('; ')
+    out.push({ md: `**Protocol profile:** ${mdCell(profileLabel(c.profile))}. Requirements in force: ${mdCell(req)}. ${PROFILE_NOTE}`, text: `Protocol profile: ${profileLabel(c.profile)}. Requirements in force: ${req}. ${PROFILE_NOTE}` })
+  }
   return out
 }
 

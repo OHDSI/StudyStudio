@@ -38,3 +38,14 @@ describe('judgeEvidence exclusion reasons', () => {
     ])
   })
 })
+
+describe('Aggregator evidence badge label', () => {
+  it('names the three check groups it covers and ends with their state', async () => {
+    const { evidenceBadgeLabel } = await import('./evidence')
+    expect(evidenceBadgeLabel(0, 0)).toBe('DQD · provenance · timeline: passed')
+    expect(evidenceBadgeLabel(0, 2)).toBe('DQD · provenance · timeline: 2 warning(s)')
+    expect(evidenceBadgeLabel(1, 0)).toBe('DQD · provenance · timeline: 1 blocking')
+    expect(evidenceBadgeLabel(1, 3)).toBe('DQD · provenance · timeline: 1 blocking, 3 warning(s)')
+    for (const l of [evidenceBadgeLabel(0, 0), evidenceBadgeLabel(2, 2)]) expect(l).not.toMatch(/clean|fit/i)
+  })
+})

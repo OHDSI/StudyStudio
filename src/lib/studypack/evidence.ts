@@ -152,3 +152,16 @@ export function judgeEvidence(e: SiteEvidence): EvidenceVerdict {
   for (const i of e.timeline.issues) put(i.severity === 'block', `Time: ${i.message}`, 'PROTOCOL_DEVIATION')
   return { blockers: blocking.map((b) => b.message), blocking, warnings }
 }
+
+/** The check groups the Aggregator's evidence badge summarises. */
+export const EVIDENCE_BADGE_GROUPS = 'DQD · provenance · timeline'
+
+/**
+ * Label of the Aggregator's evidence badge: it names the three check groups it counts (DQD gate, provenance and
+ * timeline findings) and ends with their state, so it never reads as a judgement that the data are fit for a purpose.
+ */
+export function evidenceBadgeLabel(blocks: number, warns: number): string {
+  if (blocks + warns === 0) return `${EVIDENCE_BADGE_GROUPS}: passed`
+  const parts = [...(blocks ? [`${blocks} blocking`] : []), ...(warns ? [`${warns} warning(s)`] : [])]
+  return `${EVIDENCE_BADGE_GROUPS}: ${parts.join(', ')}`
+}

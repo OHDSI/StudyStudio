@@ -16,6 +16,7 @@ import type { SiteRow } from '@/lib/export/regulatory'
 import { EvidenceView } from '@/features/common/EvidenceView'
 import { clockDiscrepancyMessage } from '@/lib/provenance/deviceClock'
 import { isKnownProfile, profileLabel } from '@/lib/strategus/profiles'
+import { evidenceBadgeLabel } from '@/lib/studypack/evidence'
 import { issueLabel } from '@/types/studypack'
 import { ActorCard, DecisionCell, DispositionLogCard, LockCard, NotReceivedCard, RosterCard } from './DispositionPanel'
 
@@ -45,7 +46,7 @@ function EvidenceBadge({ row }: { row: SiteRow }) {
   const regulatory = e.assurance === 'regulatory'
   return (
     <div className="flex flex-col gap-0.5">
-      {blocks + warns === 0 ? <Badge variant="success"><CheckCircle2 /> Clean</Badge> : <Badge variant={blocks && regulatory ? 'destructive' : 'warning'}>{blocks ? `${blocks} blocking · ` : ''}{warns} warning(s)</Badge>}
+      {blocks + warns === 0 ? <Badge variant="success"><CheckCircle2 /> {evidenceBadgeLabel(0, 0)}</Badge> : <Badge variant={blocks && regulatory ? 'destructive' : 'warning'}>{evidenceBadgeLabel(blocks, warns)}</Badge>}
       {row.site.dqd && <span className="text-[10px] text-muted-foreground">DQD {row.site.dqd.percentPassed.toFixed(1)}% passed</span>}
       <ReviewBadge row={row} />
     </div>

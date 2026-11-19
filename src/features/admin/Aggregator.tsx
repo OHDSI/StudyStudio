@@ -16,6 +16,7 @@ import type { SiteRow } from '@/lib/export/regulatory'
 import { EvidenceView } from '@/features/common/EvidenceView'
 import { clockDiscrepancyMessage } from '@/lib/provenance/deviceClock'
 import { isKnownProfile, profileLabel } from '@/lib/strategus/profiles'
+import { issueLabel } from '@/types/studypack'
 import { ActorCard, DecisionCell, DispositionLogCard, LockCard, NotReceivedCard, RosterCard } from './DispositionPanel'
 
 function SignatureBadge({ checks }: { checks?: SignatureCheck[] }) {
@@ -394,7 +395,7 @@ function EarlierIssues() {
       />
       {earlier.length > 0 && (
         <div className="flex items-center gap-2 text-muted-foreground">
-          {earlier.length} earlier issue(s): {earlier.map((e) => e.config.issuedAt).join(', ')}
+          {earlier.length} earlier issue(s): {earlier.map((e) => issueLabel(e.config)).join(', ')}
           <Button size="sm" variant="ghost" className="h-6" onClick={clear}>Clear</Button>
         </div>
       )}

@@ -112,7 +112,12 @@ export interface StudyConfig {
    * Absent = general. A value this build does not know is handled as general, with a warning.
    */
   profile?: string
+  /** Issue number of this protocol (1 = first issue), set at issue and covered by the coordinator signature. */
+  issueNumber?: number
 }
+
+/** "2026-11-01T09:00:00.000Z (issue 2)", or the time alone when the protocol has no issue number. */
+export const issueLabel = (c?: { issuedAt?: string; issueNumber?: number }, issuedAt = c?.issuedAt) => `${issuedAt ?? '—'}${c?.issueNumber !== undefined ? ` (issue ${c.issueNumber})` : ''}`
 
 export interface ProtocolAmendment {
   /** SHA-256 of the previous study_config.json bytes. */

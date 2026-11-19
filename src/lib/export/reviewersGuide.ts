@@ -15,7 +15,7 @@ import { PROTOCOL_PATHS } from '@/lib/strategus/protocol'
 import { APP_VERSION } from '@/lib/studypack/builder'
 import type { ChainEntry, CrossSiteResult } from '@/lib/network/aggregator'
 import type { DispositionEntry } from '@/lib/network/dispositionLog'
-import { REGISTRATION_LABEL, type StudyConfig, type StudyRegistration } from '@/types/studypack'
+import { issueLabel, REGISTRATION_LABEL, type StudyConfig, type StudyRegistration } from '@/types/studypack'
 import { AGENCY_LABELS } from '@/lib/cdisc/validatorProfiles'
 import type { ValidatorRun } from '@/lib/cdisc/p21Report'
 import { markdownToHtml } from './markdown'
@@ -170,10 +170,10 @@ export function buildReviewersGuideMarkdown(i: ReviewersGuideInput): string {
   L.push(`- **Protocol title:** ${i.studyTitle}`)
   if (i.config?.sponsor) L.push(`- **Sponsor:** ${i.config.sponsor}`)
   if (i.config?.principalInvestigator) L.push(`- **Principal investigator:** ${i.config.principalInvestigator}`)
-  if (i.config?.issuedAt) L.push(`- **Protocol issued:** ${i.config.issuedAt}`)
+  if (i.config?.issuedAt) L.push(`- **Protocol issued:** ${issueLabel(i.config)}`)
   if (i.chain?.length) {
     L.push('- **Protocol versions** (amendment chain recorded in study_config.json, newest first; each issue is signed by the coordinator and names the SHA-256 of the issue it amends):')
-    i.chain.forEach((c, n) => L.push(`  - ${n === 0 ? 'Current issue' : `Amendment N−${n}`}: issued ${c.issuedAt ?? '—'}, SHA-256 \`${c.sha256 ?? '—'}\`${c.summary ? `; changes from the previous issue: ${c.summary}` : ''}`))
+    i.chain.forEach((c, n) => L.push(`  - ${n === 0 ? 'Current issue' : `Amendment N−${n}`}: issued ${issueLabel(c)}, SHA-256 \`${c.sha256 ?? '—'}\`${c.summary ? `; changes from the previous issue: ${c.summary}` : ''}`))
   } else L.push(`- **Protocol versions:** ${TODO('protocol version(s) and dates')}`)
   for (const d of i.config?.documents ?? []) L.push(`- **Plan document:** ${d.title} (\`protocol/${d.path}\`, SHA-256 \`${d.sha256}\`)`)
   if (i.config?.registration) L.push(`- **Registration:** ${registrationText(i.config.registration)}`)

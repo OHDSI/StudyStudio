@@ -8,7 +8,7 @@ import { REGISTRATION_LABEL, type StudyConfig } from '@/types/studypack'
 
 /** Amendment (P1), plan documents (P2) and registration (P3), as entered in the Protocol Issuer. All optional. */
 export interface PlanInput {
-  amends?: { previousBytes: Uint8Array; previous: Pick<StudyConfig, 'studyId' | 'issuedAt'>; summary: string }
+  amends?: { previousBytes: Uint8Array; previous: Pick<StudyConfig, 'studyId' | 'issuedAt' | 'issueNumber'>; summary: string }
   documents: { name: string; bytes: Uint8Array; title: string }[]
   registration: { registry: string; id: string; registeredAt: string }
 }
@@ -34,7 +34,7 @@ export function PlanFields({ plan, onChange }: { plan: PlanInput; onChange: (p: 
         {plan.amends ? (
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2 text-xs">
-              Amends {plan.amends.previous.studyId} issued {plan.amends.previous.issuedAt}
+              Amends {plan.amends.previous.studyId} issued {plan.amends.previous.issuedAt}{plan.amends.previous.issueNumber !== undefined ? ` (issue ${plan.amends.previous.issueNumber})` : ''}
               <Button size="sm" variant="ghost" className="h-6" onClick={() => onChange({ ...plan, amends: undefined })} aria-label="Remove"><X /></Button>
             </div>
             <Input value={plan.amends.summary} placeholder="What this issue changes (required)" onChange={(e) => onChange({ ...plan, amends: { ...plan.amends!, summary: e.target.value } })} />
@@ -50,7 +50,7 @@ export function PlanFields({ plan, onChange }: { plan: PlanInput; onChange: (p: 
               if (!r.configBytes) return setError(r.errors.join(' / ') || 'No study_config.json found')
               try {
                 const prev = JSON.parse(dec.decode(r.configBytes)) as StudyConfig
-                onChange({ ...plan, amends: { previousBytes: r.configBytes, previous: { studyId: prev.studyId, issuedAt: prev.issuedAt }, summary: '' } })
+                onChange({ ...plan, amends: { previousBytes: r.configBytes, previous: { studyId: prev.studyId, issuedAt: prev.issuedAt, issueNumber: prev.issueNumber }, summary: '' } })
               } catch {
                 setError('The previous study_config.json is not valid JSON')
               }

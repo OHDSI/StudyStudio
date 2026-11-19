@@ -108,3 +108,76 @@ describe('profiles in verification and reports', () => {
     expect(plain.reviewersGuide.markdown).not.toContain('Protocol profile')
   })
 })
+
+describe('issue number and the re-issue rule (label-expansion, approval-condition, long-term-follow-up)', () => {
+  const doc = (title: string, name = 'doc.pdf') => ({ name, title, bytes: new TextEncoder().encode(title) })
+  const valid: Record<string, Partial<ProtocolMeta>> = {
+    'label-expansion': { documents: [doc('Study protocol v1.0', 'protocol.pdf'), doc('Statistical analysis plan v1.0', 'sap.pdf')], registration: { registry: 'ClinicalTrials.gov', id: 'NCT00000000' } },
+    'approval-condition': { documents: [doc('Approval conditions (commitment letter)')], registration: { registry: 'jRCT', id: 'jRCT0000000000' } },
+    'long-term-follow-up': { sites: [{ siteId: 'Site_A', sourceReleaseDate: '2026-09-30' }, { siteId: 'Site_B', sourceReleaseDate: '2026-08-31' }] },
+  }
+  describe.each(Object.keys(valid))('%s', (profile) => {
+    const meta = (extra: Partial<ProtocolMeta>): ProtocolMeta => ({ ...base, profile, ...valid[profile], ...extra })
+    it('issues a first issue (number 1, no amendment)', async () => {
+      const p = await issueProtocol(await repo(), meta({ issueNumber: 1 }))
+      expect(p.config).toMatchObject({ profile, issueNumber: 1 })
+      expect(p.config).not.toHaveProperty('amends')
+    })
+    it('refuses a re-issue (number 2) without the amendment link, saying what is missing', async () => {
+      await expect(issueProtocol(await repo(), meta({ issueNumber: 2 }))).rejects.toThrow(/this is issue 2, a re-issue, so it must amend the previous issue/)
+    })
+    it('issues a re-issue that amends the previous issue', async () => {
+      const first = await issueProtocol(await repo(), meta({ issueNumber: 1 }))
+      const second = await issueProtocol(await repo(), meta({ issueNumber: 2, now: new Date('2026-11-21T00:00:00Z'), amends: { previousBytes: first.configBytes, summary: 'Extends follow-up' } }))
+      expect(second.config).toMatchObject({ issueNumber: 2, amends: { previousIssuedAt: first.config.issuedAt, summary: 'Extends follow-up' } })
+    })
+    it('refuses a protocol without an issue number', async () => {
+      await expect(issueProtocol(await repo(), meta({}))).rejects.toThrow(/enter the issue number \(1 for the first issue\)/)
+    })
+  })
+
+  it('refuses each profile when its documents or registration are missing', async () => {
+    await expect(issueProtocol(await repo(), { ...base, ...valid['label-expansion'], profile: 'label-expansion', issueNumber: 1, documents: [doc('Statistical analysis plan')] })).rejects.toThrow(/titled as the protocol/)
+    await expect(issueProtocol(await repo(), { ...base, ...valid['approval-condition'], profile: 'approval-condition', issueNumber: 1, documents: [doc('Study protocol')] })).rejects.toThrow(/titled as the commitment it fulfils/)
+    await expect(issueProtocol(await repo(), { ...base, ...valid['approval-condition'], profile: 'approval-condition', issueNumber: 1, registration: undefined })).rejects.toThrow(/declare the registration/)
+    await expect(issueProtocol(await repo(), { ...base, profile: 'long-term-follow-up', issueNumber: 1 })).rejects.toThrow(/source release date \(missing for Site_A, Site_B\)/)
+  })
+
+  it('leaves general, eca-comparison and pms-db-survey protocols unaffected by the issue number', async () => {
+    const pms: ProtocolMeta = { ...base, profile: 'pms-db-survey', sites: valid['long-term-follow-up'].sites }
+    for (const m of [base, eca, pms]) {
+      // With or without a number, and a re-issue number without an amendment, all issue as before.
+      await expect(issueProtocol(await repo(), m)).resolves.toBeDefined()
+      const numbered = await issueProtocol(await repo(), { ...m, issueNumber: 2 })
+      expect(numbered.config.issueNumber).toBe(2)
+    }
+    expect((await issueProtocol(await repo(), base)).config).not.toHaveProperty('issueNumber')
+  })
+
+  it('rejects an issue number that is not a whole number from 1', async () => {
+    await expect(issueProtocol(await repo(), { ...base, issueNumber: 0 })).rejects.toThrow(/whole number, 1 for the first issue/)
+    await expect(issueProtocol(await repo(), { ...base, issueNumber: 1.5 })).rejects.toThrow(/whole number/)
+  })
+
+  it('shows the issue number with the issue time, and warns (only) for a pack sealed under an issue without a number', async () => {
+    const v1Bytes = new Uint8Array(readFileSync(path.join(samples, 'standard/protocol/study_config.json')))
+    const v1 = JSON.parse(new TextDecoder().decode(v1Bytes)) as StudyConfig
+    const v2 = await issueProtocol(await repo(), {
+      ...base, studyId: v1.studyId, profile: 'long-term-follow-up', issueNumber: 2, sites: [{ siteId: 'Site_A', sourceReleaseDate: '2026-09-30' }],
+      amends: { previousBytes: v1Bytes, summary: 'Five-year extension' },
+    })
+    const dir = path.join(samples, 'standard/packs')
+    const sites = await Promise.all(readdirSync(dir).map((f) => loadStudyPack(f, readFileSync(path.join(dir, f)))))
+    const cross = crossCheckSites(sites, v2.config.expectedHashes, v2.config.protectedSections, [...Object.keys(v2.config.expectedHashes), ...Object.keys(v2.config.protectedSections)])
+    const a = sites.find((s) => s.siteId === 'Site_A')!
+    const verdict = siteVerdict(a, cross, v1.studyId, sites, { config: { ...v2.config, assurance: 'standard' } })
+    expect(verdict.recommended).toBe('adopt')
+    expect(verdict.warnings).toContain(`Sealed under an issue without an issue number (issued ${v1.issuedAt}): the re-issue rule of the profile “${PROFILES['long-term-follow-up'].label}” cannot be checked for this pack`)
+    const out = await buildRegulatoryExport({ studyId: v1.studyId, studyTitle: v1.studyTitle, config: { ...v2.config, assurance: 'standard' }, cross, rows: [{ site: a, verdict, adopted: true }], protocol: { configBytes: v2.configBytes, files: v2.files } })
+    expect(out.markdown).toContain(`- **Protocol issued:** ${v2.config.issuedAt} (issue 2)`)
+    expect(out.reviewersGuide.markdown).toContain(`- **Protocol issued:** ${v2.config.issuedAt} (issue 2)`)
+    expect(out.reviewersGuide.markdown).toContain(`  - Current issue: issued ${v2.config.issuedAt} (issue 2), SHA-256`)
+    // The earlier issue has no number: it is listed by its time alone.
+    expect(out.reviewersGuide.markdown).toContain(`  - Amendment N−1: issued ${v1.issuedAt}, SHA-256`)
+  })
+})

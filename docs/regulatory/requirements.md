@@ -143,16 +143,24 @@ reproductions of regulatory requirements, and they do not claim that any regulat
 | (absent) | Regulatory — general | Nothing: regulatory assurance as described above |
 | `eca-comparison` | Regulatory — external-control comparison (provenance emphasis) | Every listed site has a `role`, at least one is `external-comparator`; plan documents including one titled as an analysis plan ("analysis plan" or "SAP" in the title); a declared registration. The comparator's provenance is what this study shape lives or dies on |
 | `pms-db-survey` | Regulatory — post-marketing database survey | Every listed site has a `sourceReleaseDate`; a data-quality policy in the protocol (regulatory issuance always writes one). The site-list completeness check and the source-release / cut-off columns are already part of regulatory assurance. Database reliability and complete capture over the survey period are the concern |
+| `label-expansion` | Regulatory — label expansion (trial-grade pre-specification) | Plan documents including one titled as the protocol ("protocol") and one as an analysis plan ("analysis plan" or "SAP"); a declared registration; an issue number, and the amendment link on a re-issue. Trial-grade pre-specification |
+| `approval-condition` | Regulatory — post-approval commitment (record of the commitment) | Plan documents including the one stating the commitment itself (the approval conditions; "approval condition" or "commitment" in the title); a declared registration; an issue number, and the amendment link on a re-issue. The site-list completeness check applies as in regulatory assurance. What is reviewed is the fulfilment of a specific promise, so the promise, the registration and the amendment trail are the record |
+| `long-term-follow-up` | Regulatory — long-term follow-up (continuity of the record) | Every listed site has a `sourceReleaseDate`; a data-quality policy; an issue number, and the amendment link on a re-issue. The site-list completeness check applies at every export (as in regulatory assurance), so each periodic package accounts for every listed site; source release and cut-off columns are shown. Over very long horizons sites and people turn over, and the amendment chain is the study's institutional memory |
 
 A pack sealed under a profile the coordinator's build does not know is handled as general, with a warning in the
 Aggregator; never an error or a deviation.
 
-**Not offered.** Three further profiles were considered: label expansion, fulfilment of an approval condition, and
-long-term follow-up. Each would refuse a re-issue of the protocol without an `amends` link. The tool keeps no state
-between sessions, so at issue it cannot know that an earlier issue of the study exists, and that rule cannot be
-checked with the controls above. Rather than add a mechanism for it, these profiles are left out. A pack sealed
-under an issue that the current protocol does not reach through `amends` is still reported as a protocol deviation
-by the Aggregator.
+**Issue number and the re-issue rule.** `study_config.issueNumber` (1 = first issue) is entered in the Protocol
+Issuer and covered by the coordinator signature; when the previous `study_config.json` is dropped there (the
+amendment flow), the Issuer proposes the previous number + 1, which the coordinator can change before signing. It is
+shown wherever the issue time is shown (audit report, reviewer's guide §2.1 and its amendment chain). In the
+`label-expansion`, `approval-condition` and `long-term-follow-up` profiles the number is required, and an issue
+numbered above 1 without an `amends` link is refused at issue: it is a re-issue, so it must name the issue it
+replaces. Other profiles and protocols without the field are unaffected, and the field is optional everywhere else.
+
+*Compatibility.* Protocols issued without an issue number behave as before. When the coordinator's protocol is in one
+of these three profiles and a pack was sealed under an earlier issue that has no number, the Aggregator warns that the
+re-issue rule cannot be checked for that pack; it is never an error or a deviation.
 
 ## Where the gates are enforced
 

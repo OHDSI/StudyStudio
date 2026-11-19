@@ -31,12 +31,18 @@ export function ProtocolIssuer() {
   const setIssued = useStudyStore((s) => s.setIssued)
   const setConfig = useStudyStore((s) => s.setConfig)
 
-  const [meta, setMeta] = React.useState({ studyId: '', studyTitle: '', description: '', principalInvestigator: '', sponsor: '', cdmVersion: '5.4', minCellCount: 5, assurance: 'standard' as AssuranceLevel, vocabularyVersion: '', sites: '', profile: 'general' })
+  const [meta, setMeta] = React.useState({ studyId: '', studyTitle: '', description: '', principalInvestigator: '', sponsor: '', cdmVersion: '5.4', minCellCount: 5, assurance: 'standard' as AssuranceLevel, vocabularyVersion: '', sites: '', profile: 'general', issueNumber: '' })
   const coordinator = useStudyStore((s) => s.signers.find((x) => x.signer.signer.role === 'coordinator')?.signer)
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string>()
   const [preview, setPreview] = React.useState<string>(PROTOCOL_PATHS.executeAnalyses)
   const [plan, setPlan] = React.useState<PlanInput>(EMPTY_PLAN)
+  // Dropping the previous issue proposes its number + 1 (editable before signing).
+  const previousNumber = plan.amends?.previous.issueNumber
+  React.useEffect(() => {
+    if (previousNumber !== undefined) setMeta((m) => ({ ...m, issueNumber: String(previousNumber + 1) }))
+  }, [previousNumber])
+  const issueNumber = meta.issueNumber.trim() ? Number(meta.issueNumber) : undefined
 
   const summary = React.useMemo<{ spec?: AnalysisSpecSummary; error?: string }>(() => {
     if (!repo?.specText) return {}
@@ -87,7 +93,7 @@ export function ProtocolIssuer() {
     setBusy(true)
     setError(undefined)
     try {
-      const p = await issueProtocol(repo, { ...meta, ...planMeta(plan), profile: meta.assurance === 'regulatory' ? meta.profile : undefined, sites: parseSiteList(meta.sites), studyId: meta.studyId.trim(), studyTitle: meta.studyTitle.trim(), signer: coordinator, ...(rScript ? { marker: marker ?? null } : {}) })
+      const p = await issueProtocol(repo, { ...meta, ...planMeta(plan), issueNumber, profile: meta.assurance === 'regulatory' ? meta.profile : undefined, sites: parseSiteList(meta.sites), studyId: meta.studyId.trim(), studyTitle: meta.studyTitle.trim(), signer: coordinator, ...(rScript ? { marker: marker ?? null } : {}) })
       setIssued(p)
       const signatureChecks = p.signature ? await verifyDetachedJws(p.signature, p.configBytes) : undefined
       const signatureBytes = p.signature ? new TextEncoder().encode(JSON.stringify(p.signature, null, 2) + '\n') : undefined
@@ -104,7 +110,7 @@ export function ProtocolIssuer() {
     ...(summary.error ? [summary.error] : []),
     ...(!meta.studyId.trim() ? ['Enter a Study ID'] : []),
     ...(meta.assurance === 'regulatory' && !coordinator ? ['Regulatory protocols must be signed: unlock the coordinator key'] : []),
-    ...issueRefusals({ assurance: meta.assurance, sites: parseSiteList(meta.sites), studyId: meta.studyId, ...planMeta(plan), profile: meta.assurance === 'regulatory' ? meta.profile : undefined }),
+    ...issueRefusals({ assurance: meta.assurance, sites: parseSiteList(meta.sites), studyId: meta.studyId, ...planMeta(plan), issueNumber, profile: meta.assurance === 'regulatory' ? meta.profile : undefined }),
   ]
   const id = safeId(meta.studyId || 'study')
   const dec = new TextDecoder()
@@ -232,6 +238,9 @@ export function ProtocolIssuer() {
                 <span className="text-[11px] text-muted-foreground">{PROFILE_NOTE} Requirements in force: {PROFILES[meta.profile as ProtocolProfile].requirements.join('; ')}.</span>
               </Field>
             )}
+            <Field label="Issue number (optional)">
+              <Input inputMode="numeric" value={meta.issueNumber} placeholder="1 for the first issue" onChange={(e) => setMeta({ ...meta, issueNumber: e.target.value })} />
+            </Field>
             <Field label="Required vocabulary version (optional)" className="md:col-span-2">
               <Input value={meta.vocabularyVersion} onChange={(e) => setMeta({ ...meta, vocabularyVersion: e.target.value })} placeholder="e.g. v5.0 30-AUG-26 — sites on another vocabulary are flagged" />
             </Field>
@@ -312,7 +321,7 @@ export function ProtocolIssuer() {
                 ) : (
                   <div className="text-xs text-muted-foreground">Not signed.</div>
                 )}
-                <div className="text-xs text-muted-foreground">Issued {new Date(issued.config.issuedAt).toLocaleString()} · this config is also used as the Multi-Site Aggregator reference</div>
+                <div className="text-xs text-muted-foreground">Issued {new Date(issued.config.issuedAt).toLocaleString()}{issued.config.issueNumber !== undefined ? ` (issue ${issued.config.issueNumber})` : ''} · this config is also used as the Multi-Site Aggregator reference</div>
                 <Table>
                   <TableBody>
                     {Object.keys(issued.files).map((p) => (

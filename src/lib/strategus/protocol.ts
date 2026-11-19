@@ -125,6 +125,8 @@ export interface ProtocolMeta {
   registration?: StudyRegistration
   /** Regulatory use-case profile; absent or "general" records nothing. */
   profile?: string
+  /** Issue number (1 = first issue); absent records nothing. */
+  issueNumber?: number
   /**
    * R script studies: the comment line below which the script is pinned. Undefined picks
    * suggestMarker(); null pins the whole file. Strategus studies always use the template marker.
@@ -156,8 +158,8 @@ export function parseSiteList(text: string): ExpectedSite[] {
 export const docPath = (name: string) => `docs/${name.split(/[\\/]/).pop()!.replace(/[^A-Za-z0-9._-]+/g, '_')}`
 
 /** The P1–P3 fields of study_config.json, and the document files to ship. Absent inputs add nothing. */
-async function planFields(meta: ProtocolMeta): Promise<{ fields: { amends?: ProtocolAmendment; documents?: ProtocolDocument[]; registration?: StudyRegistration }; files: Record<string, Uint8Array> }> {
-  const fields: { amends?: ProtocolAmendment; documents?: ProtocolDocument[]; registration?: StudyRegistration } = {}
+async function planFields(meta: ProtocolMeta): Promise<{ fields: { amends?: ProtocolAmendment; documents?: ProtocolDocument[]; registration?: StudyRegistration; issueNumber?: number }; files: Record<string, Uint8Array> }> {
+  const fields: { amends?: ProtocolAmendment; documents?: ProtocolDocument[]; registration?: StudyRegistration; issueNumber?: number } = {}
   const files: Record<string, Uint8Array> = {}
   if (meta.amends) {
     const prev = JSON.parse(dec.decode(meta.amends.previousBytes)) as StudyConfig
@@ -171,6 +173,7 @@ async function planFields(meta: ProtocolMeta): Promise<{ fields: { amends?: Prot
       fields.documents.push({ path, sha256: await sha256Hex(d.bytes), title: d.title.trim() })
     }
   }
+  if (meta.issueNumber !== undefined) fields.issueNumber = meta.issueNumber
   if (meta.registration) {
     const r = meta.registration
     fields.registration = { registry: r.registry.trim(), id: r.id.trim(), ...(r.registeredAt?.trim() ? { registeredAt: r.registeredAt.trim() } : {}) }
@@ -192,8 +195,9 @@ export function normalizeSites(sites?: ExpectedSite[]): ExpectedSite[] | undefin
 }
 
 /** Why a protocol cannot be issued with these settings (checked at issue, never first at lock or export). */
-export function issueRefusals(meta: Pick<ProtocolMeta, 'assurance' | 'sites' | 'amends' | 'documents' | 'registration' | 'profile'> & { studyId?: string }): string[] {
+export function issueRefusals(meta: Pick<ProtocolMeta, 'assurance' | 'sites' | 'amends' | 'documents' | 'registration' | 'profile' | 'issueNumber'> & { studyId?: string }): string[] {
   const reasons: string[] = [...profileRefusals(meta)]
+  if (meta.issueNumber !== undefined && !(Number.isInteger(meta.issueNumber) && meta.issueNumber >= 1)) reasons.push('The issue number must be a whole number, 1 for the first issue')
   if (meta.amends) {
     if (!meta.amends.summary.trim()) reasons.push('Summarise what the amendment changes')
     try {

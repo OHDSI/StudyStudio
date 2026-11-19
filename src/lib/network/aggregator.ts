@@ -15,7 +15,7 @@ import { summarizeDqd, type DqdSummary } from './dqd'
 import { parseJws, verifyDetachedJws, type DetachedJws, type SignatureCheck } from '@/lib/security/signer'
 import { judgeEvidence, type SiteEvidence } from '@/lib/studypack/evidence'
 import { DATABASE_META_DATA, parseDatabaseMetaData } from '@/lib/provenance/cdmSource'
-import { isKnownProfile } from '@/lib/strategus/profiles'
+import { isKnownProfile, issueNumberWarning } from '@/lib/strategus/profiles'
 
 /** Artifacts every site must share. */
 export const PROTOCOL_KEY_PATHS = [PROTOCOL_PATHS.analysisSpecifications, PROTOCOL_PATHS.executeAnalyses, PROTOCOL_PATHS.renvLock] as const
@@ -347,6 +347,8 @@ export function siteVerdict(site: LoadedSitePack, cross: CrossSiteResult, expect
   // Stage 5: a profile this build does not know (e.g. from a newer build) is handled as general, with a warning.
   const sealedProfile = site.sealedProtocol?.profile
   if (sealedProfile && !isKnownProfile(sealedProfile)) warnings.push(`Sealed under protocol profile "${sealedProfile}", which this build does not know; handled as general`)
+  const skew = issueNumberWarning(cfg, site.sealedProtocol)
+  if (skew) warnings.push(skew)
   // C2: the protocol's site list. A mismatch excludes in a regulatory study and is a warning otherwise.
   for (const m of siteListMismatches(site, cfg)) {
     if (cfg?.assurance === 'regulatory') add('CDM_REQUIREMENT', m)
@@ -398,6 +400,8 @@ export function amendmentDistance(current: StudyConfig, targetSha256: string, kn
 
 export interface ChainEntry {
   issuedAt?: string
+  /** Issue number, when that issue records one. */
+  issueNumber?: number
   sha256?: string
   /** What this issue changed relative to the one before it (absent for the first issue or when unknown). */
   summary?: string
@@ -406,14 +410,14 @@ export interface ChainEntry {
 /** The amendment chain, newest first, as far as the issues in `known` allow (P1). Empty when the protocol amends nothing. */
 export function protocolChain(current: StudyConfig, currentSha256: string | undefined, known: ReadonlyMap<string, StudyConfig>): ChainEntry[] {
   if (!current.amends) return []
-  const chain: ChainEntry[] = [{ issuedAt: current.issuedAt, sha256: currentSha256, summary: current.amends.summary }]
+  const chain: ChainEntry[] = [{ issuedAt: current.issuedAt, ...(current.issueNumber !== undefined ? { issueNumber: current.issueNumber } : {}), sha256: currentSha256, summary: current.amends.summary }]
   let cfg: StudyConfig | undefined = current
   const seen = new Set<string>()
   while (cfg?.amends && !seen.has(cfg.amends.previousSha256) && chain.length <= 1000) {
     const prevSha = cfg.amends.previousSha256.toLowerCase()
     seen.add(prevSha)
     const prev = known.get(prevSha)
-    chain.push({ issuedAt: prev?.issuedAt ?? cfg.amends.previousIssuedAt, sha256: prevSha, summary: prev?.amends?.summary })
+    chain.push({ issuedAt: prev?.issuedAt ?? cfg.amends.previousIssuedAt, ...(prev?.issueNumber !== undefined ? { issueNumber: prev.issueNumber } : {}), sha256: prevSha, summary: prev?.amends?.summary })
     cfg = prev
   }
   return chain

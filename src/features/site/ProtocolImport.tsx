@@ -102,7 +102,7 @@ function ConfigSummary({ config, onReset }: { config: StudyConfig; onReset: () =
           <div>
             <div className="font-semibold">{config.studyTitle}</div>
             <div className="text-xs text-muted-foreground">
-              {config.studyId} · CDM {config.cdmVersion} · issued {new Date(config.issuedAt).toLocaleString()}
+              {config.studyId} · CDM {config.cdmVersion} · issued {new Date(config.issuedAt).toLocaleString()}{config.issueNumber !== undefined ? ` (issue ${config.issueNumber})` : ''}
             </div>
           </div>
         </div>

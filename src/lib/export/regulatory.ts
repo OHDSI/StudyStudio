@@ -29,7 +29,7 @@ import { collectProtocolArtefacts, type ProtocolArtefacts, type ProtocolSource, 
 import { moduleOf, parseRdms, RDMS_FILE, tableNameOf, type Rdms } from '@/lib/strategus/results'
 import { PROTOCOL_PATHS } from '@/lib/strategus/protocol'
 import { RESULTS_DIR } from '@/lib/studypack/slots'
-import { isRScriptStudy, PACK_VERSION, type FileRole, type StudyConfig, type StudyPackManifest } from '@/types/studypack'
+import { issueLabel, isRScriptStudy, PACK_VERSION, type FileRole, type StudyConfig, type StudyPackManifest } from '@/types/studypack'
 
 export interface SiteRow {
   site: LoadedSitePack
@@ -336,7 +336,7 @@ export function buildMarkdownReport(i: ReportInput): string {
   if (i.config?.principalInvestigator) L.push(`- **Principal Investigator:** ${i.config.principalInvestigator}`)
   if (i.config?.sponsor) L.push(`- **Sponsor:** ${i.config.sponsor}`)
   L.push(`- **Generated:** ${i.generatedAt} by OHDSI Study Studio ${APP_VERSION} (offline, in-browser)`)
-  L.push(`- **Protocol issued:** ${i.config?.issuedAt ?? '— (no study_config.json loaded; majority hashes used as reference)'}`)
+  L.push(`- **Protocol issued:** ${i.config ? issueLabel(i.config) : '— (no study_config.json loaded; majority hashes used as reference)'}`)
   L.push(...planLines(i).map((l) => `- ${l.md}`))
   L.push(`- **Minimum cell count:** ${i.config?.minCellCount ?? 5} (values 0 < n < ${i.config?.minCellCount ?? 5} must be suppressed)`)
   if (i.standards) L.push(`- **Submission standards:** ${standardsLine(i)}`)
@@ -533,8 +533,8 @@ function planLines(i: Pick<ReportInput, 'config' | 'chain'>): { md: string; text
   const c = i.config
   const out: { md: string; text: string }[] = []
   if (c?.amends) {
-    const chain = i.chain?.length ? i.chain : [{ issuedAt: c.issuedAt, summary: c.amends.summary }, { issuedAt: c.amends.previousIssuedAt, sha256: c.amends.previousSha256 }]
-    const text = chain.map((e, n) => `${n === 0 ? 'current' : `N−${n}`}: ${e.issuedAt ?? '—'}${e.sha256 ? ` (${e.sha256.slice(0, 12)}…)` : ''}${e.summary ? ` — ${e.summary}` : ''}`).join('; ')
+    const chain: ChainEntry[] = i.chain?.length ? i.chain : [{ issuedAt: c.issuedAt, issueNumber: c.issueNumber, summary: c.amends.summary }, { issuedAt: c.amends.previousIssuedAt, sha256: c.amends.previousSha256 }]
+    const text = chain.map((e, n) => `${n === 0 ? 'current' : `N−${n}`}: ${issueLabel(e)}${e.sha256 ? ` (${e.sha256.slice(0, 12)}…)` : ''}${e.summary ? ` — ${e.summary}` : ''}`).join('; ')
     out.push({ md: `**Amendment chain:** ${mdCell(text)}`, text: `Amendment chain: ${text}` })
   }
   for (const d of c?.documents ?? []) out.push({ md: `**Plan document:** ${mdCell(d.title)} (\`protocol/${d.path}\`, SHA-256 \`${short(d.sha256)}\`)`, text: `Plan document: ${d.title} (protocol/${d.path})` })

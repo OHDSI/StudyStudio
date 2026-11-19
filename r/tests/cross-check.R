@@ -25,5 +25,7 @@ recordStrategusRun(
   resultsFolder = out,
   analysisSpecificationsFile = "samples/study-repo/inst/analysisSpecifications.json",
   executionScriptFile = "samples/study-repo/ExecuteAnalyses.R",
-  renvLockFile = "samples/study-repo/renv.lock"
+  renvLockFile = "samples/study-repo/renv.lock",
+  # No Strategus::execute() call to read connectionDetails from here, so the platform is given directly.
+  dbms = "sqlite"
 )

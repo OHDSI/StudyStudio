@@ -49,7 +49,7 @@
   "protectedSections": {
     "code/ExecuteAnalyses.R": {
       "marker": "DO NOT MODIFY BELOW THIS POINT",
-      "sha256": "a4058456a34fb6e0e4176a294cac436b637c4d407987b52dd52b533f18205f13"
+      "sha256": "0157277ecf467994c188a64723ee954d3d58c5687fdb94532b33ae6146c26dc7"
     }
   }
 }

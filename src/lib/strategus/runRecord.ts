@@ -56,6 +56,8 @@ export interface RunRecordRun {
   modules?: { module: string; status: 'SUCCESS' | 'FAILED' | 'SKIPPED'; skippedAsCompleted?: boolean }[] | null
   r?: string
   platform?: string
+  /** Database platform from connectionDetails$dbms (e.g. "postgresql"); nothing else from the connection is recorded. */
+  dbms?: string | null
   packages?: Record<string, string>
   inputs?: { analysisSpecifications?: RunRecordInput; executionScript?: RunRecordInput; renvLock?: RunRecordInput }
   results?: RunRecordFileEntry[]
@@ -146,7 +148,7 @@ export interface RunRecordReport {
   present: boolean
   error?: string
   runs: number
-  last?: Pick<RunRecordRun, 'startedAt' | 'finishedAt' | 'status' | 'errorClass' | 'r' | 'platform' | 'modules'> & { strategus?: string }
+  last?: Pick<RunRecordRun, 'startedAt' | 'finishedAt' | 'status' | 'errorClass' | 'r' | 'platform' | 'dbms' | 'modules'> & { strategus?: string }
   inputs: InputCheck[]
   results: {
     /** Files of the last run that are packed (CSV results and executionSettings.json). */
@@ -251,7 +253,7 @@ export function checkRunRecord(input: RunRecordCheckInput): RunRecordReport {
   const report: RunRecordReport = {
     ...empty,
     runs: record.runs.length,
-    last: { startedAt: run.startedAt, finishedAt: run.finishedAt, status: run.status, errorClass: run.errorClass, modules: run.modules, r: run.r, platform: run.platform, strategus: run.packages?.Strategus },
+    last: { startedAt: run.startedAt, finishedAt: run.finishedAt, status: run.status, errorClass: run.errorClass, modules: run.modules, r: run.r, platform: run.platform, ...(run.dbms ? { dbms: run.dbms } : {}), strategus: run.packages?.Strategus },
   }
   const notDone = (run.modules ?? []).filter((m) => m.status === 'FAILED' || (m.status === 'SKIPPED' && !m.skippedAsCompleted)).map((m) => `${m.module} ${m.status.toLowerCase()}`)
   if (run.status !== 'completed' || notDone.length)

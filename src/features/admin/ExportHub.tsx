@@ -7,6 +7,7 @@ import { datasetFiles, DEFAULT_ADAM_CT_VERSION, type DatasetFormat } from '@/lib
 import { simplifiedTsFor } from '@/lib/cdisc/simplifiedTs'
 import { AGENCIES, AGENCY_LABELS, AGENCY_NOTES, type Agency } from '@/lib/cdisc/validatorProfiles'
 import { buildHtmlReport, buildMarkdownReport, buildRegulatoryExport, datasetFormatLabel, listResultTables, PROFILE_LABELS, reviewersGuideFor, SUBMISSION_PROFILES, type RegulatoryExport, type SubmissionProfile } from '@/lib/export/regulatory'
+import { crossSiteEvidence, type CrossSiteEvidence } from '@/lib/network/crossSiteEvidence'
 import { parseP21Report, reportMismatches, runLabel, type ValidatorRun } from '@/lib/cdisc/p21Report'
 import { DropZone, type DroppedFile } from '@/features/common/DropZone'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -120,11 +121,20 @@ export function ExportHub() {
   const merged = React.useMemo(() => mergeSiteResults(adopted.map((r) => r.site)), [rows])
 
   // The network audit report depends only on the verification state, not on the submission standards.
+  // A2 / E1 / X1: cross-site evidence of the adopted sites, for review (hashing is asynchronous).
+  const [crossSite, setCrossSite] = React.useState<CrossSiteEvidence>()
+  React.useEffect(() => {
+    let live = true
+    crossSiteEvidence(rows.filter((r) => r.adopted).map((r) => r.site), config).then((ev) => live && setCrossSite(ev))
+    return () => {
+      live = false
+    }
+  }, [rows, config])
   const report = React.useMemo(() => {
     if (rows.length === 0) return undefined
-    const input = { studyId, studyTitle, config, cross, rows, generatedAt: new Date().toISOString(), disposition: log.entries, dispositionHead: log.headHash }
+    const input = { studyId, studyTitle, config, cross, rows, generatedAt: new Date().toISOString(), disposition: log.entries, dispositionHead: log.headHash, crossSite }
     return { markdown: buildMarkdownReport(input), html: buildHtmlReport(input) }
-  }, [studyId, studyTitle, config, cross, rows, log])
+  }, [studyId, studyTitle, config, cross, rows, log, crossSite])
 
   React.useEffect(() => setOut(undefined), [rows, config, profile, defineXmlVersion, datasetChoice, ctVersion, agency, deselected, withTs, tsStart])
 

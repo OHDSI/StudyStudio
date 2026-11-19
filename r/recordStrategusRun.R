@@ -17,7 +17,8 @@ recordStrategusRun <- function(code,
                                analysisSpecificationsFile,
                                executionScriptFile = NULL,
                                renvLockFile = "renv.lock",
-                               marker = "DO NOT MODIFY BELOW THIS POINT") {
+                               marker = "DO NOT MODIFY BELOW THIS POINT",
+                               dbms = NULL) {
   sha256File <- function(path) {
     if (is.null(path) || is.na(path) || !file.exists(path)) return(NA_character_)
     if (exists("sha256sum", envir = asNamespace("tools"), inherits = FALSE)) {
@@ -94,6 +95,7 @@ recordStrategusRun <- function(code,
       modules = modules,
       r = paste(R.version$major, R.version$minor, sep = "."),
       platform = R.version$platform,
+      dbms = dbms,
       packages = as.list(stats::setNames(vapply(pkgs, function(p) as.character(utils::packageVersion(p)), ""), pkgs)),
       inputs = inputs,
       results = results
@@ -111,6 +113,22 @@ recordStrategusRun <- function(code,
     jsonlite::write_json(record, recordFile, auto_unbox = TRUE, pretty = TRUE, na = "null", null = "null", digits = NA)
     message("Run record written to ", recordFile)
   }
+
+  # The database platform only (e.g. "postgresql"), from the connectionDetails passed to Strategus::execute():
+  # nothing else is read from the connection (server, user and password stay out of the record).
+  detectDbms <- function(call, env) {
+    if (!is.call(call)) return(NA_character_)
+    args <- as.list(call)[-1]
+    nm <- names(args)
+    if (is.null(nm)) nm <- rep("", length(args))
+    cd <- if ("connectionDetails" %in% nm) args[["connectionDetails"]] else if (sum(nm == "") >= 3) args[nm == ""][[3]] else NULL
+    if (!is.symbol(cd)) return(NA_character_)
+    value <- tryCatch(get(as.character(cd), envir = env)$dbms, error = function(e) NULL)
+    if (is.character(value) && length(value) == 1 && !is.na(value)) value else NA_character_
+  }
+  codeExpr <- substitute(code)
+  callerEnv <- parent.frame()
+  dbms <- if (is.null(dbms)) detectDbms(codeExpr, callerEnv) else as.character(dbms)[1]
 
   if (is.null(executionScriptFile)) executionScriptFile <- detectScript()
   # Inputs are hashed before `code` (a lazily evaluated argument) runs, i.e. as the run reads them.

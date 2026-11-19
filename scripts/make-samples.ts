@@ -394,6 +394,7 @@ async function runRecord(results: Record<string, string | Uint8Array>, inputs: {
     errorClass: null,
     r: lock.R.Version,
     platform: 'x86_64-pc-linux-gnu',
+    dbms: 'postgresql',
     packages,
     inputs: {
       analysisSpecifications: { file: 'analysisSpecifications.json', sha256: await sha256Hex(inputs.spec) },

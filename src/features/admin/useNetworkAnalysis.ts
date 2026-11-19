@@ -1,7 +1,8 @@
 import * as React from 'react'
 import { useStudyStore } from '@/store/useStudyStore'
 import { crossCheckSites, protocolKeyPaths, siteVerdict } from '@/lib/network/aggregator'
-import { checkPlausibility } from '@/lib/network/plausibility'
+import { checkPlausibility, type PlausibilityFinding } from '@/lib/network/plausibility'
+import { missingAttrition } from '@/lib/network/crossSiteEvidence'
 import { evaluateEvidence } from '@/lib/studypack/evidence'
 import { withEnrollment } from '@/lib/security/signer'
 import { DEFAULT_REASON_CODES } from '@/lib/network/dispositionLog'
@@ -42,7 +43,11 @@ export function useNetworkAnalysis() {
       const signatures = withEnrollment(site.signatureChecks, roster, site.siteId, site.receivedAt, rosterIssue)
       const verdict = siteVerdict(site, cross, config?.studyId, sites, { config, evidence, signatures, knownIssues })
       const decision = decisions.get(site.zipSha256)
-      return { site, verdict, evidence, signatures, plausibility: plausibility.get(site.key) ?? [], decision, adopted: decision ? decision === 'adopt' : verdict.recommended === 'adopt' }
+      // A2: CohortMethod in the specification but no attrition table at this site (for review, never an exclusion).
+      const attrition: PlausibilityFinding[] = missingAttrition(site, config ?? site.sealedProtocol)
+        ? [{ code: 'attrition-missing', message: 'No CohortMethod attrition table (cm_attrition) although CohortMethod is in the analysis specification' }]
+        : []
+      return { site, verdict, evidence, signatures, plausibility: [...(plausibility.get(site.key) ?? []), ...attrition], decision, adopted: decision ? decision === 'adopt' : verdict.recommended === 'adopt' }
     })
     const reasonCodes = config?.adoptionPolicy?.reasonCodes ?? DEFAULT_REASON_CODES
     return { sites, cross, rows, paths, config, log, locked: log.locked, reasonCodes, regulatory }

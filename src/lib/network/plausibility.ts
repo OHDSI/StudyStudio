@@ -19,7 +19,7 @@ import { RESULTS_DIR } from '@/lib/studypack/slots'
 import type { LoadedSitePack } from './aggregator'
 
 export interface PlausibilityFinding {
-  code: 'duplicate-results' | 'same-database' | 'same-dqd' | 'impossible-counts'
+  code: 'duplicate-results' | 'same-database' | 'same-dqd' | 'impossible-counts' | 'attrition-missing'
   message: string
   /** The other site(s) involved, for cross-site findings. */
   otherSites?: string[]

@@ -22,6 +22,8 @@ import { parseAnalysisSpecification, type AnalysisSpecSummary } from '@/lib/stra
 import { buildReviewersGuideHtml, buildReviewersGuideMarkdown, parseRenvLock, registrationText, type ReviewersGuideInput } from './reviewersGuide'
 import type { ValidatorRun } from '@/lib/cdisc/p21Report'
 import { buildDataDefinitionHtml } from './dataDefinition'
+import { markdownToHtml } from './markdown'
+import { crossSiteEvidence, HETEROGENEITY_COLUMNS, type CrossSiteEvidence } from '@/lib/network/crossSiteEvidence'
 import { collectProtocolArtefacts, type ProtocolArtefacts, type ProtocolSource, type RosterSource } from './protocolArtefacts'
 import { moduleOf, parseRdms, RDMS_FILE, tableNameOf, type Rdms } from '@/lib/strategus/results'
 import { PROTOCOL_PATHS } from '@/lib/strategus/protocol'
@@ -61,6 +63,8 @@ export interface ReportInput {
   protocolArtefacts?: ProtocolArtefacts
   /** Amendment chain, newest first (P1). */
   chain?: ChainEntry[]
+  /** Attrition, concept-set resolution and heterogeneity across the adopted sites (A2, E1, X1); report-only. */
+  crossSite?: CrossSiteEvidence
 }
 
 /**
@@ -409,6 +413,7 @@ export function buildMarkdownReport(i: ReportInput): string {
     L.push('')
   }
 
+  L.push(...crossSiteSection(i.crossSite).md)
   L.push(...etlSection(i.etl).md)
   L.push(...conformanceSection(i.conformance, i.standards?.agency).md)
 
@@ -461,6 +466,7 @@ ${protocolArtefactsSection(i.protocolArtefacts).html}
 <table><tr>${cols.map((c) => `<th>${HTML_HEADERS[c.label] ?? c.label}</th>`).join('')}</tr>
 ${rows}</table>
 ${htmlDisposition(i)}
+${crossSiteSection(i.crossSite).html}
 ${etlSection(i.etl).html}
 ${conformanceSection(i.conformance, i.standards?.agency).html}
 ${files ? `<h2>7. Submission package contents</h2><table><tr><th>File</th><th>SHA-256</th><th>Bytes</th></tr>${files}</table>` : ''}
@@ -468,6 +474,58 @@ ${files ? `<h2>7. Submission package contents</h2><table><tr><th>File</th><th>SH
 </body></html>
 `
 }
+
+const CAP = { groups: 10, rules: 50, concepts: 100, dqd: 50 }
+const more = (n: number, cap: number, what: string) => (n > cap ? [`_… and ${n - cap} more ${what} (in the exported datasets)._`, ''] : [])
+
+/** Cross-site evidence for review (A2, E1, X1). Nothing in it excludes a site or blocks an export. */
+function crossSiteSection(ev: CrossSiteEvidence | undefined): { md: string[]; html: string } {
+  if (!ev || !ev.heterogeneity.rows.length) return { md: [], html: '' }
+  const md: string[] = ['## Cross-site evidence (for review)', '', CROSS_SITE_NOTE, '']
+  const h = ev.heterogeneity
+  md.push('### Site heterogeneity', '', 'Cells marked ⚠ differ from the majority of the adopted sites.', '')
+  md.push(`| Site | ${HETEROGENEITY_COLUMNS.join(' | ')} |`, `|---|${HETEROGENEITY_COLUMNS.map(() => '---').join('|')}|`)
+  for (const r of h.rows) md.push(`| ${mdCell(r.siteId)} | ${HETEROGENEITY_COLUMNS.map((c) => `${r.differing.includes(c) ? '⚠ ' : ''}${mdCell(r.values[c] ?? '—')}`).join(' | ')} |`)
+  md.push('')
+  for (const f of h.findings) md.push(`- Review: ${mdCell(f)}`)
+  if (h.findings.length) md.push('')
+  if (h.dqdDifferences.length) {
+    md.push('DQD checks that fail at some adopted sites but not at others:', '', '| Check | Table | Field | Fails at | Passes at |', '|---|---|---|---|---|')
+    for (const d of h.dqdDifferences.slice(0, CAP.dqd)) md.push(`| ${mdCell(d.check)} | ${mdCell(d.table ?? '—')} | ${mdCell(d.field ?? '—')} | ${mdCell(d.failingAt.join(', '))} | ${mdCell(d.passingAt.join(', '))} |`)
+    md.push('', ...more(h.dqdDifferences.length, CAP.dqd, 'checks'))
+  }
+  const attr = ev.attrition.filter((a) => a.cohortMethod?.length || a.inclusionRules?.length)
+  if (attr.length || ev.missingAttrition.length) {
+    md.push('### Attrition', '', 'Counts as each site reported them; censored counts are shown as <k.', '')
+    for (const site of ev.missingAttrition) md.push(`- Review: ${mdCell(site)} has no CohortMethod attrition table although CohortMethod is in the analysis specification.`)
+    if (ev.missingAttrition.length) md.push('')
+    for (const a of attr) {
+      md.push(`#### ${mdCell(a.siteId)}`, '')
+      for (const g of (a.cohortMethod ?? []).slice(0, CAP.groups)) {
+        md.push(`CohortMethod attrition (${mdCell(Object.entries(g.key).map(([k, v]) => `${k} ${v}`).join(', ') || 'all')}):`, '', '| Step | Description | Subjects |', '|---|---|---|')
+        for (const s of g.steps) md.push(`| ${s.sequence} | ${mdCell(s.description)} | ${s.subjects} |`)
+        md.push('')
+      }
+      md.push(...more(a.cohortMethod?.length ?? 0, CAP.groups, 'attrition groups'))
+      if (a.inclusionRules?.length) {
+        md.push('CohortGenerator inclusion rules:', '', '| Cohort | Rule | Name | Persons | Gain | Total | Mode |', '|---|---|---|---|---|---|---|')
+        for (const r of a.inclusionRules.slice(0, CAP.rules)) md.push(`| ${mdCell(r.cohortId)} | ${mdCell(r.rule)} | ${mdCell(r.name ?? '—')} | ${r.personCount} | ${r.gainCount ?? '—'} | ${r.personTotal ?? '—'} | ${mdCell(r.modeId ?? '—')} |`)
+        md.push('', ...more(a.inclusionRules.length, CAP.rules, 'rule rows'))
+      }
+    }
+  }
+  if (ev.concepts.length) {
+    const sites = h.rows.map((r) => r.siteId)
+    md.push('### Concept-set resolution', '', 'Per concept set, the first 12 characters of the SHA-256 of the sorted standard concept IDs resolved at each site (CohortDiagnostics), the number of concepts, and the number of distinct source codes mapped. Cells marked ⚠ differ from the majority.', '')
+    md.push(`| Cohort | Concept set | ${sites.map(mdCell).join(' | ')} |`, `|---|---|${sites.map(() => '---').join('|')}|`)
+    for (const c of ev.concepts.slice(0, CAP.concepts))
+      md.push(`| ${mdCell(c.cohortId)} | ${mdCell(`${c.conceptSetId}${c.name ? ` ${c.name}` : ''}`)} | ${sites.map((s) => { const v = c.sites[s]; return v ? `${c.differing.includes(s) ? '⚠ ' : ''}\`${v.sha256.slice(0, 12)}\` (${v.concepts} concepts${v.sourceCodes !== undefined ? `, ${v.sourceCodes} source codes` : ''}${v.from === 'included' ? ', observed only' : ''})` : '—' }).join(' | ')} |`)
+    md.push('', ...more(ev.concepts.length, CAP.concepts, 'concept sets'))
+  }
+  return { md, html: markdownToHtml(md.join('\n')) }
+}
+
+const CROSS_SITE_NOTE = 'Report-only: shown so that differences between sites can be reviewed. Nothing in this section excludes a site, blocks a seal or refuses an export, and it does not judge whether the sites are comparable.'
 
 /** Amendment, plan documents and registration lines of the report header (P1–P3); none without those fields. */
 function planLines(i: Pick<ReportInput, 'config' | 'chain'>): { md: string; text: string }[] {
@@ -810,7 +868,7 @@ export async function buildRegulatoryExport(params: {
     issues: rateIssues([...checkDefineXml(defineXml), ...checkDatasetsAgainstDefine(defineXml, datasets)]),
     expected: expectedFindings(standards.defineXml),
   }
-  const reportInput: ReportInput = { ...params, generatedAt, exportedFiles, standards, conformance, disposition: d?.entries, dispositionHead: d?.headHash, etl, protocolArtefacts, ...(chain.length ? { chain } : {}) }
+  const reportInput: ReportInput = { ...params, generatedAt, exportedFiles, standards, conformance, disposition: d?.entries, dispositionHead: d?.headHash, etl, protocolArtefacts, ...(chain.length ? { chain } : {}), crossSite: await crossSiteEvidence(adopted, params.config) }
   const markdown = buildMarkdownReport(reportInput)
   const html = buildHtmlReport(reportInput)
   content.push({ path: 'audit_report.md', bytes: enc.encode(markdown), role: 'evidence' })

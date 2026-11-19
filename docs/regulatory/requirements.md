@@ -66,6 +66,8 @@ interpretation and should be confirmed in a PMDA consultation.
 | R3.2 | Transformation into a CDM is documented | FDA-RWD §VI.A; FDA-DS §III.C | Existing ETL slots (`ScanReport`, mapping specification) + CDM facts in the audit report |
 | R3.3 | Software and versions are recorded to allow replication | M14 §6.1, §7; EMA-CS §4.7 (traceability of data transformations and derivations) | R and HADES package versions from `renv.lock`, tool name, version and build id (the git commit, set by `vite.config.ts` at build time) in `manifest.json` |
 | R3.4 | All planned analyses produced results (completeness) | E6 §4.2.6; M14 §7 | Modules in the analysis specification vs. modules present in the results |
+| R3.5 | Differences between data sources that can affect results are visible with the results | M14 §5.3 (coding systems and their versions); FDA-RWD §IV.A | Report-only (`network/crossSiteEvidence.ts`): per adopted site, CDM / vocabulary / DQD versions, DQD failures on study tables, source release, data cut-off, Strategus and R versions and DBMS (from the run record: `connectionDetails$dbms` only), cells differing from the majority marked; a review note when vocabularies differ and none is required; DQD checks failing at some sites only; per concept set, a fingerprint of the concepts CohortDiagnostics resolved at each site. Never blocks |
+| R3.6 | Attrition from source population to analysed cohort is reported | M14 (reporting of participant flow; section to be confirmed when this row is reviewed) | Report-only: CohortMethod `cm_attrition` and CohortGenerator inclusion-rule counts per adopted site, censored counts shown as `<k`; a review finding when CohortMethod is specified and a site has no attrition table |
 
 ### R4 — Data quality gate
 

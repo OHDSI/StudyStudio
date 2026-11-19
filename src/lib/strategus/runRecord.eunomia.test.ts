@@ -39,6 +39,8 @@ describe.skipIf(!out)('run record of a real Strategus run on Eunomia', () => {
     console.log(JSON.stringify({ diagnostics: diagnostics(), last: r.last, results: { ...r.results, matched: r.results.matched }, environment: r.environment, issues: r.issues }, null, 2))
     expect(r.runs).toBe(2)
     expect(r.last?.status).toBe('completed')
+    // X2: the platform from connectionDetails (Eunomia runs on SQLite), nothing else from the connection.
+    expect(r.last?.dbms).toBe('sqlite')
     expect(r.inputs.map((i) => i.status)).toEqual(['match', 'match', 'match'])
     expect(r.results.recorded).toBeGreaterThan(10)
     expect(r.results).toMatchObject({ mismatched: [], notRecorded: [], stale: [] })

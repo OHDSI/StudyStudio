@@ -9,6 +9,7 @@
       "errorClass": null,
       "r": "4.4.1",
       "platform": "x86_64-pc-linux-gnu",
+      "dbms": "postgresql",
       "packages": {
         "base": "4.4.1",
         "CohortGenerator": "1.0.0",
@@ -34,8 +35,8 @@
         },
         "executionScript": {
           "file": "ExecuteAnalyses.R",
-          "sha256": "c46b0270648d1386f16c65fb23c9c2dfe1b041b566c606b101fb39b66e9e8cf0",
-          "protectedSha256": "a4058456a34fb6e0e4176a294cac436b637c4d407987b52dd52b533f18205f13"
+          "sha256": "1bbd969c6f5c9ae80a8d314c49f396adc3a3a8d9a5f92f670ca20041baa57915",
+          "protectedSha256": "0157277ecf467994c188a64723ee954d3d58c5687fdb94532b33ae6146c26dc7"
         },
         "renvLock": {
           "file": "renv.lock",

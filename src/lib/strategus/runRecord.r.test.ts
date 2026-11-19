@@ -32,6 +32,8 @@ describe.skipIf(!folder)('run record written by R', () => {
     expect(r.inputs.map((i) => [i.key, i.status])).toEqual([['analysisSpecifications', 'match'], ['executionScript', 'match'], ['renvLock', 'match']])
     expect(r.results).toMatchObject({ recorded: 12, matched: 12, mismatched: [], notRecorded: [], stale: [] })
     expect(r.last?.status).toBe('completed')
+    // X2: the database platform, and nothing else from the connection.
+    expect(r.last?.dbms).toBe('sqlite')
     // Strategus is not installed for this check, and the R version may differ from renv.lock.
     expect(r.issues.map((i) => i.code).filter((c) => c !== 'no-strategus' && c !== 'env-r')).toEqual([])
   })

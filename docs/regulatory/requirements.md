@@ -1,9 +1,10 @@
 # Regulatory requirements traceability
 
-This document maps regulatory expectations to OHDSI Study Studio features. Every requirement ID below
+This document maps the principles in regulatory guidance to the OHDSI Study Studio features designed to meet them. Every requirement ID below
 names the module that implements it; [validation-plan.md](validation-plan.md) §6 names the tests that
 exercise it. It is an input to the validation of the tool for a given study, not a substitute for it.
-Meeting these requirements is our reading of the sources; no regulator has reviewed the tool.
+The requirements below are our reading of the sources, not demands made of this tool: no regulator asks for
+these mechanisms as such, and no regulator has reviewed the tool.
 
 **Status of the sources.** None of these documents is written for OHDSI-style distributed network
 studies, and most of them are non-binding guidance ("should"). ICH E6(R3) and the EMA computerised
@@ -101,10 +102,10 @@ interpretation and should be confirmed in a PMDA consultation.
 JP-ERES applies to application materials and their source records kept as electronic records, and JP-EDOC
 confirms it applies to trial documents too. It states general requirements and leaves the concrete means to
 the record holder (JP-EDOC 2.(4)), and authenticity can be established by the system *and* its operating
-procedures together. This is why most rows below are met by the tool plus an SOP, without extra steps for
+procedures together. This is why most rows below are addressed by the tool plus an SOP, without extra steps for
 site researchers.
 
-| Clause | Requirement (summary) | How it is met |
+| Clause | Requirement (summary) | How the tool addresses it |
 |---|---|---|
 | 3.1 | Computer system validation is a precondition | [validation-plan.md](validation-plan.md) (risk assessment, automated suite, OQ/PQ, change control) |
 | 3.1.1 真正性 (1) | Security rules and procedures documented and followed | SOP-2 (keys and passphrases), SOP-8 (workstation and file handling); the tool sends nothing (`connect-src 'none'`) |

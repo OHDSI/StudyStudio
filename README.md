@@ -176,7 +176,7 @@ A plain hash of a results file that was later masked would let anyone recover th
 
 ## Regulatory controls
 
-Designed with reference to ICH M14, ICH E6(R3), the FDA RWD and Part 11 Q&A guidances, the EMA computerised-systems guideline and the MHLW/PMDA database-study notices. [`docs/regulatory/requirements.md`](docs/regulatory/requirements.md) maps each requirement to its source and its implementation, and lists the known limitations; the validation plan maps the requirements to the tests that exercise them. [`docs/regulatory/validation-plan.md`](docs/regulatory/validation-plan.md) is a template for validating the tool for a study: risk assessment, data flow, traceability, IQ/OQ/PQ and the SOPs it relies on.
+Designed with reference to ICH M14, ICH E6(R3), the FDA RWD and Part 11 Q&A guidances, the EMA computerised-systems guideline and the MHLW/PMDA database-study notices. These documents state principles (attributable signatures, audit trails, data integrity) and leave the means to the user; no regulator asks for these controls as such. They are this tool's design for meeting those principles in an offline, distributed study, and no regulator has reviewed them. [`docs/regulatory/requirements.md`](docs/regulatory/requirements.md) maps each requirement to its source and its implementation, and lists the known limitations; the validation plan maps the requirements to the tests that exercise them. [`docs/regulatory/validation-plan.md`](docs/regulatory/validation-plan.md) is a template for validating the tool for a study: risk assessment, data flow, traceability, IQ/OQ/PQ and the SOPs it relies on.
 
 | Control | What it does |
 |---|---|

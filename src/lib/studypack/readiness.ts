@@ -35,6 +35,8 @@ export interface ReadinessInput {
   signers?: { role: string }[]
   /** Coordinator signature checks over the received study_config.json (undefined = unsigned protocol). */
   protocolSignature?: { valid: boolean }[]
+  /** Paths of the files that came with the protocol (protocol ZIP), e.g. docs/… plan documents (P2). */
+  protocolFilePaths?: string[]
 }
 
 export function evaluateReadiness(p: ReadinessInput): Readiness {
@@ -69,6 +71,10 @@ export function evaluateReadiness(p: ReadinessInput): Readiness {
       else if (!hashesEqual(section.sha256, s.protectedSha256)) warnings.push(`${slot.path}: code below "${section.marker}" differs from the protocol (the coordinator may exclude this site)`)
     }
   }
+
+  // P2: plan documents travel in the protocol ZIP and are sealed automatically; only say so if they did not arrive.
+  const missingDocs = (p.config?.documents ?? []).filter((d) => !p.protocolFilePaths?.includes(d.path)).map((d) => d.path)
+  if (missingDocs.length) warnings.push(`Protocol document(s) ${missingDocs.join(', ')} were not in the imported protocol, so they cannot be sealed (import the protocol ZIP rather than study_config.json alone; the coordinator may exclude this site)`)
 
   const results = Object.entries(p.results)
   if (results.length === 0) blockers.push(rScript ? 'No results loaded (drop the CSV file(s) the script wrote)' : 'Strategus results are not loaded (drop the results ZIP or folder)')

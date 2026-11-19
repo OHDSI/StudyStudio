@@ -101,6 +101,40 @@ export interface StudyConfig {
    * needs a decision or a `not-received` entry before the dispositions can be locked (A1).
    */
   sites?: ExpectedSite[]
+  /** The issue this protocol replaces (assessment P1); covered by the coordinator signature like every other field. */
+  amends?: ProtocolAmendment
+  /** Plan documents (protocol, statistical analysis plan, …) shipped under docs/ and pinned by SHA-256 (P2). Never parsed. */
+  documents?: ProtocolDocument[]
+  /** Registration in a public registry, as declared by the coordinator; not verified by the tool (P3). */
+  registration?: StudyRegistration
+}
+
+export interface ProtocolAmendment {
+  /** SHA-256 of the previous study_config.json bytes. */
+  previousSha256: string
+  previousIssuedAt: string
+  summary: string
+}
+
+export interface ProtocolDocument {
+  /** Path inside the protocol ZIP and the StudyPack, under docs/. */
+  path: string
+  sha256: string
+  title: string
+}
+
+export interface StudyRegistration {
+  registry: string
+  id: string
+  registeredAt?: string
+}
+
+/** Wording shown next to a declared registration wherever it is displayed (P3). */
+export const REGISTRATION_LABEL = 'as declared by the coordinator; not verified by the tool'
+
+/** Whole-file pinned hashes: expectedHashes plus the plan documents (P2), keyed by StudyPack path. */
+export function pinnedFileHashes(config?: Pick<StudyConfig, 'expectedHashes' | 'documents'>): Record<string, string> {
+  return { ...(config?.expectedHashes ?? {}), ...Object.fromEntries((config?.documents ?? []).map((d) => [d.path, d.sha256])) }
 }
 
 export interface ExpectedSite {

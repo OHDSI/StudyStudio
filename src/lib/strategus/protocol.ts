@@ -10,7 +10,7 @@
 import JSZip from 'jszip'
 import { openZip } from '@/lib/security/zip'
 import { sha256Hex } from '@/lib/integrity/hasher'
-import type { AssuranceLevel, ExpectedSite, FrameworkName, StudyConfig } from '@/types/studypack'
+import type { AssuranceLevel, ExpectedSite, FrameworkName, ProtocolAmendment, ProtocolDocument, StudyConfig, StudyRegistration } from '@/types/studypack'
 import { defaultDqdPolicy, studyTablesFor } from '@/lib/audit/dqdAuditor'
 import { DEFAULT_REASON_CODES } from '@/lib/network/dispositionLog'
 import { addSignature, parseJws, verifyDetachedJws, type DetachedJws, type SignatureCheck, type UnlockedSigner } from '@/lib/security/signer'
@@ -116,6 +116,12 @@ export interface ProtocolMeta {
   signer?: UnlockedSigner
   /** Participating sites (C2). Required for regulatory assurance. */
   sites?: ExpectedSite[]
+  /** The previous issue this one replaces (P1): its study_config.json bytes and a summary of the change. */
+  amends?: { previousBytes: Uint8Array; summary: string }
+  /** Plan documents to pin and ship under docs/ (P2). */
+  documents?: { title: string; name: string; bytes: Uint8Array }[]
+  /** Registration in a public registry (P3), as declared by the coordinator. */
+  registration?: StudyRegistration
   /**
    * R script studies: the comment line below which the script is pinned. Undefined picks
    * suggestMarker(); null pins the whole file. Strategus studies always use the template marker.
@@ -143,6 +149,32 @@ export function parseSiteList(text: string): ExpectedSite[] {
     .map(([siteId, role, cdmSourceName, sourceReleaseDate]) => ({ siteId, role, cdmSourceName, sourceReleaseDate }))
 }
 
+/** Where a plan document goes in the protocol ZIP and the StudyPack. */
+export const docPath = (name: string) => `docs/${name.split(/[\\/]/).pop()!.replace(/[^A-Za-z0-9._-]+/g, '_')}`
+
+/** The P1–P3 fields of study_config.json, and the document files to ship. Absent inputs add nothing. */
+async function planFields(meta: ProtocolMeta): Promise<{ fields: { amends?: ProtocolAmendment; documents?: ProtocolDocument[]; registration?: StudyRegistration }; files: Record<string, Uint8Array> }> {
+  const fields: { amends?: ProtocolAmendment; documents?: ProtocolDocument[]; registration?: StudyRegistration } = {}
+  const files: Record<string, Uint8Array> = {}
+  if (meta.amends) {
+    const prev = JSON.parse(dec.decode(meta.amends.previousBytes)) as StudyConfig
+    fields.amends = { previousSha256: await sha256Hex(meta.amends.previousBytes), previousIssuedAt: prev.issuedAt, summary: meta.amends.summary.trim() }
+  }
+  if (meta.documents?.length) {
+    fields.documents = []
+    for (const d of meta.documents) {
+      const path = docPath(d.name)
+      files[path] = d.bytes
+      fields.documents.push({ path, sha256: await sha256Hex(d.bytes), title: d.title.trim() })
+    }
+  }
+  if (meta.registration) {
+    const r = meta.registration
+    fields.registration = { registry: r.registry.trim(), id: r.id.trim(), ...(r.registeredAt?.trim() ? { registeredAt: r.registeredAt.trim() } : {}) }
+  }
+  return { fields, files }
+}
+
 /** Trim the site list; empty fields are dropped so they are not compared. */
 export function normalizeSites(sites?: ExpectedSite[]): ExpectedSite[] | undefined {
   const out = (sites ?? [])
@@ -157,8 +189,24 @@ export function normalizeSites(sites?: ExpectedSite[]): ExpectedSite[] | undefin
 }
 
 /** Why a protocol cannot be issued with these settings (checked at issue, never first at lock or export). */
-export function issueRefusals(meta: Pick<ProtocolMeta, 'assurance' | 'sites'>): string[] {
+export function issueRefusals(meta: Pick<ProtocolMeta, 'assurance' | 'sites' | 'amends' | 'documents' | 'registration'> & { studyId?: string }): string[] {
   const reasons: string[] = []
+  if (meta.amends) {
+    if (!meta.amends.summary.trim()) reasons.push('Summarise what the amendment changes')
+    try {
+      const prev = JSON.parse(dec.decode(meta.amends.previousBytes)) as Partial<StudyConfig>
+      if (!prev.issuedAt) reasons.push('The previous study_config.json has no issue time')
+      if (meta.studyId !== undefined && prev.studyId !== meta.studyId.trim()) reasons.push(`The previous issue is for study ${prev.studyId ?? '—'}, not ${meta.studyId.trim()}`)
+    } catch {
+      reasons.push('The previous study_config.json is not valid JSON')
+    }
+  }
+  const names = (meta.documents ?? []).map((d) => docPath(d.name))
+  const dupDocs = names.filter((x, i) => names.indexOf(x) !== i)
+  if (dupDocs.length) reasons.push(`Document listed more than once: ${[...new Set(dupDocs)].join(', ')}`)
+  for (const d of meta.documents ?? []) if (!d.title.trim()) reasons.push(`${d.name}: give the document a title`)
+  if (meta.registration && (!meta.registration.registry.trim() || !meta.registration.id.trim())) reasons.push('A registration needs both the registry and the registration ID')
+  if (meta.registration?.registeredAt?.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(meta.registration.registeredAt.trim())) reasons.push('Registration date must be YYYY-MM-DD')
   const sites = normalizeSites(meta.sites)
   if (meta.assurance === 'regulatory' && !sites) reasons.push('Regulatory protocols must list the participating sites (site ID, and optionally role, CDM source name and source release date)')
   const ids = (sites ?? []).map((s) => s.siteId)
@@ -218,6 +266,9 @@ export async function issueProtocol(repo: StudyRepo, meta: ProtocolMeta): Promis
   }
   const sites = normalizeSites(meta.sites)
   if (sites) config.sites = sites
+  const plan = await planFields(meta)
+  Object.assign(config, plan.fields)
+  Object.assign(files, plan.files)
   const configBytes = enc.encode(JSON.stringify(config, null, 2) + '\n')
   const signature = meta.signer ? await addSignature(undefined, configBytes, meta.signer, 'protocol-issued', meta.now) : undefined
   return { config, configBytes, signature, files, summary }
@@ -268,10 +319,13 @@ async function issueRScriptProtocol(repo: StudyRepo, meta: ProtocolMeta): Promis
     protectedSections: sectionHash && marker ? { [PROTOCOL_PATHS.executeAnalyses]: { marker, sha256: sectionHash } } : {},
   }
   if (meta.vocabularyVersion?.trim()) config.cdmRequirements = { vocabularyVersion: meta.vocabularyVersion.trim() }
-  const refused = issueRefusals({ sites: meta.sites })
+  const refused = issueRefusals({ ...meta, assurance: undefined })
   if (refused.length) throw new Error(refused.join('; '))
   const sites = normalizeSites(meta.sites)
   if (sites) config.sites = sites
+  const plan = await planFields(meta)
+  Object.assign(config, plan.fields)
+  Object.assign(files, plan.files)
   const configBytes = enc.encode(JSON.stringify(config, null, 2) + '\n')
   const signature = meta.signer ? await addSignature(undefined, configBytes, meta.signer, 'protocol-issued', meta.now) : undefined
   return { config, configBytes, signature, files, summary: { modules: [], cohorts: [], negativeControlOutcomes: 0 } }
@@ -334,7 +388,7 @@ export async function readProtocolFile(name: string, data: ArrayBuffer | Uint8Ar
       const rel = p.replace(/^[^/]+_protocol\//, '')
       if (/(^|\/)study_config\.json$/.test(rel)) configBytes = await e.async('uint8array')
       else if (rel.endsWith(PROTOCOL_SIGNATURE_FILE)) signatureBytes = await e.async('uint8array')
-      else if ((Object.values(PROTOCOL_PATHS) as string[]).includes(rel)) files[rel] = await e.async('uint8array')
+      else if ((Object.values(PROTOCOL_PATHS) as string[]).includes(rel) || /^docs\/[^/]+$/.test(rel)) files[rel] = await e.async('uint8array')
     }
     if (!configBytes) return { files, errors: ['study_config.json not found in the ZIP'] }
   } else {

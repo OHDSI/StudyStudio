@@ -13,9 +13,9 @@ import type { CombinedTable } from '@/lib/cdisc/datasetJson'
 import type { AnalysisSpecSummary } from '@/lib/strategus/spec'
 import { PROTOCOL_PATHS } from '@/lib/strategus/protocol'
 import { APP_VERSION } from '@/lib/studypack/builder'
-import type { CrossSiteResult } from '@/lib/network/aggregator'
+import type { ChainEntry, CrossSiteResult } from '@/lib/network/aggregator'
 import type { DispositionEntry } from '@/lib/network/dispositionLog'
-import type { StudyConfig } from '@/types/studypack'
+import { REGISTRATION_LABEL, type StudyConfig, type StudyRegistration } from '@/types/studypack'
 import { AGENCY_LABELS } from '@/lib/cdisc/validatorProfiles'
 import type { ValidatorRun } from '@/lib/cdisc/p21Report'
 import { markdownToHtml } from './markdown'
@@ -41,8 +41,15 @@ export interface ReviewersGuideInput {
   renv?: RenvSummary
   etl?: SiteEtl[]
   disposition?: readonly DispositionEntry[]
+  /** Amendment chain, newest first (P1); empty or absent when the protocol amends nothing. */
+  chain?: ChainEntry[]
   /** Reports of the validator runs on this package (Pinnacle 21), loaded by the user after the export. */
   validatorRuns?: ValidatorRun[]
+}
+
+/** "<registry> <id> (registered <date>) — as declared by the coordinator; not verified by the tool" (P3). */
+export function registrationText(r: StudyRegistration): string {
+  return `${r.registry} ${r.id}${r.registeredAt ? ` (registered ${r.registeredAt})` : ''} — ${REGISTRATION_LABEL}`
 }
 
 /** Sentence on the simplified ts.xpt shipped with the package (FDA TCG 8.1.2.2, Appendix G), with a trailing space. */
@@ -163,7 +170,13 @@ export function buildReviewersGuideMarkdown(i: ReviewersGuideInput): string {
   if (i.config?.sponsor) L.push(`- **Sponsor:** ${i.config.sponsor}`)
   if (i.config?.principalInvestigator) L.push(`- **Principal investigator:** ${i.config.principalInvestigator}`)
   if (i.config?.issuedAt) L.push(`- **Protocol issued:** ${i.config.issuedAt}`)
-  L.push(`- **Protocol versions:** ${TODO('protocol version(s) and dates')}`, '')
+  if (i.chain?.length) {
+    L.push('- **Protocol versions** (amendment chain recorded in study_config.json, newest first; each issue is signed by the coordinator and names the SHA-256 of the issue it amends):')
+    i.chain.forEach((c, n) => L.push(`  - ${n === 0 ? 'Current issue' : `Amendment N−${n}`}: issued ${c.issuedAt ?? '—'}, SHA-256 \`${c.sha256 ?? '—'}\`${c.summary ? `; changes from the previous issue: ${c.summary}` : ''}`))
+  } else L.push(`- **Protocol versions:** ${TODO('protocol version(s) and dates')}`)
+  for (const d of i.config?.documents ?? []) L.push(`- **Plan document:** ${d.title} (\`protocol/${d.path}\`, SHA-256 \`${d.sha256}\`)`)
+  if (i.config?.registration) L.push(`- **Registration:** ${registrationText(i.config.registration)}`)
+  L.push('')
   L.push('### 2.2 Protocol Design in Relation to ADaM Concepts', '')
   L.push(
     `${TODO('study design, objectives and endpoints, and how they map to the datasets below')} The study does not collect subject-level data, so there is no ADSL and no subject-level traceability; each dataset holds results aggregated per site, analysis and cohort.`,

@@ -66,6 +66,7 @@ export function ExportHub() {
   const protocol = useStudyStore((s) => s.protocol)
   const rosterBytes = useStudyStore((s) => s.rosterBytes)
   const rosterSignature = useStudyStore((s) => s.rosterSignature)
+  const earlierIssues = useStudyStore((s) => s.earlierIssues)
   const [out, setOut] = React.useState<RegulatoryExport>()
   /** Reports of validator runs on the generated package; they complete the reviewer's guide. */
   const [runs, setRuns] = React.useState<ValidatorRun[]>([])
@@ -164,6 +165,7 @@ export function ExportHub() {
           ...(withTs ? { simplifiedTs: { studyStartDate: tsStart } } : {}),
           tables: selectedKeys,
           disposition: { entries: log.entries, jsonl: log.toJsonl(), headHash: log.headHash, head, headSignature },
+          earlierIssues,
           protocol: protocol && { configBytes: protocol.bytes, signatureBytes: protocol.signatureBytes, files: protocol.files },
           roster: rosterBytes && { bytes: rosterBytes, signatureBytes: rosterSignature ? new TextEncoder().encode(JSON.stringify(rosterSignature, null, 2) + '\n') : undefined },
         }),

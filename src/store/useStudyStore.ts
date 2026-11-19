@@ -8,7 +8,7 @@ import { redactLog } from '@/lib/audit/logAuditor'
 import { sha256Hex } from '@/lib/integrity/hasher'
 import { SLOT_BY_ID, type SlotId } from '@/lib/studypack/slots'
 import type { FileModification } from '@/lib/studypack/builder'
-import type { IssuedProtocol, ProtocolRead, StudyRepo } from '@/lib/strategus/protocol'
+import { validateStudyConfig, type IssuedProtocol, type ProtocolRead, type StudyRepo } from '@/lib/strategus/protocol'
 import { executionSettingsMinCellCount, inputMinCellCount, protectedSectionHash } from '@/lib/strategus/executeScript'
 import { auditResultFiles, collectRdms, auditOptionsFor, type ResultFile } from '@/lib/strategus/results'
 import { loadStudyPack, type LoadedSitePack } from '@/lib/network/aggregator'
@@ -110,7 +110,11 @@ interface StudyState {
   setActor: (a?: Actor) => void
   addSitePacks: (files: { name: string; bytes: Uint8Array }[]) => Promise<string[]>
   removeSite: (key: string) => Promise<void>
-  decide: (key: string, to: 'adopt' | 'exclude', recommended: 'adopt' | 'exclude', reasonCode?: string, reasonText?: string) => Promise<void>
+  decide: (key: string, to: 'adopt' | 'exclude', recommended: 'adopt' | 'exclude', reasonCode?: string, reasonText?: string, warnings?: string[]) => Promise<void>
+  /** Earlier issues of the protocol loaded as additional references (P1), by SHA-256 of their bytes. */
+  earlierIssues: { sha256: string; config: StudyConfig }[]
+  addEarlierIssue: (bytes: Uint8Array) => Promise<string | undefined>
+  clearEarlierIssues: () => void
   lockDispositions: (statement: string) => Promise<void>
   /** Record that no pack was received from a site in the protocol's site list (A1). */
   recordNotReceived: (siteId: string, reasonCode: string, reasonText: string) => Promise<void>
@@ -224,6 +228,7 @@ export const useStudyStore = create<StudyState>((set, get) => {
     busy: {},
     signers: [],
     sites: [],
+    earlierIssues: [],
     log: new DispositionLog(),
     logRev: 0,
     noteDroppedFiles: (files) => {
@@ -417,7 +422,21 @@ export const useStudyStore = create<StudyState>((set, get) => {
       if (site && get().actor) await append({ actor: actorOrThrow(), action: 'note', siteId: site.siteId, packSha256: site.zipSha256, reasonText: 'Pack removed from this session (not a disposition decision)' })
     },
 
-    decide: async (key, to, recommended, reasonCode, reasonText) => {
+    addEarlierIssue: async (bytes) => {
+      let config: StudyConfig | undefined
+      try {
+        config = validateStudyConfig(JSON.parse(dec.decode(bytes))).config
+      } catch {
+        return 'Not a study_config.json'
+      }
+      if (!config) return 'Not a study_config.json'
+      const sha256 = await sha256Hex(bytes)
+      if (!get().earlierIssues.some((e) => e.sha256 === sha256)) set((s) => ({ earlierIssues: [...s.earlierIssues, { sha256, config: config! }] }))
+      return undefined
+    },
+    clearEarlierIssues: () => set({ earlierIssues: [] }),
+
+    decide: async (key, to, recommended, reasonCode, reasonText, warnings) => {
       const site = get().sites.find((x) => x.key === key)
       if (!site) return
       const current = get().log.decisions().get(site.zipSha256) ?? 'undecided'
@@ -433,6 +452,8 @@ export const useStudyStore = create<StudyState>((set, get) => {
         deviatesFromRecommendation: to !== recommended,
         reasonCode: reasonCode || undefined,
         reasonText: reasonText?.trim() || undefined,
+        // Findings that did not exclude the site (e.g. sealed under an earlier issue) are kept with the decision.
+        ...(warnings?.length ? { details: { warnings } } : {}),
       })
     },
 

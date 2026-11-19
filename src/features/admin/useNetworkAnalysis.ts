@@ -6,7 +6,7 @@ import { evaluateEvidence } from '@/lib/studypack/evidence'
 import { withEnrollment } from '@/lib/security/signer'
 import { DEFAULT_REASON_CODES } from '@/lib/network/dispositionLog'
 import type { SiteRow } from '@/lib/export/regulatory'
-import { isRScriptStudy } from '@/types/studypack'
+import { isRScriptStudy, pinnedFileHashes } from '@/types/studypack'
 
 /** Derived network state shared by the Aggregator and Export Hub. */
 export function useNetworkAnalysis() {
@@ -16,8 +16,10 @@ export function useNetworkAnalysis() {
   const rosterStatus = useStudyStore((s) => s.rosterStatus)
   const log = useStudyStore((s) => s.log)
   const logRev = useStudyStore((s) => s.logRev)
+  const earlierIssues = useStudyStore((s) => s.earlierIssues)
   return React.useMemo(() => {
-    const expected = config?.expectedHashes ?? {}
+    const knownIssues = new Map(earlierIssues.map((e) => [e.sha256, e.config]))
+    const expected = pinnedFileHashes(config)
     const sections = config?.protectedSections ?? {}
     const paths = protocolKeyPaths(config, sites)
     const cross = crossCheckSites(sites, expected, sections, paths)
@@ -38,7 +40,7 @@ export function useNetworkAnalysis() {
         declaredModified: (site.manifest?.files ?? []).filter((f) => f.originalCommitment).map((f) => f.path),
       })
       const signatures = withEnrollment(site.signatureChecks, roster, site.siteId, site.receivedAt, rosterIssue)
-      const verdict = siteVerdict(site, cross, config?.studyId, sites, { config, evidence, signatures })
+      const verdict = siteVerdict(site, cross, config?.studyId, sites, { config, evidence, signatures, knownIssues })
       const decision = decisions.get(site.zipSha256)
       return { site, verdict, evidence, signatures, plausibility: plausibility.get(site.key) ?? [], decision, adopted: decision ? decision === 'adopt' : verdict.recommended === 'adopt' }
     })
@@ -46,5 +48,5 @@ export function useNetworkAnalysis() {
     return { sites, cross, rows, paths, config, log, locked: log.locked, reasonCodes, regulatory }
     // logRev changes whenever the (mutable) log is appended to.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sites, config, roster, rosterStatus, log, logRev])
+  }, [sites, config, roster, rosterStatus, log, logRev, earlierIssues])
 }

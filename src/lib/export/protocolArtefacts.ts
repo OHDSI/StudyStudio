@@ -113,6 +113,19 @@ export async function collectProtocolArtefacts(p: { config?: StudyConfig; protoc
     }
   }
 
+  // P2: plan documents, pinned by SHA-256 in study_config.documents; shipped under protocol/docs/, never parsed.
+  for (const d of config.documents ?? []) {
+    const pkgPath = `protocol/${d.path}`
+    const fromProtocol = protocol?.files?.[d.path]
+    const bytes = fromProtocol ?? p.adopted.map((s) => s.files[d.path]).find((b) => b)
+    if (!bytes) {
+      out.unavailable.push(pkgPath)
+      continue
+    }
+    if (!hashesEqual(await sha256Hex(bytes), d.sha256)) out.mismatched.push({ path: pkgPath, reason: `${d.path} (${d.title}) does not match the protocol hash` })
+    else await add(pkgPath, bytes, `SHA-256 matches the protocol (${fromProtocol ? 'protocol ZIP' : 'an adopted site’s sealed copy'}) — ${d.title}`)
+  }
+
   if (p.roster) {
     await add('roster/signer_roster.json', p.roster.bytes, 'as loaded by the coordinator')
     if (p.roster.signatureBytes) await add('roster/signer_roster.jws.json', p.roster.signatureBytes, 'as loaded by the coordinator')

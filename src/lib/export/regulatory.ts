@@ -3,7 +3,8 @@
  * regulatory submission ZIP (define.xml, Dataset-JSON, reports, per-site manifests).
  */
 import JSZip from 'jszip'
-import type { CrossSiteResult, LoadedSitePack, SiteVerdict } from '@/lib/network/aggregator'
+import { protocolChain, sealedIssues, type ChainEntry, type CrossSiteResult, type LoadedSitePack, type SiteVerdict } from '@/lib/network/aggregator'
+import { sha256Hex } from '@/lib/integrity/hasher'
 import type { SiteEvidence } from '@/lib/studypack/evidence'
 import { kidFingerprint, type DetachedJws, type SignatureCheck } from '@/lib/security/signer'
 import { unaccountedSites, type DispositionEntry } from '@/lib/network/dispositionLog'
@@ -18,7 +19,7 @@ import { combineSiteCsvs, serializeDatasetJson, type CombinedTable, type Dataset
 import { parseMappingSpec, parseScanReport, type MappingSpec, type SourceTable } from '@/lib/cdisc/sources'
 import { APP_VERSION, manifestEntries, safeId, TOOL } from '@/lib/studypack/builder'
 import { parseAnalysisSpecification, type AnalysisSpecSummary } from '@/lib/strategus/spec'
-import { buildReviewersGuideHtml, buildReviewersGuideMarkdown, parseRenvLock, type ReviewersGuideInput } from './reviewersGuide'
+import { buildReviewersGuideHtml, buildReviewersGuideMarkdown, parseRenvLock, registrationText, type ReviewersGuideInput } from './reviewersGuide'
 import type { ValidatorRun } from '@/lib/cdisc/p21Report'
 import { buildDataDefinitionHtml } from './dataDefinition'
 import { collectProtocolArtefacts, type ProtocolArtefacts, type ProtocolSource, type RosterSource } from './protocolArtefacts'
@@ -58,6 +59,8 @@ export interface ReportInput {
   etl?: SiteEtl[]
   /** Protocol artefacts shipped in the submission package (C1). */
   protocolArtefacts?: ProtocolArtefacts
+  /** Amendment chain, newest first (P1). */
+  chain?: ChainEntry[]
 }
 
 /**
@@ -329,6 +332,7 @@ export function buildMarkdownReport(i: ReportInput): string {
   if (i.config?.sponsor) L.push(`- **Sponsor:** ${i.config.sponsor}`)
   L.push(`- **Generated:** ${i.generatedAt} by OHDSI Study Studio ${APP_VERSION} (offline, in-browser)`)
   L.push(`- **Protocol issued:** ${i.config?.issuedAt ?? '— (no study_config.json loaded; majority hashes used as reference)'}`)
+  L.push(...planLines(i).map((l) => `- ${l.md}`))
   L.push(`- **Minimum cell count:** ${i.config?.minCellCount ?? 5} (values 0 < n < ${i.config?.minCellCount ?? 5} must be suppressed)`)
   if (i.standards) L.push(`- **Submission standards:** ${standardsLine(i)}`)
   L.push(`- **Sites received:** ${i.rows.length} / **adopted:** ${adopted.length} / **excluded:** ${i.rows.length - adopted.length}`, '')
@@ -449,7 +453,7 @@ export function buildHtmlReport(i: ReportInput): string {
 <h1>Network Integrity &amp; Privacy Audit Report</h1>
 <div class="meta">${xmlEscape(i.studyId)} — ${xmlEscape(i.studyTitle)}<br>
 Generated ${xmlEscape(i.generatedAt)} · OHDSI Study Studio ${APP_VERSION} · min cell count ${xmlEscape(String(i.config?.minCellCount ?? 5))}<br>
-Sites received ${i.rows.length} · adopted ${adopted} · excluded ${i.rows.length - adopted}${i.standards ? `<br>${xmlEscape(standardsLine(i) ?? '')}` : ''}</div>
+Sites received ${i.rows.length} · adopted ${adopted} · excluded ${i.rows.length - adopted}${i.standards ? `<br>${xmlEscape(standardsLine(i) ?? '')}` : ''}${planLines(i).map((l) => `<br>${xmlEscape(l.text)}`).join('')}</div>
 <h2>1. Protocol reference hashes (SHA-256)</h2>
 <table><tr><th>Artifact</th><th>Reference</th><th>Source</th></tr>${refs}</table>
 ${protocolArtefactsSection(i.protocolArtefacts).html}
@@ -463,6 +467,20 @@ ${files ? `<h2>7. Submission package contents</h2><table><tr><th>File</th><th>SH
 <p class="foot">All processing was performed client-side; no data was transmitted to any server.</p>
 </body></html>
 `
+}
+
+/** Amendment, plan documents and registration lines of the report header (P1–P3); none without those fields. */
+function planLines(i: Pick<ReportInput, 'config' | 'chain'>): { md: string; text: string }[] {
+  const c = i.config
+  const out: { md: string; text: string }[] = []
+  if (c?.amends) {
+    const chain = i.chain?.length ? i.chain : [{ issuedAt: c.issuedAt, summary: c.amends.summary }, { issuedAt: c.amends.previousIssuedAt, sha256: c.amends.previousSha256 }]
+    const text = chain.map((e, n) => `${n === 0 ? 'current' : `N−${n}`}: ${e.issuedAt ?? '—'}${e.sha256 ? ` (${e.sha256.slice(0, 12)}…)` : ''}${e.summary ? ` — ${e.summary}` : ''}`).join('; ')
+    out.push({ md: `**Amendment chain:** ${mdCell(text)}`, text: `Amendment chain: ${text}` })
+  }
+  for (const d of c?.documents ?? []) out.push({ md: `**Plan document:** ${mdCell(d.title)} (\`protocol/${d.path}\`, SHA-256 \`${short(d.sha256)}\`)`, text: `Plan document: ${d.title} (protocol/${d.path})` })
+  if (c?.registration) out.push({ md: `**Registration:** ${mdCell(registrationText(c.registration))}`, text: `Registration: ${registrationText(c.registration)}` })
+  return out
 }
 
 /** The protocol files shipped in the package, how each was checked, and any that could not be shipped (C1). */
@@ -623,6 +641,8 @@ export async function buildRegulatoryExport(params: {
   protocol?: ProtocolSource
   /** The signer roster and its signature, shipped under roster/ when loaded. */
   roster?: RosterSource
+  /** Earlier issues the coordinator loaded (P1), by SHA-256; the packs' sealed issues are used automatically. */
+  earlierIssues?: readonly { sha256: string; config: StudyConfig }[]
 }): Promise<RegulatoryExport> {
   // Authoritative gate (the Export Hub also disables the button): in a regulatory study the dispositions
   // must be decided for every site and locked before anything comparative is produced (R6.3).
@@ -756,6 +776,10 @@ export async function buildRegulatoryExport(params: {
     profile === 'aggregated-results'
       ? buildDataDefinitionHtml({ studyId: params.studyId, studyTitle: params.studyTitle, generatedAt, tables, datasetFormat: params.datasetFormat, formatLabel: datasetFormatLabel(standards) })
       : undefined
+  // P1: the amendment chain, from the coordinator's issue through the issues the packs sealed or the coordinator loaded.
+  const chain = params.config?.amends
+    ? protocolChain(params.config, params.protocol?.configBytes ? await sha256Hex(params.protocol.configBytes) : undefined, sealedIssues(params.rows.map((r) => r.site), (params.earlierIssues ?? []).map((e) => [e.sha256, e.config] as const)))
+    : []
   // C1: ship what the site manifests' protocol hashes refer to, each file re-hashed against the protocol first.
   const protocolArtefacts = await collectProtocolArtefacts({ config: params.config, protocol: params.protocol, roster: params.roster, adopted })
   if (params.config?.assurance === 'regulatory' && protocolArtefacts.mismatched.length)
@@ -786,7 +810,7 @@ export async function buildRegulatoryExport(params: {
     issues: rateIssues([...checkDefineXml(defineXml), ...checkDatasetsAgainstDefine(defineXml, datasets)]),
     expected: expectedFindings(standards.defineXml),
   }
-  const reportInput: ReportInput = { ...params, generatedAt, exportedFiles, standards, conformance, disposition: d?.entries, dispositionHead: d?.headHash, etl, protocolArtefacts }
+  const reportInput: ReportInput = { ...params, generatedAt, exportedFiles, standards, conformance, disposition: d?.entries, dispositionHead: d?.headHash, etl, protocolArtefacts, ...(chain.length ? { chain } : {}) }
   const markdown = buildMarkdownReport(reportInput)
   const html = buildHtmlReport(reportInput)
   content.push({ path: 'audit_report.md', bytes: enc.encode(markdown), role: 'evidence' })
@@ -824,6 +848,7 @@ export async function buildRegulatoryExport(params: {
     renv: renvSite?.files[renvPath] ? parseRenvLock(dec.decode(renvSite.files[renvPath])) : undefined,
     etl,
     disposition: d?.entries,
+    ...(chain.length ? { chain } : {}),
   }
   const reviewersGuide = reviewersGuideFor(reviewersGuideInput)
   return { zipBlob, zipName: `${safeId(params.studyId)}_submission_package.zip`, defineXml, datasets, tables, markdown, html, manifest, standards, conformance, reviewersGuide, reviewersGuideInput, dataFolder, dataDefinitionHtml }

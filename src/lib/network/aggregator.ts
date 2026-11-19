@@ -10,7 +10,7 @@ import type { SiteAuditReport } from '@/lib/studypack/builder'
 import { auditResultFiles, summarizeResultsAudit, type ResultsAuditSummary } from '@/lib/strategus/results'
 import { executionSettingsMinCellCount, PROTECTED_MARKER, protectedSectionHash } from '@/lib/strategus/executeScript'
 import { PROTOCOL_PATHS } from '@/lib/strategus/protocol'
-import { isRScriptStudy, type ProtectedSection, type StudyConfig, type StudyPackManifest } from '@/types/studypack'
+import { isRScriptStudy, pinnedFileHashes, type ProtectedSection, type StudyConfig, type StudyPackManifest } from '@/types/studypack'
 import { summarizeDqd, type DqdSummary } from './dqd'
 import { parseJws, verifyDetachedJws, type DetachedJws, type SignatureCheck } from '@/lib/security/signer'
 import { judgeEvidence, type SiteEvidence } from '@/lib/studypack/evidence'
@@ -26,7 +26,7 @@ export const SECTION_PATHS: Record<string, string> = { [PROTOCOL_PATHS.executeAn
  * An R script study pins only its script (and renv.lock when present).
  */
 export function protocolKeyPaths(config: StudyConfig | undefined, sites: LoadedSitePack[]): string[] {
-  const pinned = [...Object.keys(config?.expectedHashes ?? {}), ...Object.keys(config?.protectedSections ?? {})]
+  const pinned = [...Object.keys(pinnedFileHashes(config)), ...Object.keys(config?.protectedSections ?? {})]
   const rScript = isRScriptStudy(config ?? sites.find((s) => s.sealedProtocol)?.sealedProtocol)
   const base = rScript ? [PROTOCOL_PATHS.executeAnalyses, ...(sites.some((s) => s.files[PROTOCOL_PATHS.renvLock]) ? [PROTOCOL_PATHS.renvLock] : [])] : PROTOCOL_KEY_PATHS
   return [...new Set([...base, ...pinned])]
@@ -291,6 +291,8 @@ export interface SiteVerdict {
 
 export interface VerdictContext {
   config?: StudyConfig
+  /** Earlier issues the coordinator loaded, by SHA-256 of their study_config.json bytes (P1). Packs' sealed protocols are added automatically. */
+  knownIssues?: ReadonlyMap<string, StudyConfig>
   evidence?: SiteEvidence
   /** Signature checks with roster enrollment applied. */
   signatures?: SignatureCheck[]
@@ -308,19 +310,39 @@ export function siteVerdict(site: LoadedSitePack, cross: CrossSiteResult, expect
   if (site.integrity.status === 'tampered') add('INTEGRITY', 'Tampering detected (hash mismatch)')
   if (expectedStudyId && site.studyId !== expectedStudyId) add('PROTOCOL_DEVIATION', `Study ID mismatch (${site.studyId || '—'})`)
   const cfg = ctx.config
-  if (cfg && site.sealedProtocol && (site.sealedProtocol.issuedAt !== cfg.issuedAt || site.sealedProtocol.studyId !== cfg.studyId))
-    add('PROTOCOL_DEVIATION', `Sealed with a different protocol issue (${site.sealedProtocol.issuedAt ?? '—'})`)
+  const warnings: string[] = []
+  // P1: a pack sealed under an earlier issue that the current one amends (directly or through a chain) is reported
+  // as such, and its pinned files are compared with that earlier issue; any other issue is a deviation.
+  let earlier: StudyConfig | undefined
+  if (cfg && site.sealedProtocol && (site.sealedProtocol.issuedAt !== cfg.issuedAt || site.sealedProtocol.studyId !== cfg.studyId)) {
+    const sealedSha = site.fileHashes[GENERATED_PATHS.protocol]
+    const known = new Map<string, StudyConfig>(ctx.knownIssues ?? [])
+    for (const s of allSites) if (s.sealedProtocol && s.fileHashes[GENERATED_PATHS.protocol]) known.set(s.fileHashes[GENERATED_PATHS.protocol], s.sealedProtocol)
+    const n = sealedSha && site.sealedProtocol.studyId === cfg.studyId ? amendmentDistance(cfg, sealedSha, known) : undefined
+    if (n) {
+      earlier = site.sealedProtocol
+      warnings.push(`Sealed under an earlier issue (amendment N−${n}, issued ${site.sealedProtocol.issuedAt})`)
+    } else add('PROTOCOL_DEVIATION', `Sealed with a different protocol issue (${site.sealedProtocol.issuedAt ?? '—'})`)
+  }
+  const earlierFiles = earlier ? pinnedFileHashes(earlier) : {}
   for (const [p, r] of Object.entries(cross.perSite[site.key] ?? {})) {
     const name = p.split('/').pop()
-    if (r.status === 'mismatch') add('PROTOCOL_DEVIATION', `${name} ${cross.references[p]?.kind === 'section' ? 'protected section' : 'definition'} mismatch`)
-    if (r.status === 'missing') add('PROTOCOL_DEVIATION', `${name} missing`)
+    const kind = cross.references[p]?.kind === 'section' ? 'protected section' : 'definition'
+    const earlierHash = earlier ? earlier.protectedSections?.[p]?.sha256 ?? earlierFiles[p] : undefined
+    if (r.status === 'mismatch') {
+      if (earlierHash && hashesEqual(r.hash, earlierHash)) warnings.push(`${name} ${kind} matches the earlier issue the pack was sealed under, not the current one`)
+      else add('PROTOCOL_DEVIATION', `${name} ${kind} mismatch`)
+    }
+    if (r.status === 'missing') {
+      if (earlier && !earlierHash) warnings.push(`${name} is not pinned by the earlier issue the pack was sealed under`)
+      else add('PROTOCOL_DEVIATION', `${name} missing`)
+    }
   }
   if (!site.reAudit) add('INTEGRITY', isRScriptStudy(cfg ?? site.sealedProtocol) ? 'No results' : 'No Strategus results')
   else if (!site.reAudit.passed) add('PRIVACY', `${site.reAudit.smallCellCount + site.reAudit.identifierCount} small-cell/identifier finding(s) in ${site.reAudit.failing.length} result file(s)`)
 
   const sigs = ctx.signatures ?? site.signatureChecks
   for (const s of sigs.filter((x) => !x.valid)) add('INTEGRITY', `Invalid signature${s.signer ? ` by ${s.signer.name}` : ''}${s.error ? ` (${s.error})` : ''}`)
-  const warnings: string[] = []
   // C2: the protocol's site list. A mismatch excludes in a regulatory study and is a warning otherwise.
   for (const m of siteListMismatches(site, cfg)) {
     if (cfg?.assurance === 'regulatory') add('CDM_REQUIREMENT', m)
@@ -350,4 +372,52 @@ export function siteListMismatches(site: LoadedSitePack, cfg?: StudyConfig): str
   if (entry.sourceReleaseDate && dec10(cs?.sourceReleaseDate) !== dec10(entry.sourceReleaseDate))
     out.push(`Source release date is ${cs?.sourceReleaseDate ?? '—'}, the protocol's site list expects ${entry.sourceReleaseDate}`)
   return out
+}
+
+/**
+ * How many amendments separate the current issue from an earlier one, following `amends.previousSha256`
+ * (1 = the issue the current one amends directly). Intermediate issues are looked up in `known`; undefined
+ * when the earlier issue is not reachable.
+ */
+export function amendmentDistance(current: StudyConfig, targetSha256: string, known: ReadonlyMap<string, StudyConfig>): number | undefined {
+  let cfg: StudyConfig | undefined = current
+  const seen = new Set<string>()
+  for (let n = 1; cfg?.amends && n <= 1000; n++) {
+    const prev = cfg.amends.previousSha256.toLowerCase()
+    if (hashesEqual(prev, targetSha256)) return n
+    if (seen.has(prev)) return undefined
+    seen.add(prev)
+    cfg = known.get(prev)
+  }
+  return undefined
+}
+
+export interface ChainEntry {
+  issuedAt?: string
+  sha256?: string
+  /** What this issue changed relative to the one before it (absent for the first issue or when unknown). */
+  summary?: string
+}
+
+/** The amendment chain, newest first, as far as the issues in `known` allow (P1). Empty when the protocol amends nothing. */
+export function protocolChain(current: StudyConfig, currentSha256: string | undefined, known: ReadonlyMap<string, StudyConfig>): ChainEntry[] {
+  if (!current.amends) return []
+  const chain: ChainEntry[] = [{ issuedAt: current.issuedAt, sha256: currentSha256, summary: current.amends.summary }]
+  let cfg: StudyConfig | undefined = current
+  const seen = new Set<string>()
+  while (cfg?.amends && !seen.has(cfg.amends.previousSha256) && chain.length <= 1000) {
+    const prevSha = cfg.amends.previousSha256.toLowerCase()
+    seen.add(prevSha)
+    const prev = known.get(prevSha)
+    chain.push({ issuedAt: prev?.issuedAt ?? cfg.amends.previousIssuedAt, sha256: prevSha, summary: prev?.amends?.summary })
+    cfg = prev
+  }
+  return chain
+}
+
+/** Issues known from the packs themselves (their sealed study_config.json), by SHA-256. */
+export function sealedIssues(sites: readonly LoadedSitePack[], extra: Iterable<readonly [string, StudyConfig]> = []): Map<string, StudyConfig> {
+  const m = new Map<string, StudyConfig>(extra)
+  for (const s of sites) if (s.sealedProtocol && s.fileHashes[GENERATED_PATHS.protocol]) m.set(s.fileHashes[GENERATED_PATHS.protocol], s.sealedProtocol)
+  return m
 }

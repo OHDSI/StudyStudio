@@ -184,14 +184,14 @@ export function DecisionCell({ row, reasonCodes, locked, canDecide }: { row: Sit
   const start = async (to: 'adopt' | 'exclude') => {
     setError(undefined)
     // Following the recommendation to adopt needs no reason; anything else does.
-    if (to === 'adopt' && rec === 'adopt') return decide(row.site.key, to, rec).catch((e) => setError(errText(e)))
+    if (to === 'adopt' && rec === 'adopt') return decide(row.site.key, to, rec, undefined, undefined, row.verdict.warnings).catch((e) => setError(errText(e)))
     setPending(to)
     setCode(to === 'exclude' ? row.verdict.codes[0] ?? '' : '')
     setText('')
   }
   const submit = async () => {
     try {
-      await decide(row.site.key, pending!, rec, code, text)
+      await decide(row.site.key, pending!, rec, code, text, row.verdict.warnings)
       setPending(undefined)
     } catch (e) {
       setError(errText(e))

@@ -8,7 +8,7 @@ import { buildStudyPack, packFileName, retentionFileName, type BuiltPack, type P
 import { kidFingerprint } from '@/lib/security/signer'
 import { SigningKeys } from '@/features/common/SigningKeys'
 import { RESULTS_DIR, SLOT_BY_ID, type SlotId } from '@/lib/studypack/slots'
-import { hashesEqual } from '@/lib/integrity/hasher'
+import { hashesEqual, sha256Hex } from '@/lib/integrity/hasher'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -37,6 +37,7 @@ export function PackagePanel() {
         evidence,
         signers: signers.map((s) => ({ role: s.signer.signer.role })),
         protocolSignature: protocol?.signatureChecks,
+        protocolFilePaths: Object.keys(protocol?.files ?? {}),
       }),
     [siteId, config, slots, results, exportedMin, evidence, signers, protocol],
   )
@@ -64,6 +65,13 @@ export function PackagePanel() {
           return { path, kind: 'section' as const, expected: sec.sha256, actual, match: hashesEqual(actual, sec.sha256) }
         }),
       ]
+      // P2: the plan documents that came with the protocol ZIP are sealed as received, with no step for the site.
+      const documents = (config.documents ?? []).flatMap((d) => (protocol?.files?.[d.path] ? [{ ...d, bytes: protocol.files[d.path] }] : []))
+      for (const d of config.documents ?? []) {
+        const bytes = protocol?.files?.[d.path]
+        const actual = bytes ? await sha256Hex(bytes) : undefined
+        protocolChecks.push({ path: d.path, kind: 'file', expected: d.sha256, actual, match: hashesEqual(actual, d.sha256) })
+      }
       const now = new Date()
       const pack = await buildStudyPack({
         now,
@@ -83,6 +91,7 @@ export function PackagePanel() {
         files: [
           ...entries.map(([id, f]) => ({ path: SLOT_BY_ID[id].path, role: SLOT_BY_ID[id].role, originalName: f.name, bytes: f.bytes, audit: f.audit, remediated: f.remediated, original: f.original, modification: f.modification })),
           ...Object.entries(results?.files ?? {}).map(([p, f]) => ({ path: `${RESULTS_DIR}/${p}`, role: 'result' as const, originalName: p, bytes: f.bytes, audit: f.audit, remediated: f.remediated, original: f.original, modification: f.modification })),
+          ...documents.map((d) => ({ path: d.path, role: 'definition' as const, originalName: d.path.split('/').pop()!, bytes: d.bytes })),
         ],
         protocolChecks,
       })

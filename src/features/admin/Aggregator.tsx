@@ -135,6 +135,7 @@ export function Aggregator() {
                 <div className="font-medium">{config.studyId} — {config.studyTitle}</div>
                 <div className="text-muted-foreground">{Object.keys(config.expectedHashes).length + Object.keys(config.protectedSections ?? {}).length} pinned hashes · suppress &lt;{config.minCellCount}</div>
                 <ProtocolIssuer />
+                {config.amends && <EarlierIssues />}
                 <Button size="sm" variant="ghost" className="w-fit" onClick={() => setConfig(undefined)}>Clear</Button>
               </div>
             ) : (
@@ -181,7 +182,7 @@ export function Aggregator() {
                 disabled={locked || (regulatory && !actor) || rows.every((r) => r.decision)}
                 onClick={async () => {
                   for (const r of rows.filter((x) => !x.decision))
-                    await decide(r.site.key, r.verdict.recommended, r.verdict.recommended, r.verdict.recommended === 'exclude' ? r.verdict.codes[0] : undefined).catch((e) => setMsg(e instanceof Error ? e.message : String(e)))
+                    await decide(r.site.key, r.verdict.recommended, r.verdict.recommended, r.verdict.recommended === 'exclude' ? r.verdict.codes[0] : undefined, undefined, r.verdict.warnings).catch((e) => setMsg(e instanceof Error ? e.message : String(e)))
                 }}
               >
                 Record recommendations for undecided sites
@@ -359,6 +360,43 @@ function SignatureList({ checks }: { checks?: SignatureCheck[] }) {
           {c.error && <span> — {c.error}</span>}
         </div>
       ))}
+    </div>
+  )
+}
+
+/** P1: earlier issues of an amended protocol, so packs sealed under them are recognised through the amendment chain. */
+function EarlierIssues() {
+  const config = useStudyStore((s) => s.config)
+  const earlier = useStudyStore((s) => s.earlierIssues)
+  const add = useStudyStore((s) => s.addEarlierIssue)
+  const clear = useStudyStore((s) => s.clearEarlierIssues)
+  const [msg, setMsg] = React.useState<string>()
+  if (!config?.amends) return null
+  return (
+    <div className="flex flex-col gap-1 rounded border p-2">
+      <div>Amends the issue of {config.amends.previousIssuedAt}: {config.amends.summary}</div>
+      <div className="text-muted-foreground">Packs sealed under an earlier issue in the amendment chain are reported as such. The issue a pack sealed is used automatically; drop earlier study_config.json files only to follow a chain of several amendments.</div>
+      <DropZone
+        compact
+        accept=".json,.zip"
+        onFiles={async (fs) => {
+          const errors: string[] = []
+          for (const f of fs) {
+            const r = /\.zip$/i.test(f.name) ? await readProtocolFile(f.name, f.bytes) : undefined
+            const e = await add(r?.configBytes ?? f.bytes)
+            if (e) errors.push(`${f.name}: ${e}`)
+          }
+          setMsg(errors.join(' / ') || undefined)
+        }}
+        title="Drop earlier study_config.json (optional)"
+      />
+      {earlier.length > 0 && (
+        <div className="flex items-center gap-2 text-muted-foreground">
+          {earlier.length} earlier issue(s): {earlier.map((e) => e.config.issuedAt).join(', ')}
+          <Button size="sm" variant="ghost" className="h-6" onClick={clear}>Clear</Button>
+        </div>
+      )}
+      {msg && <div className="text-destructive">{msg}</div>}
     </div>
   )
 }

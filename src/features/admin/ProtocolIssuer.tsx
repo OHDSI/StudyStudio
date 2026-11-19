@@ -13,11 +13,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Field, Input, Select, Textarea } from '@/components/ui/input'
 import { SigningKeys } from '@/features/common/SigningKeys'
 import { verifyDetachedJws } from '@/lib/security/signer'
-import type { AssuranceLevel } from '@/types/studypack'
+import { pinnedFileHashes, type AssuranceLevel } from '@/types/studypack'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { DropZone, type DroppedFile } from '@/features/common/DropZone'
 import { Hash } from '@/features/common/Hash'
 import { download } from '@/lib/utils'
+import { EMPTY_PLAN, PlanFields, planMeta, type PlanInput } from './PlanFields'
 
 const num = (v: string, d: number) => (v === '' || Number.isNaN(Number(v)) ? d : Number(v))
 const TEMPLATE_URL = 'https://github.com/ohdsi-studies/StrategusStudyRepoTemplate'
@@ -34,6 +35,7 @@ export function ProtocolIssuer() {
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string>()
   const [preview, setPreview] = React.useState<string>(PROTOCOL_PATHS.executeAnalyses)
+  const [plan, setPlan] = React.useState<PlanInput>(EMPTY_PLAN)
 
   const summary = React.useMemo<{ spec?: AnalysisSpecSummary; error?: string }>(() => {
     if (!repo?.specText) return {}
@@ -84,7 +86,7 @@ export function ProtocolIssuer() {
     setBusy(true)
     setError(undefined)
     try {
-      const p = await issueProtocol(repo, { ...meta, sites: parseSiteList(meta.sites), studyId: meta.studyId.trim(), studyTitle: meta.studyTitle.trim(), signer: coordinator, ...(rScript ? { marker: marker ?? null } : {}) })
+      const p = await issueProtocol(repo, { ...meta, ...planMeta(plan), sites: parseSiteList(meta.sites), studyId: meta.studyId.trim(), studyTitle: meta.studyTitle.trim(), signer: coordinator, ...(rScript ? { marker: marker ?? null } : {}) })
       setIssued(p)
       const signatureChecks = p.signature ? await verifyDetachedJws(p.signature, p.configBytes) : undefined
       const signatureBytes = p.signature ? new TextEncoder().encode(JSON.stringify(p.signature, null, 2) + '\n') : undefined
@@ -101,7 +103,7 @@ export function ProtocolIssuer() {
     ...(summary.error ? [summary.error] : []),
     ...(!meta.studyId.trim() ? ['Enter a Study ID'] : []),
     ...(meta.assurance === 'regulatory' && !coordinator ? ['Regulatory protocols must be signed: unlock the coordinator key'] : []),
-    ...issueRefusals({ assurance: meta.assurance, sites: parseSiteList(meta.sites) }),
+    ...issueRefusals({ assurance: meta.assurance, sites: parseSiteList(meta.sites), studyId: meta.studyId, ...planMeta(plan) }),
   ]
   const id = safeId(meta.studyId || 'study')
   const dec = new TextDecoder()
@@ -232,6 +234,7 @@ export function ProtocolIssuer() {
               />
               <span className="text-[11px] text-muted-foreground">Signed with the protocol. Each pack is compared with its line (CDM source name and source release date when given), and in a regulatory study every listed site needs a decision or a “not received” entry before the dispositions are locked. Sites enter nothing new.</span>
             </Field>
+            <PlanFields plan={plan} onChange={setPlan} />
             {meta.assurance === 'regulatory' && (
               <Alert className="md:col-span-3">
                 <AlertDescription className="text-xs">
@@ -305,9 +308,9 @@ export function ProtocolIssuer() {
                   <TableBody>
                     {Object.keys(issued.files).map((p) => (
                       <TableRow key={p} className="text-xs" data-state={preview === p ? 'selected' : undefined}>
-                        <TableCell><button className="font-mono hover:underline" onClick={() => setPreview(p)}>{p}</button></TableCell>
+                        <TableCell>{p.startsWith('docs/') ? <span className="font-mono">{p}</span> : <button className="font-mono hover:underline" onClick={() => setPreview(p)}>{p}</button>}</TableCell>
                         <TableCell>
-                          <Hash value={issued.config.expectedHashes[p] ?? issued.config.protectedSections[p]?.sha256} />
+                          <Hash value={pinnedFileHashes(issued.config)[p] ?? issued.config.protectedSections[p]?.sha256} />
                           {issued.config.protectedSections[p] && <div className="text-[10px] text-muted-foreground">protected section</div>}
                         </TableCell>
                       </TableRow>

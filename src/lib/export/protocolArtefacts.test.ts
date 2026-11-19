@@ -9,6 +9,7 @@ import { protectedSectionHash } from '@/lib/strategus/executeScript'
 import { PROTOCOL_PATHS, readProtocolFile } from '@/lib/strategus/protocol'
 import type { StudyPackManifest } from '@/types/studypack'
 import { buildRegulatoryExport } from './regulatory'
+import { notIncludedPaths } from './protocolArtefacts'
 
 const samples = path.resolve(__dirname, '../../../samples')
 const reg = path.join(samples, 'regulatory')
@@ -85,5 +86,37 @@ describe('C1: the submission package contains the protocol files its hashes refe
     await expect(
       buildRegulatoryExport({ studyId: n.config.studyId, studyTitle: n.config.studyTitle, config: n.config, cross: n.cross, rows: n.rows, disposition: n.disposition, protocol: { configBytes, signatureBytes: n.protocol.signatureBytes, files: n.protocol.files } }),
     ).rejects.toThrow(/invalid coordinator signature/)
+  })
+})
+
+describe('C1 rule: absence is disclosed in the package, a mismatch is refused', () => {
+  it('exports a regulatory package when the coordinator holds only study_config.json, listing the file it lacks; the listing is covered by the manifest', async () => {
+    const n = await regulatoryNetwork()
+    const params = { studyId: n.config.studyId, studyTitle: n.config.studyTitle, config: n.config, cross: n.cross, rows: n.rows, disposition: n.disposition }
+    const out = await buildRegulatoryExport({ ...params, protocol: { configBytes: n.protocol.configBytes, signatureBytes: n.protocol.signatureBytes } })
+    // Whole-file pinned files come from an adopted site's identical copy; the script (pinned below its marker) does not.
+    expect(out.protocolArtefacts.unavailable).toEqual(['protocol/ExecuteAnalyses.R'])
+    expect(notIncludedPaths(out.protocolArtefacts)).toEqual(['protocol/ExecuteAnalyses.R'])
+    expect(out.manifest.files.map((f) => f.path)).toEqual(expect.arrayContaining(['protocol/study_config.json', 'protocol/analysisSpecifications.json', 'protocol/renv.lock']))
+    expect(out.manifest.files.map((f) => f.path)).not.toContain('protocol/ExecuteAnalyses.R')
+
+    const zip = await JSZip.loadAsync(await out.zipBlob.arrayBuffer())
+    const root = 'ACEI_ANGIO_2026-submission/'
+    const row = '| `protocol/ExecuteAnalyses.R` | — | not included: not loaded by the coordinator'
+    for (const f of ['audit_report.md']) {
+      const text = await zip.file(root + f)!.async('string')
+      expect(text).toContain(row)
+      expect(out.manifest.files.find((m) => m.path === f)!.sha256).toBe(await sha256Hex(new TextEncoder().encode(text)))
+    }
+    expect(await zip.file(root + 'audit_report.html')!.async('string')).toContain('<td><code>protocol/ExecuteAnalyses.R</code></td><td>—</td><td>not included: not loaded by the coordinator</td>')
+    // Dropping the disclosure from the report without rewriting the manifest is detected.
+    const md = await zip.file(root + 'audit_report.md')!.async('string')
+    zip.file(root + 'audit_report.md', md.split('\n').filter((l) => !l.includes('protocol/ExecuteAnalyses.R')).join('\n'))
+    const edited = await zip.generateAsync({ type: 'uint8array' })
+    expect((await loadStudyPack('edited.zip', edited)).integrity.status).toBe('tampered')
+
+    // A file that is present but does not match still refuses the regulatory export.
+    const bad = { ...n.protocol.files, [PROTOCOL_PATHS.renvLock]: new TextEncoder().encode('{}') }
+    await expect(buildRegulatoryExport({ ...params, protocol: { configBytes: n.protocol.configBytes, signatureBytes: n.protocol.signatureBytes, files: bad } })).rejects.toThrow(/renv.lock does not match the protocol hash/)
   })
 })

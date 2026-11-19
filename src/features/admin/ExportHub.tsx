@@ -7,6 +7,7 @@ import { datasetFiles, DEFAULT_ADAM_CT_VERSION, type DatasetFormat } from '@/lib
 import { simplifiedTsFor } from '@/lib/cdisc/simplifiedTs'
 import { AGENCIES, AGENCY_LABELS, AGENCY_NOTES, type Agency } from '@/lib/cdisc/validatorProfiles'
 import { buildHtmlReport, buildMarkdownReport, buildRegulatoryExport, datasetFormatLabel, listResultTables, PROFILE_LABELS, reviewersGuideFor, SUBMISSION_PROFILES, type RegulatoryExport, type SubmissionProfile } from '@/lib/export/regulatory'
+import { collectProtocolArtefacts, notIncludedPaths } from '@/lib/export/protocolArtefacts'
 import { crossSiteEvidence, type CrossSiteEvidence } from '@/lib/network/crossSiteEvidence'
 import { parseP21Report, reportMismatches, runLabel, type ValidatorRun } from '@/lib/cdisc/p21Report'
 import { DropZone, type DroppedFile } from '@/features/common/DropZone'
@@ -143,6 +144,10 @@ export function ExportHub() {
     setError(undefined)
     try {
       if (regulatory && !locked) throw new Error('Lock the site dispositions (Multi-Site Aggregator) before generating the submission package')
+      const protocolSource = protocol && { configBytes: protocol.bytes, signatureBytes: protocol.signatureBytes, files: protocol.files }
+      const rosterSource = rosterBytes && { bytes: rosterBytes, signatureBytes: rosterSignature ? new TextEncoder().encode(JSON.stringify(rosterSignature, null, 2) + '\n') : undefined }
+      // Protocol files the coordinator does not hold are disclosed, in the package and in this (signed-head) log entry.
+      const notIncluded = notIncludedPaths(await collectProtocolArtefacts({ config, protocol: protocolSource, roster: rosterSource, adopted: adopted.map((r) => r.site) }))
       // The export is itself an audit-trail event (EMA-CS §6.2.1), recorded before the log is packaged.
       await logExport({
         standards: {
@@ -156,6 +161,7 @@ export function ExportHub() {
         },
         tables: selectedKeys,
         adoptedSites: adopted.map((r) => r.site.siteId),
+        ...(notIncluded.length ? { protocolFilesNotIncluded: notIncluded } : {}),
       })
       const head = log.headBytes(studyId)
       const headSignature = coordinator ? await addSignature(undefined, head, coordinator, 'disposition-exported') : undefined
@@ -176,8 +182,8 @@ export function ExportHub() {
           tables: selectedKeys,
           disposition: { entries: log.entries, jsonl: log.toJsonl(), headHash: log.headHash, head, headSignature },
           earlierIssues,
-          protocol: protocol && { configBytes: protocol.bytes, signatureBytes: protocol.signatureBytes, files: protocol.files },
-          roster: rosterBytes && { bytes: rosterBytes, signatureBytes: rosterSignature ? new TextEncoder().encode(JSON.stringify(rosterSignature, null, 2) + '\n') : undefined },
+          protocol: protocolSource,
+          roster: rosterSource,
         }),
       )
     } catch (e) {

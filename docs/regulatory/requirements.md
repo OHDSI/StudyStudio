@@ -162,6 +162,26 @@ replaces. Other profiles and protocols without the field are unaffected, and the
 of these three profiles and a pack was sealed under an earlier issue that has no number, the Aggregator warns that the
 re-issue rule cannot be checked for that pack; it is never an error or a deviation.
 
+## Protocol files in the submission package
+
+The submission package carries the protocol files the site manifests refer to (`protocol/study_config.json` and its
+coordinator signature, the analysis specification, `renv.lock`, the execution script, plan documents under
+`protocol/docs/`) and the signer roster (`roster/`), collected by `export/protocolArtefacts.ts`. The rule is:
+
+- **A mismatch is refused.** Every file is checked before it is included (whole-file SHA-256, the protected section of
+  the script, the coordinator signature on `study_config.json`). In `regulatory` mode a file that does not match
+  refuses the export; in `standard` mode it is left out and disclosed.
+- **Absence is disclosed, not refused.** A coordinator may legitimately hold only `study_config.json` (for example,
+  loaded as the verification reference) while the sites hold the protocol ZIP. Whole-file-pinned files are then taken
+  from an adopted site's sealed copy with the same hash. The script is never taken from a site, because a site's copy
+  carries its own settings block above the marker. A file the coordinator does not hold is listed as *not included*,
+  and the export proceeds.
+- **The disclosure is tamper-evident.** The not-included list is written into `audit_report.md` and
+  `audit_report.html`, which `manifest.json` lists with their SHA-256, so removing it without rewriting the manifest
+  is detected on verification. The submission `manifest.json` itself is not signed. The list is therefore also recorded
+  in the `export` entry of the disposition log (`protocolFilesNotIncluded`), whose head is signed when a coordinator key
+  is unlocked at export (R6.2) and is retained outside the tool (limitation 3).
+
 ## Where the gates are enforced
 
 Every condition that stops a pack from being sealed or a submission from being generated is checked inside the

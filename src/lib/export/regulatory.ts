@@ -671,6 +671,8 @@ export interface RegulatoryExport {
   dataFolder: string
   /** Human-readable data definition (aggregated results). */
   dataDefinitionHtml?: string
+  /** Protocol files shipped, and those not included with the reason (C1). */
+  protocolArtefacts: ProtocolArtefacts
 }
 
 export async function buildRegulatoryExport(params: {
@@ -915,7 +917,7 @@ export async function buildRegulatoryExport(params: {
     ...(chain.length ? { chain } : {}),
   }
   const reviewersGuide = reviewersGuideFor(reviewersGuideInput)
-  return { zipBlob, zipName: `${safeId(params.studyId)}_submission_package.zip`, defineXml, datasets, tables, markdown, html, manifest, standards, conformance, reviewersGuide, reviewersGuideInput, dataFolder, dataDefinitionHtml }
+  return { zipBlob, zipName: `${safeId(params.studyId)}_submission_package.zip`, defineXml, datasets, tables, markdown, html, manifest, standards, conformance, reviewersGuide, reviewersGuideInput, dataFolder, dataDefinitionHtml, protocolArtefacts }
 }
 
 /** The draft reviewer's guide as Markdown and HTML, optionally with the reports of validator runs. */

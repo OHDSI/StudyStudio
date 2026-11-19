@@ -132,3 +132,12 @@ export async function collectProtocolArtefacts(p: { config?: StudyConfig; protoc
   }
   return out
 }
+
+/**
+ * Package paths of protocol files that are not in the package: not held by the coordinator, or (standard
+ * assurance only) not matching the protocol. Absence is disclosed, never refused; a mismatch refuses a regulatory
+ * export. Recorded in the export entry of the disposition log as well as in the audit report.
+ */
+export function notIncludedPaths(a: ProtocolArtefacts): string[] {
+  return [...a.unavailable, ...a.mismatched.map((m) => m.path)]
+}

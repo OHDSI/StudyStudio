@@ -87,7 +87,8 @@ export function ProtocolIssuer() {
       const p = await issueProtocol(repo, { ...meta, studyId: meta.studyId.trim(), studyTitle: meta.studyTitle.trim(), signer: coordinator, ...(rScript ? { marker: marker ?? null } : {}) })
       setIssued(p)
       const signatureChecks = p.signature ? await verifyDetachedJws(p.signature, p.configBytes) : undefined
-      await setConfig(p.config, undefined, { config: p.config, configBytes: p.configBytes, signatureChecks, files: {}, errors: [] })
+      const signatureBytes = p.signature ? new TextEncoder().encode(JSON.stringify(p.signature, null, 2) + '\n') : undefined
+      await setConfig(p.config, undefined, { config: p.config, configBytes: p.configBytes, signatureBytes, signatureChecks, files: p.files, errors: [] })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {

@@ -48,6 +48,8 @@ export interface ReceivedProtocol {
   bytes: Uint8Array
   signatureBytes?: Uint8Array
   signatureChecks?: SignatureCheck[]
+  /** Pinned files that came with it (protocol ZIP), keyed by StudyPack path. */
+  files?: Record<string, Uint8Array>
 }
 
 export interface ActiveSigner {
@@ -233,7 +235,7 @@ export const useStudyStore = create<StudyState>((set, get) => {
     setConfig: async (config, protocolFiles, received) => {
       set({
         config,
-        protocol: config && received?.configBytes ? { bytes: received.configBytes, signatureBytes: received.signatureBytes, signatureChecks: received.signatureChecks } : undefined,
+        protocol: config && received?.configBytes ? { bytes: received.configBytes, signatureBytes: received.signatureBytes, signatureChecks: received.signatureChecks, files: received.files } : undefined,
       })
       // Pre-fill protocol-distributed artifacts (analysis specification, execution script, renv.lock).
       for (const [path, bytes] of Object.entries(protocolFiles ?? {})) {

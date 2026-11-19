@@ -21,6 +21,7 @@ import { parseAnalysisSpecification, type AnalysisSpecSummary } from '@/lib/stra
 import { buildReviewersGuideHtml, buildReviewersGuideMarkdown, parseRenvLock, type ReviewersGuideInput } from './reviewersGuide'
 import type { ValidatorRun } from '@/lib/cdisc/p21Report'
 import { buildDataDefinitionHtml } from './dataDefinition'
+import { collectProtocolArtefacts, type ProtocolArtefacts, type ProtocolSource, type RosterSource } from './protocolArtefacts'
 import { moduleOf, parseRdms, RDMS_FILE, tableNameOf, type Rdms } from '@/lib/strategus/results'
 import { PROTOCOL_PATHS } from '@/lib/strategus/protocol'
 import { RESULTS_DIR } from '@/lib/studypack/slots'
@@ -55,6 +56,8 @@ export interface ReportInput {
   dispositionHead?: string
   /** Site ETL lineage (WhiteRabbit ScanReport, mapping specification) of the adopted sites. */
   etl?: SiteEtl[]
+  /** Protocol artefacts shipped in the submission package (C1). */
+  protocolArtefacts?: ProtocolArtefacts
 }
 
 /**
@@ -304,6 +307,7 @@ export function buildMarkdownReport(i: ReportInput): string {
   L.push('| Artifact | Reference | Source |', '|---|---|---|')
   for (const [p, r] of Object.entries(i.cross.references)) L.push(`| \`${p}\`${r.kind === 'section' ? ' (protected section)' : ''} | \`${r.hash ?? '—'}\` | ${r.source} |`)
   L.push('')
+  L.push(...protocolArtefactsSection(i.protocolArtefacts).md)
 
   L.push('## 2. Site verification summary', '')
   const cols = summaryColumns(i)
@@ -416,6 +420,7 @@ Generated ${xmlEscape(i.generatedAt)} · OHDSI Study Studio ${APP_VERSION} · mi
 Sites received ${i.rows.length} · adopted ${adopted} · excluded ${i.rows.length - adopted}${i.standards ? `<br>${xmlEscape(standardsLine(i) ?? '')}` : ''}</div>
 <h2>1. Protocol reference hashes (SHA-256)</h2>
 <table><tr><th>Artifact</th><th>Reference</th><th>Source</th></tr>${refs}</table>
+${protocolArtefactsSection(i.protocolArtefacts).html}
 <h2>2. Site verification summary</h2>
 <table><tr>${cols.map((c) => `<th>${HTML_HEADERS[c.label] ?? c.label}</th>`).join('')}</tr>
 ${rows}</table>
@@ -426,6 +431,23 @@ ${files ? `<h2>7. Submission package contents</h2><table><tr><th>File</th><th>SH
 <p class="foot">All processing was performed client-side; no data was transmitted to any server.</p>
 </body></html>
 `
+}
+
+/** The protocol files shipped in the package, how each was checked, and any that could not be shipped (C1). */
+function protocolArtefactsSection(a: ProtocolArtefacts | undefined): { md: string[]; html: string } {
+  if (!a || (!a.included.length && !a.mismatched.length && !a.unavailable.length)) return { md: [], html: '' }
+  const intro = 'The protocol files the site manifests refer to are in this package under protocol/ (and the signer roster under roster/), each checked against the protocol before it was included.'
+  const md = ['### Protocol artefacts in this package', '', intro, '', '| File | SHA-256 | Check |', '|---|---|---|']
+  for (const f of a.included) md.push(`| \`${f.path}\` | \`${f.sha256}\` | ${mdCell(f.check)} |`)
+  for (const m of a.mismatched) md.push(`| \`${m.path}\` | — | ❌ not included: ${mdCell(m.reason)} |`)
+  for (const u of a.unavailable) md.push(`| \`${u}\` | — | not included: not loaded by the coordinator (load the protocol ZIP as the reference) |`)
+  md.push('')
+  const rows = [
+    ...a.included.map((f) => `<tr><td><code>${xmlEscape(f.path)}</code></td><td><code>${xmlEscape(f.sha256)}</code></td><td>${xmlEscape(f.check)}</td></tr>`),
+    ...a.mismatched.map((m) => `<tr><td><code>${xmlEscape(m.path)}</code></td><td>—</td><td>❌ not included: ${xmlEscape(m.reason)}</td></tr>`),
+    ...a.unavailable.map((u) => `<tr><td><code>${xmlEscape(u)}</code></td><td>—</td><td>not included: not loaded by the coordinator</td></tr>`),
+  ].join('')
+  return { md, html: `<h3>Protocol artefacts in this package</h3><p>${xmlEscape(intro)}</p><table><tr><th>File</th><th>SHA-256</th><th>Check</th></tr>${rows}</table>` }
 }
 
 function htmlDisposition(i: ReportInput): string {
@@ -565,6 +587,10 @@ export async function buildRegulatoryExport(params: {
   stylesheet?: DefineStylesheet | null
   /** Disposition audit trail to ship with the package (R6.4). */
   disposition?: { entries: readonly DispositionEntry[]; jsonl: string; headHash: string; head: Uint8Array; headSignature?: DetachedJws }
+  /** The protocol the coordinator loaded as the reference; its pinned files are shipped under protocol/ (C1). */
+  protocol?: ProtocolSource
+  /** The signer roster and its signature, shipped under roster/ when loaded. */
+  roster?: RosterSource
 }): Promise<RegulatoryExport> {
   // Authoritative gate (the Export Hub also disables the button): in a regulatory study the dispositions
   // must be decided for every site and locked before anything comparative is produced (R6.3).
@@ -695,7 +721,12 @@ export async function buildRegulatoryExport(params: {
     profile === 'aggregated-results'
       ? buildDataDefinitionHtml({ studyId: params.studyId, studyTitle: params.studyTitle, generatedAt, tables, datasetFormat: params.datasetFormat, formatLabel: datasetFormatLabel(standards) })
       : undefined
+  // C1: ship what the site manifests' protocol hashes refer to, each file re-hashed against the protocol first.
+  const protocolArtefacts = await collectProtocolArtefacts({ config: params.config, protocol: params.protocol, roster: params.roster, adopted })
+  if (params.config?.assurance === 'regulatory' && protocolArtefacts.mismatched.length)
+    throw new Error(`Regulatory study: protocol artefacts do not match the protocol: ${protocolArtefacts.mismatched.map((m) => m.reason).join('; ')}`)
   const content: { path: string; bytes: Uint8Array; role: FileRole }[] = [
+    ...protocolArtefacts.files.map((f) => ({ ...f, role: 'definition' as FileRole })),
     { path: `${dataFolder}define.xml`, bytes: enc.encode(defineXml), role: 'metadata' },
     ...(dataDefinitionHtml ? [{ path: `${dataFolder}data_definition.html`, bytes: enc.encode(dataDefinitionHtml), role: 'metadata' as FileRole }] : []),
     ...(stylesheet ? [{ path: `${dataFolder}${stylesheet.name}`, bytes: enc.encode(stylesheet.text), role: 'metadata' as FileRole }] : []),
@@ -720,7 +751,7 @@ export async function buildRegulatoryExport(params: {
     issues: rateIssues([...checkDefineXml(defineXml), ...checkDatasetsAgainstDefine(defineXml, datasets)]),
     expected: expectedFindings(standards.defineXml),
   }
-  const reportInput: ReportInput = { ...params, generatedAt, exportedFiles, standards, conformance, disposition: d?.entries, dispositionHead: d?.headHash, etl }
+  const reportInput: ReportInput = { ...params, generatedAt, exportedFiles, standards, conformance, disposition: d?.entries, dispositionHead: d?.headHash, etl, protocolArtefacts }
   const markdown = buildMarkdownReport(reportInput)
   const html = buildHtmlReport(reportInput)
   content.push({ path: 'audit_report.md', bytes: enc.encode(markdown), role: 'evidence' })
